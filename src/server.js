@@ -28,6 +28,7 @@ const {
   getPendingComments,
   getHomeArticles,
   articleExists,
+  cleanupAnalytics,
   recordView,
   searchArticles,
   getSourceCounts,
@@ -48,6 +49,7 @@ const {
   renderAdminArticleDeletePage,
   renderListPage,
   renderNotFound,
+  renderAboutPage,
   renderRobots,
   renderSitemap,
 } = require('./render');
@@ -87,6 +89,10 @@ const ARTICLE_BODY_MAX_LENGTH = 20000;
 const EDITORIAL_STATUSES = new Set(['normal', 'important', 'urgent']);
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10000;
 const RUSSIAN_PROVIDER = (process.env.RUSSIAN_PROVIDER || 'claude').toLowerCase();
+const configuredAnalyticsRetention = Number.parseInt(process.env.ANALYTICS_RETENTION_DAYS || '90', 10);
+const ANALYTICS_RETENTION_DAYS = Number.isInteger(configuredAnalyticsRetention) && configuredAnalyticsRetention > 0
+  ? configuredAnalyticsRetention
+  : 90;
 
 function getSiteUrl() {
   try {
@@ -128,6 +134,16 @@ const IMPORT_PROVIDER_CONFIGURED = isImportProviderConfigured();
 
 const app = express();
 if (TRUST_PROXY) app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
+  });
+  next();
+});
 if (CORS_ORIGINS.length) app.use(cors({ origin: CORS_ORIGINS }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -209,13 +225,13 @@ function parseEditorialInput(body) {
 
 function recordPublicView(req, articleId = null) {
   const viewedOn = new Date().toISOString().slice(0, 10);
-  const visitorHash = getAnonymousVisitorHash(req);
+  const visitorHash = getAnonymousVisitorHash(req, viewedOn);
   recordView({ articleId, visitorHash, viewedOn });
 }
 
-function getAnonymousVisitorHash(req) {
+function getAnonymousVisitorHash(req, day) {
   return crypto.createHmac('sha256', ANALYTICS_SECRET)
-    .update(`${req.ip}\n${req.get('user-agent') || ''}`)
+    .update(`${day}\n${req.ip}\n${req.get('user-agent') || ''}`)
     .digest('hex');
 }
 
@@ -359,6 +375,10 @@ app.post('/api/news/refresh', async (req, res) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
+app.get('/about', (req, res) => {
+  res.type('html').send(renderAboutPage({ siteUrl: SITE_URL }));
+});
+
 app.get('/sitemap.xml', (req, res) => {
   const categorySlugs = getCategories().map(categoryToSlug).filter(Boolean);
   const sitemap = renderSitemap({
@@ -490,10 +510,11 @@ app.post('/news/:slug/reactions', (req, res) => {
   if (!consumeReactionRateLimit(req.ip)) {
     return sendReactionPage(res, article, 429, 'Слишком много реакций. Попробуйте позже.');
   }
+  const reactedOn = new Date().toISOString().slice(0, 10);
   recordArticleReaction({
     articleId: article.id,
-    visitorHash: getAnonymousVisitorHash(req),
-    reactedOn: new Date().toISOString().slice(0, 10),
+    visitorHash: getAnonymousVisitorHash(req, reactedOn),
+    reactedOn,
     reaction,
   });
   return res.redirect(303, `/news/${encodeURIComponent(article.slug)}?reaction=submitted`);
@@ -670,7 +691,9 @@ app.listen(PORT, () => {
   console.log(`Обновление RSS каждые ${REFRESH_MIN} мин.`);
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
   safeRefresh();
+  cleanupAnalytics(ANALYTICS_RETENTION_DAYS);
 });
 
 // Периодическое обновление по cron (например, "*/15 * * * *")
 cron.schedule(`*/${REFRESH_MIN} * * * *`, safeRefresh);
+cron.schedule('15 0 * * *', () => cleanupAnalytics(ANALYTICS_RETENTION_DAYS), { timezone: 'UTC' });

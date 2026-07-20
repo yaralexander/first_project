@@ -447,6 +447,18 @@ function recordView({ articleId, visitorHash, viewedOn }) {
   return record();
 }
 
+function cleanupAnalytics(retentionDays) {
+  const safeDays = Number.isInteger(retentionDays) && retentionDays > 0 ? retentionDays : 90;
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - safeDays);
+  const cutoffDay = cutoff.toISOString().slice(0, 10);
+  const cleanup = db.transaction(() => ({
+    views: db.prepare('DELETE FROM analytics_views WHERE viewed_on < ?').run(cutoffDay).changes,
+    reactions: db.prepare('DELETE FROM article_reactions WHERE reacted_on < ?').run(cutoffDay).changes,
+  }));
+  return cleanup();
+}
+
 function getAdminStatistics() {
   const totals = db.prepare(`
     SELECT
@@ -529,6 +541,7 @@ function deleteComment(commentId) {
 
 module.exports = {
   articleExists,
+  cleanupAnalytics,
   countArticles,
   countArticlesByCategory,
   createComment,
