@@ -169,7 +169,7 @@
         <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>06 · Публикация</h2><span class="phase-meta">5 задач</span></div>
         <div class="tasks">
           <label class="task"><input type="checkbox" data-task="github" checked><span><span class="task-title">Подготовить GitHub и CI</span><span class="task-detail">Ветка опубликована, PR создан, проверки GitHub Actions проходят.</span><span class="task-status">Выполнено</span></span></label>
-          <label class="task"><input type="checkbox" data-task="import-runtime"><span><span class="task-title">Исправить совместимость импорта с runtime Node.js</span><span class="task-detail">Реальный HTTPS-импорт должен работать на целевой версии Node до запуска.</span><span class="task-status">Блокер</span></span></label>
+          <label class="task"><input type="checkbox" data-task="import-runtime" checked><span><span class="task-title">Исправить совместимость импорта с runtime Node.js</span><span class="task-detail">HTTPS-импорт и его защита проверены в CI на Node 20 и Node 24.</span><span class="task-status">Выполнено</span></span></label>
           <label class="task"><input type="checkbox" data-task="coolify"><span><span class="task-title">Настроить деплой в Coolify</span><span class="task-detail">Сборка, переменные окружения, persistent storage и healthcheck.</span><span class="task-status">Не начато</span></span></label>
           <label class="task"><input type="checkbox" data-task="https"><span><span class="task-title">Проверить DNS и HTTPS</span><span class="task-detail">Домен finskienovosti.fi, SSL и корректные редиректы.</span><span class="task-status">Не начато</span></span></label>
           <label class="task"><input type="checkbox" data-task="launch"><span><span class="task-title">Запустить production</span><span class="task-detail">Финальная проверка, бэкап БД и мониторинг первой недели.</span><span class="task-status">Не начато</span></span></label>
@@ -187,7 +187,7 @@
       const doneCount = document.getElementById('done-count');
       const totalCount = document.getElementById('total-count');
       const storageKey = 'finskienovosti-roadmap-v1';
-      const completedByTechLead = new Set(['brief', 'source', 'lock', 'rss', 'api', 'dotenv', 'architecture', 'database', 'ssr', 'seo', 'frontend', 'comments', 'admin', 'qa', 'github', 'editorial', 'analytics', 'engagement', 'telegram', 'url-import']);
+      const completedByTechLead = new Set(['brief', 'source', 'lock', 'rss', 'api', 'dotenv', 'architecture', 'database', 'ssr', 'seo', 'frontend', 'comments', 'admin', 'qa', 'github', 'editorial', 'analytics', 'engagement', 'telegram', 'url-import', 'import-runtime']);
       const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
       inputs.forEach((input) => {
