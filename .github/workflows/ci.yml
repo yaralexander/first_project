@@ -10,6 +10,9 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 24]
 
     steps:
       - name: Check out repository
@@ -20,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
@@ -31,6 +34,9 @@ jobs:
           for file in src/*.js; do
             node --check "$file"
           done
+
+      - name: Run importer tests
+        run: npm test
 
       - name: Check diff whitespace
         env:

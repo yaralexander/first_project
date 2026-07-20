@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "test": "node --test",
     "refresh-once": "node src/fetchNews.js --once",
     "db:migrate-json": "node src/migrateJsonToSqlite.js"
   },

@@ -21,4 +21,4 @@ function categoryFromSlug(slug) {
   return SLUG_CATEGORIES[slug] || null;
 }
 
-module.exports = { categoryFromSlug, categoryToSlug };
+module.exports = { categories: Object.keys(CATEGORY_SLUGS), categoryFromSlug, categoryToSlug };
