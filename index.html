@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Финские Новости — новости Финляндии на русском языке | finskienovosti.fi</title>
+<meta name="description" content="Финские Новости — агрегатор новостей Финляндии на русском языке. Политика, экономика, иммиграция, работа и жизнь в Суоми с переводом из YLE, Helsingin Sanomat, Iltalehti и других финских СМИ.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://finskienovosti.fi/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Финские Новости">
+<meta property="og:title" content="Финские Новости — новости Финляндии на русском языке">
+<meta property="og:description" content="Свежие новости финских СМИ с переводом на русский: политика, экономика, иммиграция, работа, общество.">
+<meta property="og:locale" content="ru_FI">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" hreflang="ru-fi" href="https://finskienovosti.fi/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&family=Golos+Text:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- SEO: пример структурированных данных (JSON-LD) для новостного агрегатора.
+     В реальном проекте генерируется на бэкенде для каждой страницы: NewsMediaOrganization на главной,
+     NewsArticle — на страницах отдельных материалов, отдельный news-sitemap.xml с окном 48 часов. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "NewsMediaOrganization",
+  "name": "Финские Новости",
+  "alternateName": "Suomen Uutiset venäjäksi",
+  "url": "https://finskienovosti.fi",
+  "logo": "https://finskienovosti.fi/logo.png",
+  "description": "Агрегатор новостей Финляндии на русском языке с переводом материалов YLE, Helsingin Sanomat, Iltalehti, Ilta-Sanomat и MTV Uutiset.",
+  "inLanguage": "ru",
+  "sameAs": ["https://t.me/finskienovosti"]
+}
+</script>
+
+<style>
+  :root{
+    --navy:#0b2a52; --navy-2:#123d7a; --navy-3:#1a3f7a;
+    --aurora:#16b8a6; --aurora-deep:#0f8c80;
+    --amber:#f0a202; --danger:#c2410c;
+    --bg:#f4f6f8; --card:#ffffff; --card-2:#eef2f5;
+    --ink:#121a24; --muted:#5b6b78; --line:#e3e8ec;
+    --shadow:0 1px 2px rgba(11,42,82,.04), 0 10px 28px -16px rgba(11,42,82,.16);
+    --radius:16px; --radius-sm:10px;
+    --fs-scale:1;
+  }
+  [data-theme="night"]{
+    --bg:#0b1420; --card:#121c29; --card-2:#0e1926;
+    --ink:#e7eef3; --muted:#8ea0af; --line:#1f2c3a;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 14px 32px -16px rgba(0,0,0,.65);
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth; font-size:calc(16px * var(--fs-scale));}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Golos Text', sans-serif; transition:background .3s, color .3s;
+    -webkit-font-smoothing:antialiased;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important;}
+  }
+  a{color:inherit; text-decoration:none;}
+  button{font-family:inherit;}
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  .display{font-family:'Unbounded', sans-serif;}
+  ::selection{background:var(--aurora); color:#fff;}
+  :focus-visible{outline:2px solid var(--aurora); outline-offset:2px; border-radius:4px;}
+
+  .skip-link{
+    position:absolute; left:-999px; top:0; background:var(--navy); color:#fff; padding:10px 18px;
+    border-radius:0 0 10px 0; z-index:200; font-size:14px;
+  }
+  .skip-link:focus{left:0;}
+
+  .wrap{max-width:1320px; margin:0 auto; padding-left:24px; padding-right:24px;}
+
+  /* ===== Utility bar ===== */
+  .util-bar{
+    background:var(--navy); color:#dfe9f5;
+    font-family:'IBM Plex Mono'; font-size:11.5px;
+  }
+  .util-bar .wrap{display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:8px; padding-bottom:8px; flex-wrap:wrap;}
+  .util-left{display:flex; gap:16px; align-items:center; opacity:.85; flex-wrap:wrap; min-width:0;}
+  .util-right{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  @media (max-width:480px){
+    .hide-on-narrow{display:none;}
+  }
+  .fs-ctrl{display:flex; align-items:center; gap:2px; background:rgba(255,255,255,.08); border-radius:8px; padding:2px;}
+  .fs-ctrl button{background:none; border:none; color:#dfe9f5; width:22px; height:22px; cursor:pointer; border-radius:6px; font-size:12px;}
+  .fs-ctrl button:hover{background:rgba(255,255,255,.15);}
+  .util-btn{background:none; border:none; color:#dfe9f5; cursor:pointer; font-size:11.5px; display:flex; align-items:center; gap:5px; font-family:'IBM Plex Mono'; opacity:.9;}
+  .util-btn:hover{opacity:1; color:var(--aurora);}
+
+  /* ===== Breaking bar ===== */
+  .breaking{
+    background:linear-gradient(90deg, var(--danger), #e05a1e);
+    color:#fff; display:flex; align-items:center; gap:12px; overflow:hidden;
+  }
+  .breaking .wrap{display:flex; align-items:center; gap:14px; padding-top:9px; padding-bottom:9px;}
+  .breaking .badge{
+    flex-shrink:0; font-family:'IBM Plex Mono'; font-weight:700; font-size:11px;
+    background:rgba(255,255,255,.2); padding:4px 10px; border-radius:999px; letter-spacing:.05em;
+  }
+  .breaking .msg{font-size:13.5px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .breaking .close{background:none; border:none; color:#fff; opacity:.75; cursor:pointer; font-size:16px; line-height:1; flex-shrink:0;}
+  .breaking.hidden{display:none;}
+
+  /* ===== Header ===== */
+  header.masthead{padding-top:22px; padding-bottom:0; position:sticky; top:0; z-index:50; background:var(--bg); border-bottom:1px solid transparent; transition:.25s;}
+  header.masthead.scrolled{box-shadow:var(--shadow); border-bottom:1px solid var(--line);}
+  .topbar{display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; padding-bottom:16px;}
+  .brand{display:flex; align-items:center; gap:13px;}
+  .brand-mark{width:52px; height:52px; border-radius:13px; background:linear-gradient(160deg, var(--navy), var(--navy-2) 60%, var(--navy-3)); position:relative; overflow:hidden; flex-shrink:0; box-shadow:var(--shadow);}
+  .brand-mark svg{position:absolute; inset:0; width:100%; height:100%;}
+  .brand-text .name{font-family:'Unbounded'; font-size:19px; font-weight:700; letter-spacing:-.01em; line-height:1.1;}
+  .brand-text .tagline{margin-top:4px; font-size:11.5px; color:var(--muted);}
+  .topbar-actions{display:flex; align-items:center; gap:9px; flex:1 1 320px; justify-content:flex-end;}
+  .search-box{display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:11px; padding:10px 14px; flex:1 1 240px; max-width:320px;}
+  .search-box input{border:none; outline:none; background:transparent; font-family:'Golos Text'; font-size:13.5px; color:var(--ink); width:100%;}
+  .search-box input::placeholder{color:var(--muted);}
+  .icon-btn{width:40px; height:40px; border-radius:11px; border:1px solid var(--line); background:var(--card); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; color:var(--muted); transition:.2s; position:relative;}
+  .icon-btn:hover{border-color:var(--aurora); color:var(--aurora);}
+  .icon-btn .badge-dot{position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%; background:var(--danger);}
+  .btn-cta{display:flex; align-items:center; gap:7px; background:var(--navy); color:#fff; border:none; border-radius:11px; padding:10px 16px; font-weight:600; font-size:13px; cursor:pointer; transition:.2s; white-space:nowrap;}
+  .btn-cta:hover{background:var(--aurora-deep);}
+
+  .catnav{display:flex; gap:8px; overflow-x:auto; padding-bottom:16px; scrollbar-width:none;}
+  .catnav::-webkit-scrollbar{display:none;}
+  .catnav .pill{display:flex; align-items:center; gap:6px; padding:9px 15px; border-radius:999px; background:var(--card); border:1px solid var(--line); color:var(--muted); font-size:13px; font-weight:600; cursor:pointer; transition:.18s; white-space:nowrap; flex-shrink:0;}
+  .catnav .pill:hover{border-color:var(--aurora); color:var(--ink);}
+  .catnav .pill.active{background:var(--navy); border-color:var(--navy); color:#fff;}
+
+  /* ===== Bento hero ===== */
+  .bento{padding-top:22px; display:grid; grid-template-columns:1.5fr 1fr; gap:16px;}
+  @media (max-width:900px){ .bento{grid-template-columns:1fr;} }
+  .lead-card{
+    background:linear-gradient(155deg, var(--navy) 0%, var(--navy-2) 55%, #1a3f7a 100%);
+    border-radius:var(--radius); padding:28px; color:#eaf1fb; position:relative; overflow:hidden; min-height:280px;
+    display:flex; flex-direction:column; justify-content:flex-end;
+  }
+  .lead-card::after{content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 8%, rgba(22,184,166,.35), transparent 55%), radial-gradient(circle at 8% 95%, rgba(124,111,224,.22), transparent 55%);}
+  .lead-card > *{position:relative;}
+  .lead-tags{display:flex; gap:8px; margin-bottom:14px;}
+  .lead-tags .tag{background:rgba(255,255,255,.15); font-size:11px; font-weight:700; padding:4px 10px; border-radius:6px; text-transform:uppercase; letter-spacing:.03em;}
+  .lead-tags .tag.live{background:var(--aurora); color:#04231f;}
+  .lead-card h2{font-family:'Unbounded'; font-size:clamp(20px,2.6vw,29px); line-height:1.28; font-weight:700; margin:0 0 12px; letter-spacing:-.01em;}
+  .lead-card p{font-size:14px; opacity:.88; line-height:1.6; max-width:56ch; margin:0 0 16px;}
+  .lead-meta{display:flex; align-items:center; gap:14px; font-family:'IBM Plex Mono'; font-size:11.5px; opacity:.8;}
+
+  .bento-side{display:flex; flex-direction:column; gap:16px;}
+  .mini-card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); flex:1; display:flex; flex-direction:column;}
+  .mini-card .tag{align-self:flex-start; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:6px; background:var(--card-2); color:var(--muted); text-transform:uppercase; margin-bottom:10px;}
+  .mini-card h3{font-family:'Unbounded'; font-size:14.5px; line-height:1.35; font-weight:600; margin:0 0 8px;}
+  .mini-card .meta{margin-top:auto; padding-top:10px; font-size:11px; color:var(--muted); font-family:'IBM Plex Mono';}
+
+  /* ===== Digest + For you ===== */
+  .section-head{display:flex; align-items:center; justify-content:space-between; margin:34px 0 14px;}
+  .section-head h2{font-family:'Unbounded'; font-size:16px; margin:0; display:flex; align-items:center; gap:8px;}
+  .section-head .hint{font-size:12px; color:var(--muted);}
+
+  .digest-card{
+    background:linear-gradient(120deg, var(--card) 0%, var(--card-2) 100%);
+    border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; box-shadow:var(--shadow);
+  }
+  .digest-card ul{margin:0; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:10px;}
+  .digest-card li{display:flex; gap:10px; font-size:13.8px; line-height:1.55;}
+  .digest-card li .dot{color:var(--aurora); flex-shrink:0;}
+  .digest-foot{margin-top:14px; padding-top:12px; border-top:1px dashed var(--line); font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:6px;}
+
+  .foryou-rail{display:flex; gap:14px; overflow-x:auto; padding-bottom:8px; scrollbar-width:thin;}
+  .foryou-card{
+    flex:0 0 260px; background:var(--card); border:1px solid var(--line); border-radius:var(--radius-sm); padding:15px;
+    box-shadow:var(--shadow); cursor:pointer; transition:.18s;
+  }
+  .foryou-card:hover{transform:translateY(-2px); border-color:var(--aurora);}
+  .foryou-card .tag{font-size:10.5px; font-weight:700; color:var(--aurora-deep); text-transform:uppercase; margin-bottom:8px; display:block;}
+  .foryou-card h4{font-family:'Unbounded'; font-size:13.5px; line-height:1.35; margin:0; font-weight:600;}
+
+  /* ===== Filters + feed ===== */
+  .toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:30px 0 16px;}
+  .source-chip{padding:7px 13px; border-radius:999px; border:1px solid var(--line); background:var(--card); font-size:12.5px; font-weight:600; color:var(--muted); cursor:pointer; transition:.18s;}
+  .source-chip:hover{border-color:var(--aurora);}
+  .source-chip.active{background:var(--aurora); border-color:var(--aurora); color:#04231f;}
+  .sort-select{margin-left:auto; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--muted); cursor:pointer;}
+
+  .feed-count{display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12.5px; margin-bottom:14px;}
+
+  .layout{display:grid; grid-template-columns:1fr 300px; gap:28px; padding-bottom:70px;}
+  @media (max-width:980px){ .layout{grid-template-columns:1fr;} }
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media (max-width:680px){ .grid{grid-template-columns:1fr;} }
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:19px; box-shadow:var(--shadow); transition:transform .18s, border-color .18s; display:flex; flex-direction:column; position:relative;}
+  .card:hover{transform:translateY(-2px); border-color:var(--aurora);}
+  .card-tags{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:11px; padding-right:34px;}
+  .tag{font-size:10.5px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; padding:4px 9px; border-radius:6px; background:var(--card-2); color:var(--navy-2);}
+  [data-theme="night"] .tag{color:#7ea3ea;}
+  .src-tag{font-size:10.5px; font-weight:600; padding:4px 9px; border-radius:6px; background:var(--bg); color:var(--muted); border:1px solid var(--line); font-family:'IBM Plex Mono';}
+  .bookmark-btn{position:absolute; top:16px; right:16px; width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:var(--card); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:13px; color:var(--muted); transition:.18s;}
+  .bookmark-btn:hover{border-color:var(--amber); color:var(--amber);}
+  .bookmark-btn.active{background:var(--amber); border-color:var(--amber); color:#3a2500;}
+
+  .card h3{font-family:'Unbounded'; font-size:16px; line-height:1.34; margin:0 0 8px; font-weight:600; letter-spacing:-.005em;}
+  .card p.summary{font-size:13.5px; line-height:1.6; color:var(--muted); margin:0 0 12px; flex:1;}
+  .fi-original{font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); background:var(--bg); border:1px dashed var(--line); border-radius:8px; padding:8px 10px; margin:0 0 12px; display:none;}
+  .card.show-fi .fi-original{display:block;}
+
+  .card-stats{display:flex; align-items:center; gap:12px; font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); margin-bottom:10px;}
+  .card-foot{display:flex; align-items:center; justify-content:space-between; padding-top:11px; border-top:1px solid var(--line); gap:8px;}
+  .foot-actions{display:flex; align-items:center; gap:6px;}
+  .mini-action{border:1px solid var(--line); background:transparent; border-radius:8px; padding:6px 9px; font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); cursor:pointer; transition:.18s; display:flex; align-items:center; gap:5px;}
+  .mini-action:hover{border-color:var(--aurora); color:var(--aurora-deep);}
+  .mini-action.speaking{background:var(--aurora); border-color:var(--aurora); color:#04231f;}
+  .read-more{font-size:12.3px; font-weight:700; color:var(--navy);}
+  [data-theme="night"] .read-more{color:#7ea3ea;}
+
+  /* ===== Category kicker (визуальный "обложка"-акцент вместо фото) ===== */
+  .card-kicker{height:5px; border-radius:var(--radius) var(--radius) 0 0; margin:-19px -19px 14px; }
+  .kicker-Политика{background:linear-gradient(90deg,#c2410c,#f0a202);}
+  .kicker-Экономика{background:linear-gradient(90deg,#b45309,#f0d060);}
+  .kicker-Иммиграция{background:linear-gradient(90deg,#1d4ed8,#60a5fa);}
+  .kicker-Работа{background:linear-gradient(90deg,#be185d,#f472b6);}
+  .kicker-Общество{background:linear-gradient(90deg,#6d28d9,#a78bfa);}
+  .kicker-Образование{background:linear-gradient(90deg,#0f766e,#2ec4b6);}
+  .kicker-Россия{background:linear-gradient(90deg,#16803c,#4ade80);}
+  .kicker-Мир{background:linear-gradient(90deg,var(--navy),var(--aurora));}
+
+  /* ===== Read/unread indicator ===== */
+  .read-dot{width:7px; height:7px; border-radius:50%; background:var(--aurora); flex-shrink:0;}
+  .card.is-read .read-dot{background:var(--line);}
+  .card.is-read h3{color:var(--muted);}
+
+  .share-btn{border:1px solid var(--line); background:transparent; border-radius:8px; padding:6px 9px; font-size:12px; color:var(--muted); cursor:pointer; transition:.18s;}
+  .share-btn:hover{border-color:var(--aurora); color:var(--aurora-deep);}
+
+  /* ===== "Всё свежее прочитано" ===== */
+  .caughtup{grid-column:1/-1; text-align:center; padding:34px 20px; margin-top:6px; border-top:1px dashed var(--line);}
+  .caughtup .icon{font-size:26px; margin-bottom:8px;}
+  .caughtup .display{font-size:15px; margin-bottom:4px;}
+  .caughtup p{font-size:12.5px; color:var(--muted); margin:0;}
+
+  /* ===== Onboarding modal ===== */
+  .onboard-overlay{position:fixed; inset:0; background:rgba(11,20,32,.55); backdrop-filter:blur(3px); z-index:200; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .onboard-overlay.hidden{display:none;}
+  .onboard-card{background:var(--card); border-radius:20px; padding:30px 28px; max-width:440px; width:100%; box-shadow:var(--shadow); text-align:center;}
+  .onboard-card .icon{font-size:30px; margin-bottom:10px;}
+  .onboard-card h2{font-family:'Unbounded'; font-size:18px; margin:0 0 8px;}
+  .onboard-card p{font-size:13px; color:var(--muted); margin:0 0 20px; line-height:1.5;}
+  .onboard-grid{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:22px;}
+  .onboard-chip{padding:9px 15px; border-radius:999px; border:1.5px solid var(--line); background:var(--bg); font-size:13px; font-weight:600; cursor:pointer; transition:.15s; color:var(--ink);}
+  .onboard-chip.picked{background:var(--navy); border-color:var(--navy); color:#fff;}
+  .onboard-actions{display:flex; gap:10px;}
+  .onboard-actions button{flex:1; border-radius:11px; padding:12px; font-weight:700; font-size:13.5px; cursor:pointer; border:none;}
+  .onboard-skip{background:var(--card-2); color:var(--muted);}
+  .onboard-start{background:var(--navy); color:#fff;}
+  .onboard-start:hover{background:var(--aurora-deep);}
+
+  .empty-state{grid-column:1/-1; text-align:center; padding:56px 20px; border:1px dashed var(--line); border-radius:var(--radius); color:var(--muted);}
+  .empty-state .display{font-size:16px; color:var(--ink); margin-bottom:6px;}
+
+  /* ===== Sidebar ===== */
+  .sidebar{display:flex; flex-direction:column; gap:18px;}
+  .side-card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px;}
+  .side-card h4{font-family:'IBM Plex Mono'; font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 13px; display:flex; align-items:center; gap:7px;}
+
+  .promo-card{border-radius:18px; overflow:hidden; position:relative; background:linear-gradient(165deg, var(--navy) 0%, var(--navy-2) 55%, #1a3f7a 100%); color:#eaf1fb; padding:24px 20px; text-align:center; box-shadow:var(--shadow);}
+  .promo-card::before{content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 15%, rgba(22,184,166,.35), transparent 55%), radial-gradient(circle at 10% 90%, rgba(124,111,224,.22), transparent 55%);}
+  .promo-card > *{position:relative;}
+  .promo-card .display{font-size:15px; font-weight:600; line-height:1.4; margin-bottom:14px;}
+  .promo-input-row{display:flex; gap:6px; margin-top:4px;}
+  .promo-input-row input{flex:1; border:none; border-radius:8px; padding:10px 11px; font-size:12.5px; font-family:'Golos Text'; outline:none;}
+  .promo-input-row button{background:var(--aurora); color:#04231f; border:none; border-radius:8px; padding:0 13px; font-weight:700; font-size:12px; cursor:pointer;}
+  .promo-note{font-size:10.5px; opacity:.65; margin-top:8px;}
+
+  .notif-card p{font-size:12.5px; color:var(--muted); line-height:1.55; margin:0 0 12px;}
+  .notif-toggle-row{display:flex; align-items:center; justify-content:space-between;}
+  .switch{width:42px; height:24px; border-radius:999px; background:var(--line); position:relative; cursor:pointer; transition:.2s; border:none; flex-shrink:0;}
+  .switch::after{content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:.2s; box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .switch.on{background:var(--aurora);}
+  .switch.on::after{transform:translateX(18px);}
+
+  .word-fi{font-family:'Unbounded'; font-size:21px; color:var(--aurora-deep); font-weight:700;}
+  .word-ru{font-size:14.5px; color:var(--muted); margin-top:2px;}
+  .word-example{margin-top:13px; padding-top:13px; border-top:1px dashed var(--line); font-size:12.3px; color:var(--muted); font-style:italic; line-height:1.5;}
+
+  .trend-item{display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid var(--line); font-size:12.8px; cursor:pointer;}
+  .trend-item:last-child{border-bottom:none;}
+  .trend-item .n{font-family:'IBM Plex Mono'; color:var(--muted); width:16px; flex-shrink:0;}
+
+  .pwa-card{font-size:12.3px; color:var(--muted); line-height:1.6;}
+  .pwa-steps{margin:10px 0 0; padding-left:18px; font-size:12px;}
+  .pwa-steps li{margin-bottom:5px;}
+
+  footer{padding:40px 24px 90px; color:var(--muted); font-size:11.5px; font-family:'IBM Plex Mono';}
+  footer .foot-grid{display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px; border-top:1px solid var(--line); padding-top:22px;}
+  footer .foot-links{display:flex; gap:16px; flex-wrap:wrap;}
+
+  /* ===== Mobile bottom nav (thumb-friendly) ===== */
+  .bottom-nav{display:none;}
+  @media (max-width:760px){
+    .bottom-nav{
+      display:flex; position:fixed; bottom:0; left:0; right:0; z-index:60;
+      background:var(--card); border-top:1px solid var(--line); padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+      justify-content:space-around; box-shadow:0 -4px 18px rgba(0,0,0,.08);
+    }
+    .bottom-nav button{background:none; border:none; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:3px; font-size:9.5px; font-family:'IBM Plex Mono'; cursor:pointer; padding:4px 8px;}
+    .bottom-nav button.active{color:var(--aurora-deep);}
+    .bottom-nav .ic{font-size:17px;}
+    .layout{padding-bottom:90px;}
+    body{padding-bottom:0;}
+  }
+
+  .toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(120%); background:var(--navy); color:#fff; padding:12px 20px; border-radius:11px; font-size:13px; box-shadow:var(--shadow); transition:transform .3s ease; z-index:100;}
+  @media (max-width:760px){ .toast{bottom:84px;} }
+  .toast.show{transform:translateX(-50%) translateY(0);}
+
+  /* ================================================================
+     МОБИЛЬНАЯ АДАПТАЦИЯ (большинство читателей — со смартфона)
+     ================================================================ */
+  @media (max-width:600px){
+    .wrap{padding-left:16px; padding-right:16px;}
+
+    /* Инпуты ≥16px — иначе Safari на iOS автоматически зумит страницу
+       при фокусе на поле ввода. Это класическая и очень раздражающая
+       мобильная веб-проблема. */
+    .search-box input, #emailInput{font-size:16px;}
+
+    /* Шапка: логотип сверху, поиск — на всю ширину отдельной строкой,
+       кнопки справа не жмутся друг к другу */
+    .topbar{gap:12px; padding-bottom:12px;}
+    .brand-mark{width:44px; height:44px;}
+    .brand-text .name{font-size:17px;}
+    .brand-text .tagline{font-size:11px;}
+    .topbar-actions{flex:1 1 100%; justify-content:stretch;}
+    .search-box{flex:1 1 auto; max-width:none; order:1;}
+    .icon-btn{order:2; flex-shrink:0;}
+    .btn-cta{order:3; flex-shrink:0; padding:10px 14px;}
+
+    /* Категории и источники — горизонтальный скролл с явным намёком,
+       что список продолжается за краем экрана */
+    .catnav, .toolbar{
+      margin-left:-16px; margin-right:-16px; padding-left:16px; padding-right:16px;
+      -webkit-overflow-scrolling:touch; scroll-snap-type:x proximity;
+    }
+    .catnav .pill{scroll-snap-align:start;}
+    .toolbar{overflow-x:auto; flex-wrap:nowrap;}
+    .sort-select{flex-shrink:0;}
+
+    /* Bento-хиро: меньше воздуха, крупный текст остаётся читаемым, но
+       не съедает весь первый экран */
+    .lead-card{padding:20px; min-height:auto;}
+    .lead-card h2{font-size:20px; line-height:1.3;}
+    .lead-card p{font-size:13.5px; -webkit-line-clamp:3; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden;}
+    .mini-card{padding:15px;}
+
+    /* Карточки новостей: чуть компактнее, кнопки — крупнее по высоте
+       для уверенного попадания пальцем (мин. ~40px область нажатия) */
+    .card{padding:16px;}
+    .card-kicker{margin:-16px -16px 12px;}
+    .card h3{font-size:15.5px;}
+    .card p.summary{font-size:13.5px;}
+    .card-foot{flex-wrap:wrap; row-gap:10px;}
+    .foot-actions{flex-wrap:wrap; gap:8px;}
+    .mini-action, .share-btn{padding:9px 12px; font-size:11.5px; min-height:38px;}
+    .bookmark-btn{width:36px; height:36px; top:14px; right:14px;}
+    .read-more{width:100%; text-align:right;}
+
+    /* Сайдбар-виджеты на всю ширину, без лишних отступов */
+    .promo-card, .side-card{padding:18px;}
+    .promo-input-row input{font-size:16px;}
+
+    /* Онбординг-модалка: не упирается в края экрана */
+    .onboard-card{padding:24px 20px;}
+    .onboard-chip{padding:10px 14px; font-size:13px;}
+
+    /* Утилитарная полоса и заголовки секций компактнее */
+    .section-head{margin:26px 0 12px;}
+    .section-head h2{font-size:14.5px;}
+    .hero{padding-top:20px;}
+  }
+
+  /* Очень узкие экраны (iPhone SE и подобные, ~360px и уже) */
+  @media (max-width:380px){
+    .brand-text .tagline{display:none;}
+    .lead-card h2{font-size:18px;}
+    .foryou-card{flex-basis:220px;}
+  }
+</style>
+</head>
+<body data-theme="day">
+
+<div class="onboard-overlay" id="onboardOverlay">
+  <div class="onboard-card">
+    <div class="icon">🇫🇮🤝🇷🇺</div>
+    <h2>Что вам интереснее всего?</h2>
+    <p>Выберите 2–3 темы — соберём для вас персональную ленту «Для вас» сразу, без ожидания. Можно изменить в любой момент.</p>
+    <div class="onboard-grid" id="onboardGrid"></div>
+    <div class="onboard-actions">
+      <button class="onboard-skip" id="onboardSkip">Пропустить</button>
+      <button class="onboard-start" id="onboardStart">Готово</button>
+    </div>
+  </div>
+</div>
+
+<a href="#main" class="skip-link">Перейти к содержимому</a>
+
+<div class="util-bar">
+  <div class="wrap">
+    <div class="util-left">
+      <span>🇫🇮 → 🇷🇺 автоматический перевод</span>
+      <span class="hide-on-narrow">Обновлено: сейчас</span>
+    </div>
+    <div class="util-right">
+      <span class="hide-on-narrow">Размер текста</span>
+      <div class="fs-ctrl">
+        <button id="fsDown" aria-label="Уменьшить текст">A−</button>
+        <button id="fsUp" aria-label="Увеличить текст">A+</button>
+      </div>
+      <button class="util-btn" id="themeBtn"><span id="themeIcon">☀</span><span id="themeLabel">светлая</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="breaking" id="breakingBar">
+  <div class="wrap">
+    <span class="badge">⚡ Молния</span>
+    <span class="msg" id="breakingMsg">Правительство Финляндии представит новый энергетический пакет на следующей неделе — подробности в разделе «Политика»</span>
+    <button class="close" id="breakingClose" aria-label="Закрыть">✕</button>
+  </div>
+</div>
+
+<header class="masthead" id="masthead">
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 62 62" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="14" width="42" height="30" rx="2" fill="#fff"/>
+            <rect x="10" y="26" width="42" height="6" fill="#0b2a52"/>
+            <rect x="24" y="14" width="6" height="30" fill="#0b2a52"/>
+            <path d="M10 44 L20 32 L28 40 L36 28 L44 38 L52 30 L52 44 Z" fill="#16b8a6" opacity="0.85"/>
+            <circle cx="42" cy="20" r="5" fill="#ffd166"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="name display">Финские Новости</div>
+          <div class="tagline">Новости Финляндии на русском · finskienovosti.fi</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="search-box">
+          <span class="mono" style="color:var(--muted); font-size:13px;">⌕</span>
+          <input type="text" id="searchInput" placeholder="Поиск новостей…" aria-label="Поиск новостей">
+        </div>
+        <button class="icon-btn" id="bookmarksBtn" aria-label="Сохранённые новости" title="Сохранённое">
+          🔖<span class="badge-dot" id="bmDot" style="display:none;"></span>
+        </button>
+        <button class="btn-cta" id="refreshBtn">⚡ Обновить</button>
+      </div>
+    </div>
+    <nav class="catnav" id="catNav" aria-label="Категории новостей"></nav>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+
+  <section class="bento" aria-label="Главные новости">
+    <article class="lead-card" id="leadCard"></article>
+    <div class="bento-side" id="bentoSide"></div>
+  </section>
+
+  <section aria-label="Дайджест дня">
+    <div class="section-head">
+      <h2>🧠 AI-дайджест дня <span class="hint">— главное за 40 секунд</span></h2>
+    </div>
+    <div class="digest-card">
+      <ul>
+        <li><span class="dot">●</span><span>Правительство готовит новый энергопакет — поддержка промышленности на фоне роста цен на электричество.</span></li>
+        <li><span class="dot">●</span><span>Экономика Финляндии растёт быстрее прогнозов благодаря сектору услуг и восстановлению экспорта.</span></li>
+        <li><span class="dot">●</span><span>Финляндия и Швеция углубляют оборонное сотрудничество на Севере.</span></li>
+      </ul>
+      <div class="digest-foot">🔊 Сгенерировано на основе материалов дня · <button class="mini-action" id="digestListen" style="margin-left:4px;">Слушать дайджест</button></div>
+    </div>
+  </section>
+
+  <section aria-label="Рекомендовано для вас">
+    <div class="section-head">
+      <h2>✨ Для вас <span class="hint" id="forYouHint">— подбирается по вашим интересам</span></h2>
+    </div>
+    <div class="foryou-rail" id="forYouRail"></div>
+  </section>
+
+  <div class="toolbar" id="sourceFilter">
+    <span class="mono" style="font-size:12px; color:var(--muted); font-weight:600;">Источник:</span>
+    <select class="sort-select" id="sortSelect" style="margin-left:auto;">
+      <option value="new">СВЕЖИЕ — СНАЧАЛА</option>
+      <option value="pop">САМЫЕ ЧИТАЕМЫЕ</option>
+      <option value="az">ПО АЛФАВИТУ (RU)</option>
+    </select>
+  </div>
+
+  <div class="feed-count mono" id="feedCount"></div>
+
+  <div class="layout">
+    <div>
+      <div class="grid" id="feedGrid"></div>
+    </div>
+
+    <aside class="sidebar" aria-label="Дополнительно">
+      <div class="promo-card">
+        <div class="display">📬 Утренний дайджест на почту</div>
+        <div class="promo-input-row">
+          <input type="email" placeholder="ваш email" id="emailInput" aria-label="Электронная почта">
+          <button id="subscribeBtn">OK</button>
+        </div>
+        <div class="promo-note">Каждое утро в 8:00 · без спама · Telegram: <strong>@finskienovosti</strong></div>
+      </div>
+
+      <div class="side-card notif-card">
+        <h4>🔔 Уведомления</h4>
+        <p>Получайте push-уведомление, когда выходит срочная новость — раньше, чем узнают соцсети.</p>
+        <div class="notif-toggle-row">
+          <span style="font-size:12.5px; font-weight:600;">Молния и срочное</span>
+          <button class="switch" id="notifSwitch" aria-label="Включить уведомления"></button>
+        </div>
+      </div>
+
+      <div class="side-card">
+        <h4>🔥 Сейчас читают</h4>
+        <div id="trendList"></div>
+      </div>
+
+      <div class="side-card">
+        <h4>📖 Слово дня · Päivän sana</h4>
+        <div class="word-fi">Koira</div>
+        <div class="word-ru">Собака</div>
+        <div class="word-example">Minulla on koira. — У меня есть собака.</div>
+      </div>
+
+      <div class="side-card pwa-card">
+        <h4>📲 Установите на главный экран</h4>
+        Открывайте Финские Новости в один тап, как приложение — быстрее и без рекламы браузера.
+        <ol class="pwa-steps">
+          <li>iPhone: «Поделиться» → «На экран Домой»</li>
+          <li>Android: меню ⋮ → «Установить приложение»</li>
+        </ol>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<footer role="contentinfo">
+  <div class="wrap">
+    <div class="foot-grid">
+      <span>© Финские Новости · finskienovosti.fi — демонстрационный макет</span>
+      <div class="foot-links">
+        <a href="#">О проекте</a>
+        <a href="#">Контакты</a>
+        <a href="#">RSS</a>
+        <a href="#">Реклама</a>
+        <a href="#">Конфиденциальность</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<nav class="bottom-nav" aria-label="Мобильная навигация">
+  <button class="active" data-nav="home"><span class="ic">🏠</span>Главная</button>
+  <button data-nav="search"><span class="ic">⌕</span>Поиск</button>
+  <button data-nav="bookmarks"><span class="ic">🔖</span>Сохранено</button>
+  <button data-nav="categories"><span class="ic">☰</span>Рубрики</button>
+  <button data-nav="theme"><span class="ic">☀</span>Тема</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ Конфигурация API ============ */
+// Адрес бэкенда из предыдущего шага (репозиторий finskie-novosti-backend).
+// Для продакшена замените на реальный домен API, например:
+// const API_BASE = 'https://api.finskienovosti.fi';
+const API_BASE = 'http://localhost:3000';
+const AUTO_REFRESH_MINUTES = 5; // как часто сайт сам подтягивает новые данные с бэкенда
+
+/* ============ Демо-данные (fallback, если бэкенд не запущен) ============ */
+// Показываются только если API недоступен — чтобы страница не была пустой
+// при первом открытии файла без запущенного сервера. В API-режиме не используются.
+const FALLBACK_ARTICLES = [
+  {id:'f1', category:'Политика', source:'yle', sourceName:'YLE', pubDate:new Date(Date.now()-20*60000).toISOString(), titleRu:'Правительство представит новый энергетический пакет на следующей неделе', titleFi:'Hallitus esittelee uuden energiapaketin ensi viikolla', summaryRu:'Кабинет министров готовит меры поддержки для промышленных потребителей на фоне роста цен на электроэнергию.', summaryFi:'', link:'https://yle.fi', readMinutes:2, translationMethod:'ai-retelling'},
+  {id:'f2', category:'Общество', source:'il', sourceName:'Iltalehti', pubDate:new Date(Date.now()-60*60000).toISOString(), titleRu:'В Турку открылся новый пешеходный мост через реку Аура', titleFi:'Turkuun avattiin uusi kävelysilta Aurajoen yli', summaryRu:'Строительство заняло полтора года и обошлось городскому бюджету дороже первоначальной сметы.', summaryFi:'', link:'https://iltalehti.fi', readMinutes:2, translationMethod:'ai-retelling'},
+  {id:'f3', category:'Экономика', source:'hs', sourceName:'Helsingin Sanomat', pubDate:new Date(Date.now()-150*60000).toISOString(), titleRu:'Рост экономики Финляндии превысил прогнозы во втором квартале', titleFi:'Suomen talouskasvu ylitti odotukset toisella vuosineljänneksellä', summaryRu:'Статистическое управление отмечает оживление в секторе услуг и восстановление лесопромышленного экспорта.', summaryFi:'', link:'https://hs.fi', readMinutes:3, translationMethod:'ai-retelling'},
+];
+
+const CATS = [
+  {id:'all', label:'Главная', icon:'🏠'},
+  {id:'Политика', label:'Политика', icon:'🏛'},
+  {id:'Экономика', label:'Экономика', icon:'📊'},
+  {id:'Иммиграция', label:'Иммиграция', icon:'✈️'},
+  {id:'Работа', label:'Работа', icon:'💼'},
+  {id:'Общество', label:'Общество', icon:'👥'},
+  {id:'Образование', label:'Образование', icon:'🎓'},
+  {id:'Россия', label:'Россия', icon:'🇷🇺'},
+  {id:'Мир', label:'Мир', icon:'🌍'},
+];
+
+/* ============ Онбординг: выбор тем при первом визите ============ */
+// Хранится только в памяти вкладки (без localStorage — см. правила артефактов).
+// В реальном продукте этот выбор стоит сохранять в аккаунте/localStorage,
+// чтобы не спрашивать повторно при каждом заходе.
+let onboardPicked = new Set();
+function setupOnboarding(){
+  const grid = document.getElementById('onboardGrid');
+  grid.innerHTML = '';
+  CATS.filter(c=>c.id!=='all').forEach(c=>{
+    const chip = document.createElement('button');
+    chip.className = 'onboard-chip';
+    chip.type = 'button';
+    chip.innerHTML = `${c.icon} ${c.label}`;
+    chip.onclick = ()=>{
+      if(onboardPicked.has(c.id)){ onboardPicked.delete(c.id); chip.classList.remove('picked'); }
+      else{ onboardPicked.add(c.id); chip.classList.add('picked'); }
+    };
+    grid.appendChild(chip);
+  });
+  document.getElementById('onboardStart').onclick = ()=>{
+    onboardPicked.forEach(cat=>{ state.catWeight[cat] = (state.catWeight[cat]||0) + 5; });
+    if(onboardPicked.size) toast('Собрали ленту «Для вас» по вашим темам');
+    document.getElementById('onboardOverlay').classList.add('hidden');
+    renderForYou();
+  };
+  document.getElementById('onboardSkip').onclick = ()=>{
+    document.getElementById('onboardOverlay').classList.add('hidden');
+  };
+}
+
+/* ============ State ============ */
+let ARTICLES = [];
+let SOURCES = []; // заполняется динамически из данных API: [{id, name}]
+let apiStatus = 'loading'; // 'loading' | 'ok' | 'offline'
+let lastUpdatedAt = null;
+
+let state = {
+  cat:'all', sources:new Set(), search:'', sort:'new',
+  theme:'day', bookmarks:new Set(), catWeight:{}, notif:false, readIds:new Set()
+};
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=> t.classList.remove('show'), 2600);
+}
+
+function timeAgo(iso){
+  if(!iso) return '';
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime())/60000));
+  if(min < 1) return 'только что';
+  if(min < 60) return min + ' мин.';
+  const h = Math.floor(min/60);
+  if(h < 24) return h + ' ч.';
+  return Math.floor(h/24) + ' дн.';
+}
+
+/* ============ Загрузка данных с бэкенда ============ */
+async function loadNews({ silent } = {}){
+  if(!silent){ apiStatus = 'loading'; renderStatusBanner(); }
+  try{
+    const res = await fetch(`${API_BASE}/api/news?limit=200`);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    ARTICLES = (data.items || []).map(a => ({
+      id: a.id,
+      category: a.category,
+      source: a.source,
+      sourceName: a.sourceName,
+      titleRu: a.titleRu,
+      titleFi: a.titleFi,
+      summaryRu: a.summaryRu,
+      summaryFi: a.summaryFi,
+      link: a.link,
+      pubDate: a.pubDate,
+      readMinutes: a.readMinutes || 2,
+      translationMethod: a.translationMethod,
+    }));
+    lastUpdatedAt = data.updatedAt;
+    apiStatus = 'ok';
+
+    const uniqueSources = {};
+    ARTICLES.forEach(a => { uniqueSources[a.source] = a.sourceName; });
+    SOURCES = Object.entries(uniqueSources).map(([id, name]) => ({id, name}));
+    if(state.sources.size === 0) state.sources = new Set(SOURCES.map(s=>s.id));
+  }catch(err){
+    console.warn('[loadNews] бэкенд недоступен, показываю демо-данные:', err.message);
+    apiStatus = 'offline';
+    if(ARTICLES.length === 0){
+      ARTICLES = FALLBACK_ARTICLES;
+      SOURCES = [{id:'yle',name:'YLE'},{id:'hs',name:'Helsingin Sanomat'},{id:'il',name:'Iltalehti'},{id:'is',name:'Ilta-Sanomat'}];
+      state.sources = new Set(SOURCES.map(s=>s.id));
+    }
+  }
+  renderStatusBanner();
+  renderBento();
+  renderForYou();
+  renderTrending();
+  renderDigest();
+  render();
+}
+
+function renderStatusBanner(){
+  const el = document.getElementById('themeLabel').closest('.util-right');
+  let banner = document.getElementById('apiStatusBadge');
+  if(!banner){
+    banner = document.createElement('span');
+    banner.id = 'apiStatusBadge';
+    banner.style.cssText = 'display:flex;align-items:center;gap:5px;';
+    el.prepend(banner);
+  }
+  if(apiStatus === 'loading'){
+    banner.innerHTML = `<span class="mono">⏳ подключение к API…</span>`;
+  } else if(apiStatus === 'ok'){
+    banner.innerHTML = `<span class="mono" title="Обновлено: ${lastUpdatedAt || ''}">🟢 живые данные</span>`;
+  } else {
+    banner.innerHTML = `<span class="mono" title="Бэкенд не отвечает на ${API_BASE} — показаны демо-новости">🟠 демо-режим</span>`;
+  }
+}
+
+/* ============ Render: category nav ============ */
+function renderCatNav(){
+  const wrap = document.getElementById('catNav');
+  wrap.innerHTML = '';
+  CATS.forEach(c=>{
+    const el = document.createElement('button');
+    el.className = 'pill' + (state.cat===c.id?' active':'');
+    el.innerHTML = `<span>${c.icon}</span><span>${c.label}</span>`;
+    el.onclick = ()=>{
+      state.cat = c.id;
+      if(c.id!=='all'){ state.catWeight[c.id] = (state.catWeight[c.id]||0) + 3; }
+      render();
+    };
+    wrap.appendChild(el);
+  });
+}
+
+/* ============ Render: bento hero (по свежести — реальных просмотров у нас нет) ============ */
+function renderBento(){
+  if(!ARTICLES.length) return;
+  const sorted = ARTICLES.slice().sort((a,b)=> new Date(b.pubDate||0) - new Date(a.pubDate||0));
+  const lead = sorted[0];
+  const leadEl = document.getElementById('leadCard');
+  leadEl.innerHTML = `
+    <div class="lead-tags"><span class="tag live">● Свежее</span><span class="tag">${lead.category}</span></div>
+    <h2>${lead.titleRu}</h2>
+    <p>${lead.summaryRu}</p>
+    <div class="lead-meta"><span>${lead.sourceName}</span><span>${timeAgo(lead.pubDate)}</span><span>⏱ ${lead.readMinutes} мин</span>${lead.translationMethod==='ai-retelling' ? '<span>✨ пересказ ИИ</span>' : ''}</div>
+  `;
+  const side = document.getElementById('bentoSide');
+  side.innerHTML = '';
+  sorted.slice(1,3).forEach(a=>{
+    const c = document.createElement('div');
+    c.className = 'mini-card';
+    c.innerHTML = `<span class="tag">${a.category}</span><h3>${a.titleRu}</h3><div class="meta">${a.sourceName} · ${timeAgo(a.pubDate)}</div>`;
+    side.appendChild(c);
+  });
+}
+
+/* ============ Render: AI-дайджест дня (из реальных свежих заголовков) ============ */
+function renderDigest(){
+  const list = document.querySelector('.digest-card ul');
+  if(!list || !ARTICLES.length) return;
+  const top = ARTICLES.slice().sort((a,b)=> new Date(b.pubDate||0) - new Date(a.pubDate||0)).slice(0,3);
+  list.innerHTML = top.map(a=>`<li><span class="dot">●</span><span>${a.titleRu} <span style="color:var(--muted); font-size:11.5px;">— ${a.sourceName}</span></span></li>`).join('');
+  window.__digestText = 'Дайджест дня. ' + top.map(a=>a.titleRu).join('. ');
+}
+
+/* ============ Render: for you rail ============ */
+function renderForYou(){
+  const rail = document.getElementById('forYouRail');
+  const hint = document.getElementById('forYouHint');
+  if(!ARTICLES.length) return;
+  const hasWeights = Object.keys(state.catWeight).length>0;
+  hint.textContent = hasWeights ? '— на основе того, что вы читаете' : '— подбирается по вашим интересам';
+  let list;
+  if(hasWeights){
+    list = ARTICLES.slice().sort((a,b)=> (state.catWeight[b.category]||0)-(state.catWeight[a.category]||0) || new Date(b.pubDate||0)-new Date(a.pubDate||0)).slice(0,8);
+  } else {
+    list = ARTICLES.slice().sort((a,b)=> new Date(b.pubDate||0)-new Date(a.pubDate||0)).slice(0,8);
+  }
+  rail.innerHTML = '';
+  list.forEach(a=>{
+    const c = document.createElement('div');
+    c.className = 'foryou-card';
+    c.innerHTML = `<span class="tag">${a.category}</span><h4>${a.titleRu}</h4>`;
+    c.onclick = ()=>{ state.catWeight[a.category] = (state.catWeight[a.category]||0)+2; renderForYou(); toast('Учли ваш интерес к теме «'+a.category+'»'); };
+    rail.appendChild(c);
+  });
+}
+
+/* ============ Render: source filter ============ */
+function renderSourceFilter(){
+  const wrap = document.getElementById('sourceFilter');
+  wrap.querySelectorAll('.source-chip').forEach(n=>n.remove());
+  const sortSel = document.getElementById('sortSelect');
+  const allChip = document.createElement('button');
+  allChip.className = 'source-chip' + (state.sources.size===SOURCES.length?' active':'');
+  allChip.textContent = 'Все';
+  allChip.onclick = ()=>{ state.sources = new Set(SOURCES.map(s=>s.id)); render(); };
+  wrap.insertBefore(allChip, sortSel);
+  SOURCES.forEach(s=>{
+    const chip = document.createElement('button');
+    chip.className = 'source-chip' + (state.sources.has(s.id) && state.sources.size<SOURCES.length ? ' active':'');
+    chip.textContent = s.name;
+    chip.onclick = ()=>{
+      if(state.sources.size===SOURCES.length){ state.sources = new Set([s.id]); }
+      else if(state.sources.has(s.id)){ state.sources.delete(s.id); if(!state.sources.size) state.sources = new Set(SOURCES.map(x=>x.id)); }
+      else{ state.sources.add(s.id); }
+      render();
+    };
+    wrap.insertBefore(chip, sortSel);
+  });
+}
+
+/* ============ Filtering ============ */
+function filtered(){
+  let list = ARTICLES.filter(a=>{
+    if(state.cat!=='all' && a.category!==state.cat) return false;
+    if(!state.sources.has(a.source)) return false;
+    if(state.search){
+      const q = state.search.toLowerCase();
+      if(!(a.titleRu+a.summaryRu+a.titleFi).toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  if(state.sort==='new') list.sort((a,b)=> new Date(b.pubDate||0) - new Date(a.pubDate||0));
+  if(state.sort==='az') list.sort((a,b)=>a.titleRu.localeCompare(b.titleRu,'ru'));
+  return list;
+}
+
+/* ============ Render: feed ============ */
+function renderFeed(){
+  const grid = document.getElementById('feedGrid');
+  const list = filtered();
+  document.getElementById('feedCount').innerHTML = `📰 ${list.length} материалов`;
+  grid.innerHTML = '';
+  if(!list.length){
+    const msg = apiStatus === 'offline'
+      ? 'Бэкенд не отвечает — запустите сервер (npm start) в проекте finskie-novosti-backend и нажмите «Обновить».'
+      : 'Попробуйте изменить фильтры или запрос поиска.';
+    grid.innerHTML = `<div class="empty-state"><div class="display">Ничего не найдено</div>${msg}</div>`;
+    return;
+  }
+  list.forEach(a=>{
+    const card = document.createElement('article');
+    const isRead = state.readIds.has(a.id);
+    card.className = 'card' + (isRead ? ' is-read' : '');
+    const bm = state.bookmarks.has(a.id);
+    card.innerHTML = `
+      <div class="card-kicker kicker-${a.category}"></div>
+      <button class="bookmark-btn ${bm?'active':''}" aria-label="Сохранить">${bm?'★':'☆'}</button>
+      <div class="card-tags"><span class="read-dot" title="${isRead?'Прочитано':'Новое'}"></span><span class="tag">${a.category}</span><span class="src-tag">${a.sourceName}</span></div>
+      <h3>${a.titleRu}</h3>
+      <div class="fi-original">${a.titleFi}</div>
+      <p class="summary">${a.summaryRu}</p>
+      <div class="card-stats"><span>⏱ ${a.readMinutes} мин чтения</span><span>${timeAgo(a.pubDate)}</span>${a.translationMethod==='ai-retelling' ? '<span>✨ пересказ ИИ</span>' : ''}</div>
+      <div class="card-foot">
+        <div class="foot-actions">
+          <button class="mini-action fi-toggle">🇫🇮 оригинал</button>
+          <button class="mini-action listen-btn">🔊 слушать</button>
+          <button class="share-btn" aria-label="Поделиться">↗ поделиться</button>
+        </div>
+        <a class="read-more" href="${a.link || '#'}" target="_blank" rel="noopener noreferrer">Читать в ${a.sourceName} ↗</a>
+      </div>
+    `;
+    card.querySelector('.fi-toggle').onclick = ()=> card.classList.toggle('show-fi');
+    card.querySelector('.bookmark-btn').onclick = (e)=>{
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      if(state.bookmarks.has(a.id)){
+        state.bookmarks.delete(a.id);
+        toast('Удалено из сохранённого');
+      } else {
+        state.bookmarks.add(a.id);
+        toast('Сохранено — доступно в разделе 🔖');
+        if(state.bookmarks.size === 2 && !state.notif){
+          setTimeout(()=> toast('Похоже, вам это интересно — включите 🔔 уведомления в боковой панели'), 2800);
+        }
+      }
+      // Точечно обновляем только эту кнопку — без перерисовки всей ленты,
+      // чтобы не сбрасывать раскрытые "оригинал (FI)" у других карточек.
+      const nowActive = state.bookmarks.has(a.id);
+      btn.classList.toggle('active', nowActive);
+      btn.textContent = nowActive ? '★' : '☆';
+      updateBmDot();
+    };
+    card.querySelector('.listen-btn').onclick = (e)=>{
+      e.stopPropagation();
+      speakText(a.titleRu + '. ' + a.summaryRu, e.currentTarget);
+    };
+    card.querySelector('.share-btn').onclick = async (e)=>{
+      e.stopPropagation();
+      const shareData = { title: a.titleRu, text: a.summaryRu, url: a.link || location.href };
+      try {
+        if (navigator.share) {
+          await navigator.share(shareData);
+        } else if (navigator.clipboard) {
+          await navigator.clipboard.writeText(a.link || location.href);
+          toast('Ссылка скопирована');
+        }
+      } catch (err) {
+        // AbortError — пользователь просто закрыл системное окно "поделиться", это не ошибка.
+        if (err && err.name !== 'AbortError') {
+          toast('Не удалось поделиться — скопируйте ссылку вручную');
+        }
+      }
+    };
+    card.querySelector('.read-more').addEventListener('click', ()=>{
+      state.readIds.add(a.id);
+      card.classList.add('is-read');
+      const dot = card.querySelector('.read-dot');
+      if(dot){ dot.title = 'Прочитано'; }
+    });
+    grid.appendChild(card);
+  });
+
+  if(list.length){
+    const done = document.createElement('div');
+    done.className = 'caughtup';
+    done.innerHTML = `<div class="icon">✅</div><div class="display">Это все свежие материалы по выбранным фильтрам</div><p>Новые новости появятся при следующем автообновлении — загляните чуть позже.</p>`;
+    grid.appendChild(done);
+  }
+}
+
+/* ============ Trending sidebar (свежие, не "популярные" — реальных просмотров нет) ============ */
+function renderTrending(){
+  const wrap = document.getElementById('trendList');
+  if(!ARTICLES.length) return;
+  const top = ARTICLES.slice().sort((a,b)=> new Date(b.pubDate||0)-new Date(a.pubDate||0)).slice(0,5);
+  wrap.innerHTML = top.map((a,i)=>`<div class="trend-item"><span class="n">0${i+1}</span><span>${a.titleRu}</span></div>`).join('');
+  const heading = wrap.closest('.side-card')?.querySelector('h4');
+  if(heading) heading.innerHTML = '🕒 Свежее из СМИ';
+}
+
+/* ============ Text-to-speech ============ */
+function speakText(text, btn){
+  if(!('speechSynthesis' in window)){ toast('Озвучивание не поддерживается в этом браузере'); return; }
+  if(window.speechSynthesis.speaking){
+    window.speechSynthesis.cancel();
+    document.querySelectorAll('.speaking').forEach(b=>{ b.classList.remove('speaking'); b.textContent = b.dataset.label || '🔊 слушать'; });
+    if(btn && btn.dataset.wasSpeaking==='1'){ btn.dataset.wasSpeaking=''; return; }
+  }
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ru-RU'; u.rate = 1;
+  if(btn){ btn.classList.add('speaking'); btn.dataset.label = btn.textContent; btn.textContent = '⏸ стоп'; btn.dataset.wasSpeaking='1'; }
+  u.onend = ()=>{ if(btn){ btn.classList.remove('speaking'); btn.textContent = btn.dataset.label; btn.dataset.wasSpeaking=''; } };
+  window.speechSynthesis.speak(u);
+}
+document.getElementById('digestListen').addEventListener('click', (e)=>{
+  speakText(window.__digestText || 'Дайджест пока не загружен.', e.currentTarget);
+});
+
+/* ============ Bookmarks button ============ */
+function updateBmDot(){
+  document.getElementById('bmDot').style.display = state.bookmarks.size ? 'block' : 'none';
+}
+document.getElementById('bookmarksBtn').addEventListener('click', ()=>{
+  if(!state.bookmarks.size){ toast('Пока нет сохранённых новостей — нажмите ☆ на карточке'); return; }
+  state.cat = 'all'; state.search='';
+  const grid = document.getElementById('feedGrid');
+  const items = ARTICLES.filter(a=>state.bookmarks.has(a.id));
+  document.getElementById('feedCount').innerHTML = `🔖 ${items.length} сохранённых материалов`;
+  grid.innerHTML='';
+  items.forEach(a=>{
+    const card = document.createElement('article'); card.className='card';
+    card.innerHTML = `<button class="bookmark-btn active">★</button><div class="card-tags"><span class="tag">${a.category}</span><span class="src-tag">${a.sourceName}</span></div><h3>${a.titleRu}</h3><p class="summary">${a.summaryRu}</p>`;
+    card.querySelector('.bookmark-btn').onclick = ()=>{ state.bookmarks.delete(a.id); render(); updateBmDot(); };
+    grid.appendChild(card);
+  });
+  document.querySelector('.layout').scrollIntoView({behavior:'smooth'});
+});
+
+/* ============ Misc controls ============ */
+document.getElementById('searchInput').addEventListener('input', e=>{ state.search = e.target.value.trim(); render(); });
+document.getElementById('sortSelect').addEventListener('change', e=>{ state.sort = e.target.value; render(); });
+document.getElementById('refreshBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '⚡ Обновляем…';
+  try{
+    if(apiStatus === 'ok'){
+      await fetch(`${API_BASE}/api/news/refresh`, { method:'POST' });
+      await new Promise(r=>setTimeout(r, 1500)); // даём бэкенду время обработать RSS
+    }
+    await loadNews({ silent:true });
+    toast(apiStatus==='ok' ? 'Лента обновлена' : 'Бэкенд недоступен — показаны демо-данные');
+  } finally {
+    btn.textContent = '⚡ Обновить';
+  }
+});
+document.getElementById('breakingClose').addEventListener('click', ()=>{
+  document.getElementById('breakingBar').classList.add('hidden');
+});
+document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+function toggleTheme(){
+  state.theme = state.theme==='day' ? 'night' : 'day';
+  document.body.setAttribute('data-theme', state.theme);
+  document.getElementById('themeIcon').textContent = state.theme==='day' ? '☀' : '🌙';
+  document.getElementById('themeLabel').textContent = state.theme==='day' ? 'светлая' : 'тёмная';
+}
+document.getElementById('fsUp').addEventListener('click', ()=>{
+  state.fs = Math.min(1.2, (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-scale'))||1) + 0.05);
+  document.documentElement.style.setProperty('--fs-scale', state.fs);
+});
+document.getElementById('fsDown').addEventListener('click', ()=>{
+  state.fs = Math.max(0.9, (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs-scale'))||1) - 0.05);
+  document.documentElement.style.setProperty('--fs-scale', state.fs);
+});
+document.getElementById('notifSwitch').addEventListener('click', function(){
+  state.notif = !state.notif;
+  this.classList.toggle('on', state.notif);
+  if(state.notif){
+    if('Notification' in window){
+      Notification.requestPermission().then(p=>{
+        toast(p==='granted' ? 'Уведомления включены' : 'Разрешение на уведомления не выдано браузером');
+      }).catch(()=> toast('Уведомления включены (демо-режим)'));
+    } else { toast('Уведомления включены (демо-режим)'); }
+  } else { toast('Уведомления отключены'); }
+});
+document.getElementById('subscribeBtn').addEventListener('click', ()=>{
+  const val = document.getElementById('emailInput').value.trim();
+  if(val && val.includes('@')){ toast('Готово! Проверьте почту для подтверждения'); document.getElementById('emailInput').value=''; }
+  else{ toast('Введите корректный email'); }
+});
+
+/* Sticky header shadow on scroll */
+window.addEventListener('scroll', ()=>{
+  document.getElementById('masthead').classList.toggle('scrolled', window.scrollY > 8);
+});
+
+/* Bottom nav wiring */
+document.querySelectorAll('.bottom-nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const nav = btn.dataset.nav;
+    if(nav==='home'){ state.cat='all'; render(); window.scrollTo({top:0,behavior:'smooth'}); }
+    if(nav==='search'){ document.getElementById('searchInput').focus(); document.querySelector('.toolbar').scrollIntoView({behavior:'smooth'}); }
+    if(nav==='bookmarks'){ document.getElementById('bookmarksBtn').click(); }
+    if(nav==='categories'){ document.getElementById('catNav').scrollIntoView({behavior:'smooth'}); }
+    if(nav==='theme'){ toggleTheme(); }
+  });
+});
+
+/* ============ Master render ============ */
+function render(){
+  renderCatNav();
+  renderSourceFilter();
+  renderFeed();
+  updateBmDot();
+}
+
+/* ============ Старт ============ */
+renderCatNav();
+setupOnboarding();
+loadNews();
+setInterval(()=> loadNews({ silent:true }), AUTO_REFRESH_MINUTES * 60000);
+</script>
+</body>
+</html>

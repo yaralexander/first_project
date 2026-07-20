@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f2c2d" />
+    <title>Suomi · Новости Финляндии на русском</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <a class="logo" href="#top" aria-label="Suomi News">suomi<span>·</span>news</a>
+      <nav class="nav" aria-label="Главное меню">
+        <a class="active" href="#feed">Лента</a><a href="#saved">Сохранённое <b id="savedCount">0</b></a><a href="#about">О проекте</a>
+      </nav>
+      <button class="lang" id="langButton" type="button">RU <span>⌄</span></button>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">ФИНЛЯНДИЯ · КАЖДЫЙ ДЕНЬ</p>
+          <h1>Что происходит<br />в <em>Suomi</em> сейчас</h1>
+          <p class="intro">Главное из финских медиа — на русском языке. Оригинал всегда рядом.</p>
+        </div>
+        <div class="date-block"><span id="today">Суббота, 12 июля</span><strong>09:42</strong><small>Helsinki, EEST</small></div>
+      </section>
+
+      <section class="ticker" aria-label="Срочные новости"><span class="live-dot"></span><b>СЕЙЧАС</b><div id="tickerText">Загружаем главные события Финляндии…</div><span class="arrow">→</span></section>
+
+      <section class="controls" id="feed">
+        <div class="chips" id="chips"><button class="chip active" data-category="Все">Все новости</button><button class="chip" data-category="Общество">Общество</button><button class="chip" data-category="Политика">Политика</button><button class="chip" data-category="Экономика">Экономика</button><button class="chip" data-category="Культура">Культура</button><button class="chip" data-category="Спорт">Спорт</button></div>
+        <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Поиск по новостям" aria-label="Поиск по новостям" /></label>
+      </section>
+
+      <section class="news-layout">
+        <div class="content-area">
+          <div class="section-head"><h2>Последние новости</h2><span id="resultCount"></span></div>
+          <div class="featured" id="featured"></div>
+          <div class="article-grid" id="articles"></div>
+          <p class="empty" id="empty" hidden>По вашему запросу ничего не найдено.</p>
+        </div>
+        <aside class="sidebar">
+          <section class="source-card"><p class="eyebrow">ИСТОЧНИКИ</p><h3>Проверенные<br />финские медиа</h3><div class="sources"><span>Yle</span><span>Helsingin Sanomat</span><span>MTV Uutiset</span><span>Ilta-Sanomat</span></div><a href="#about">Все источники →</a></section>
+          <section class="brief"><p class="eyebrow">КОРОТКО</p><h3>Финляндия в цифрах</h3><div><b>5,6 млн</b><span>население страны</span></div><div><b>+20 °C</b><span>сегодня в Хельсинки</span></div><div><b>2 языка</b><span>финский и шведский</span></div></section>
+        </aside>
+      </section>
+    </main>
+
+    <footer id="about"><a class="logo" href="#top">suomi<span>·</span>news</a><p>Новости Финляндии, понятные на русском.</p><p class="footer-note">Демо-проект · материалы представлены в ознакомительных целях</p></footer>
+    <dialog id="articleDialog"><button class="close" aria-label="Закрыть">×</button><div id="dialogContent"></div></dialog>
+    <script src="app.js"></script>
+  </body>
+</html>
