@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Финские Новости — дорожная карта</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: Canvas;
+      --text: CanvasText;
+      --muted: color-mix(in srgb, CanvasText 62%, Canvas);
+      --line: color-mix(in srgb, CanvasText 22%, Canvas);
+      --soft: color-mix(in srgb, AccentColor 10%, Canvas);
+      --done: color-mix(in srgb, AccentColor 72%, CanvasText);
+      --pending: color-mix(in srgb, CanvasText 12%, Canvas);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 36px 20px 52px; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(1.65rem, 4vw, 2.5rem); letter-spacing: -0.035em; }
+    h2 { font-size: 1.1rem; }
+    .subtitle { margin-top: 8px; color: var(--muted); }
+    .overview {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 22px;
+      align-items: end;
+      margin: 30px 0 36px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--soft);
+    }
+    .progress-label { color: var(--muted); font-size: .9rem; }
+    .progress-value { font-size: 2rem; font-weight: 650; letter-spacing: -0.04em; }
+    .progress-track { height: 12px; margin-top: 10px; border-radius: 999px; background: var(--pending); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; background: var(--done); transition: width .25s ease; }
+    .overview-note { max-width: 280px; color: var(--muted); font-size: .9rem; }
+    .tree { display: grid; gap: 26px; }
+    .phase { position: relative; padding-left: 28px; }
+    .phase::before {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 35px;
+      bottom: -27px;
+      width: 1px;
+      background: var(--line);
+    }
+    .phase:last-child::before { display: none; }
+    .phase-header { position: relative; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .phase-dot {
+      position: absolute;
+      left: -28px;
+      width: 15px;
+      height: 15px;
+      border: 2px solid var(--line);
+      border-radius: 50%;
+      background: var(--page);
+    }
+    .phase.is-complete .phase-dot { border-color: var(--done); background: var(--done); }
+    .phase-meta { color: var(--muted); font-size: .86rem; }
+    .tasks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .task {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 11px;
+      align-items: start;
+      min-height: 116px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--page);
+      cursor: pointer;
+    }
+    .task:has(input:checked) { border-color: var(--done); background: var(--soft); }
+    .task input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--done); }
+    .task-title { font-weight: 650; }
+    .task-detail { margin-top: 5px; color: var(--muted); font-size: .88rem; }
+    .task-status { display: inline-block; margin-top: 9px; color: var(--muted); font-size: .78rem; }
+    .task:has(input:checked) .task-status { color: var(--done); font-weight: 650; }
+    .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 32px; color: var(--muted); font-size: .86rem; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .legend i { width: 12px; height: 12px; display: inline-block; border-radius: 50%; border: 1px solid var(--line); }
+    .legend .complete { background: var(--done); border-color: var(--done); }
+    @media (max-width: 760px) {
+      main { padding: 26px 16px 40px; }
+      .overview { grid-template-columns: 1fr; }
+      .tasks { grid-template-columns: 1fr; }
+      .task { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main id="project-roadmap">
+    <header>
+      <h1>Финские Новости</h1>
+      <p class="subtitle">Дорожная карта: RSS-агрегатор → AI-пересказ → SEO-архив → запуск</p>
+    </header>
+
+    <section class="overview" aria-label="Общий прогресс проекта">
+      <div>
+        <div class="progress-label">Готовность проекта</div>
+        <div class="progress-value"><span id="done-count">0</span> из <span id="total-count">0</span> задач</div>
+        <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+      <p class="overview-note">Отмечайте карточку после принятия результата Tech Lead. Прогресс сохраняется в этом браузере.</p>
+    </section>
+
+    <section class="tree" aria-label="Этапы разработки">
+      <article class="phase">
+        <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>01 · Основа проекта</h2><span class="phase-meta">3 задачи</span></div>
+        <div class="tasks">
+          <label class="task"><input type="checkbox" data-task="brief" checked><span><span class="task-title">Техническая сводка изучена</span><span class="task-detail">Цели, риски и текущая архитектура зафиксированы.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="source" checked><span><span class="task-title">Исходники извлечены из ZIP</span><span class="task-detail">Бэкенд перенесён в Git-репозиторий, секреты и кэш исключены.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="lock" checked><span><span class="task-title">Зависимости зафиксированы</span><span class="task-detail">Создан package-lock.json для воспроизводимой установки.</span><span class="task-status">Выполнено</span></span></label>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>02 · Проверка текущего API</h2><span class="phase-meta">3 задачи</span></div>
+        <div class="tasks">
+          <label class="task"><input type="checkbox" data-task="rss" checked><span><span class="task-title">Проверены четыре RSS-источника</span><span class="task-detail">YLE, HS, Iltalehti и Ilta-Sanomat отвечают корректно.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="api" checked><span><span class="task-title">Mock API протестирован</span><span class="task-detail">Лента, фильтры, лимит и ручное обновление прошли проверку.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="dotenv" checked><span><span class="task-title">Исправить загрузку .env</span><span class="task-detail">Прямой запуск refresh-once корректно получает mock-провайдер.</span><span class="task-status">Выполнено</span></span></label>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>03 · Постоянный архив и SEO</h2><span class="phase-meta">4 задачи</span></div>
+        <div class="tasks">
+          <label class="task"><input type="checkbox" data-task="architecture" checked><span><span class="task-title">Утвердить SQLite + SSR-архитектуру</span><span class="task-detail">Единая модель публикации вместо двух несвязанных систем.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="database" checked><span><span class="task-title">Реализовать и проверить SQLite</span><span class="task-detail">Статьи и миграция JSON работают; комментарии и резервное копирование — позднее.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="ssr" checked><span><span class="task-title">Запустить SSR-страницы и архив</span><span class="task-detail">Постоянные URL, пагинация, категории и страницы статей.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="seo" checked><span><span class="task-title">Добавить sitemap и robots.txt</span><span class="task-detail">Подготовить сайт к индексации поисковыми системами.</span><span class="task-status">Выполнено</span></span></label>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>04 · Интерфейс и редакция</h2><span class="phase-meta">4 задачи</span></div>
+        <div class="tasks">
+          <label class="task"><input type="checkbox" data-task="frontend" checked><span><span class="task-title">Интегрировать фронтенд с SSR</span><span class="task-detail">Адаптивная SSR-витрина готова без второй SPA-архитектуры.</span><span class="task-status">Выполнено</span></span></label>
+          <label class="task"><input type="checkbox" data-task="comments"><span><span class="task-title">Добавить комментарии с премодерацией</span><span class="task-detail">Антиспам, очередь модерации и безопасная публикация.</span><span class="task-status">Не начато</span></span></label>
+          <label class="task"><input type="checkbox" data-task="admin"><span><span class="task-title">Проверить админ-панель</span><span class="task-detail">Управление статьями, статистикой и модерацией.</span><span class="task-status">Не начато</span></span></label>
+          <label class="task"><input type="checkbox" data-task="qa" checked><span><span class="task-title">Пройти QA и мобильную проверку</span><span class="task-detail">Критические сценарии, безопасность SSR и экраны 360–1440 px проверены.</span><span class="task-status">Выполнено</span></span></label>
+        </div>
+      </article>
+
+      <article class="phase">
+        <div class="phase-header"><span class="phase-dot" aria-hidden="true"></span><h2>05 · Публикация</h2><span class="phase-meta">4 задачи</span></div>
+        <div class="tasks">
+          <label class="task"><input type="checkbox" data-task="github"><span><span class="task-title">Подготовить GitHub и CI</span><span class="task-detail">Проверки запускаются до публикации изменений.</span><span class="task-status">Не начато</span></span></label>
+          <label class="task"><input type="checkbox" data-task="coolify"><span><span class="task-title">Настроить деплой в Coolify</span><span class="task-detail">Сборка, переменные окружения, persistent storage и healthcheck.</span><span class="task-status">Не начато</span></span></label>
+          <label class="task"><input type="checkbox" data-task="https"><span><span class="task-title">Проверить DNS и HTTPS</span><span class="task-detail">Домен finskienovosti.fi, SSL и корректные редиректы.</span><span class="task-status">Не начато</span></span></label>
+          <label class="task"><input type="checkbox" data-task="launch"><span><span class="task-title">Запустить production</span><span class="task-detail">Финальная проверка, бэкап БД и мониторинг первой недели.</span><span class="task-status">Не начато</span></span></label>
+        </div>
+      </article>
+    </section>
+
+    <footer class="legend" aria-label="Легенда"><span><i class="complete"></i>выполнено</span><span><i></i>в работе или не начато</span></footer>
+  </main>
+  <script>
+    (() => {
+      const root = document.getElementById('project-roadmap');
+      const inputs = [...root.querySelectorAll('input[data-task]')];
+      const fill = document.getElementById('progress-fill');
+      const doneCount = document.getElementById('done-count');
+      const totalCount = document.getElementById('total-count');
+      const storageKey = 'finskienovosti-roadmap-v1';
+      const completedByTechLead = new Set(['brief', 'source', 'lock', 'rss', 'api', 'dotenv', 'architecture', 'database', 'ssr', 'seo', 'frontend', 'qa']);
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+      inputs.forEach((input) => {
+        if (completedByTechLead.has(input.dataset.task)) input.checked = true;
+        else if (Object.hasOwn(saved, input.dataset.task)) input.checked = saved[input.dataset.task];
+        input.addEventListener('change', update);
+      });
+
+      function update() {
+        const completed = inputs.filter((input) => input.checked).length;
+        const percent = Math.round((completed / inputs.length) * 100);
+        doneCount.textContent = completed;
+        totalCount.textContent = inputs.length;
+        fill.style.width = `${percent}%`;
+        root.querySelectorAll('.phase').forEach((phase) => {
+          const phaseInputs = [...phase.querySelectorAll('input')];
+          phase.classList.toggle('is-complete', phaseInputs.every((input) => input.checked));
+        });
+        localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(inputs.map((input) => [input.dataset.task, input.checked]))));
+      }
+
+      update();
+    })();
+  </script>
+</body>
+</html>
