@@ -1,0 +1,24 @@
+{
+  "name": "finskie-novosti-backend",
+  "version": "1.0.0",
+  "description": "Бэкенд для агрегатора Финские Новости: тянет RSS из YLE, HS, Iltalehti, IS и переводит на русский язык",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "refresh-once": "node src/fetchNews.js --once",
+    "db:migrate-json": "node src/migrateJsonToSqlite.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "rss-parser": "^3.13.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
