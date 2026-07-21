@@ -5,7 +5,7 @@ WORKDIR /app
 # better-sqlite3 is a native module. These build tools are needed when a
 # prebuilt binary is unavailable for the deployment platform.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends curl python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
