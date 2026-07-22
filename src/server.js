@@ -926,6 +926,7 @@ app.get('/admin', (req, res) => {
     articleStatus: typeof req.query.article === 'string' ? req.query.article : '',
     duplicateStatus: typeof req.query.duplicate === 'string' ? req.query.duplicate : '',
     siteUrl: SITE_URL,
+    tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
   }));
 });
 
