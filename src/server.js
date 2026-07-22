@@ -20,6 +20,7 @@ const {
 const { categorize } = require('./config');
 const {
   countArticles,
+  countUntranslatedArticles,
   countArticlesByCategory,
   countPublishedSearchResults,
   createComment,
@@ -27,6 +28,7 @@ const {
   createManualArticle,
   createImportedDraft,
   deleteArticle,
+  deleteUntranslatedArticles,
   deleteComment,
   findSimilarArticle,
   getAdminAuditLog,
@@ -947,6 +949,7 @@ app.get('/admin', (req, res) => {
     tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
     contactMessages: getContactMessages(100),
     unreadContactMessages: getUnreadContactMessageCount(),
+    untranslatedArticleCount: countUntranslatedArticles(),
   }));
 });
 
@@ -954,6 +957,13 @@ app.post('/admin/contact-messages/:id/read', requireAdminOrigin, (req, res) => {
   updateContactMessageStatus(Number(req.params.id), 'read');
   auditAdminAction(req, 'contact.read', 'contact_message', req.params.id);
   return res.redirect(303, '/admin?tab=messages');
+});
+
+app.post('/admin/articles/cleanup-untranslated', requireAdminOrigin, requireAdministrator, (req, res) => {
+  if (req.body.confirm !== 'DELETE_UNTRANSLATED') return res.status(400).type('text').send('Требуется подтверждение удаления.');
+  const deleted = deleteUntranslatedArticles();
+  auditAdminAction(req, 'article.cleanup_untranslated', 'articles', 'bulk', { deleted });
+  return res.redirect(303, `/admin?tab=articles&article=cleanup-${deleted}`);
 });
 
 app.get('/admin/statistics.csv', (req, res) => {

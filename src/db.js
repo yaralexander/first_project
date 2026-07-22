@@ -618,6 +618,16 @@ function deleteArticle(articleId) {
   return deleteArticleStatement(articleId);
 }
 
+function countUntranslatedArticles() {
+  return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE publication_status = 'published' AND (title_ru IS NULL OR trim(title_ru) = '' OR summary_ru IS NULL OR trim(summary_ru) = '')").get().count;
+}
+
+function deleteUntranslatedArticles() {
+  const rows = db.prepare("SELECT id FROM articles WHERE publication_status = 'published' AND (title_ru IS NULL OR trim(title_ru) = '' OR summary_ru IS NULL OR trim(summary_ru) = '')").all();
+  const remove = db.transaction(() => rows.reduce((total, row) => total + (deleteArticleStatement(row.id) ? 1 : 0), 0));
+  return remove();
+}
+
 function searchArticles({ query = '', limit = 50 } = {}) {
   const parsedLimit = Number.parseInt(limit, 10);
   const safeLimit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
@@ -1114,6 +1124,8 @@ module.exports = {
   deleteComment,
   deleteAdminSession,
   deleteArticle,
+  countUntranslatedArticles,
+  deleteUntranslatedArticles,
   findSimilarArticle,
   getAdminAuditLog,
   getAdminSession,
