@@ -6,7 +6,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
 const { getRussianVersion } = require('./russianVersion');
-const { PROMPT_VERSION } = require('./aiRetell');
+const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
@@ -76,6 +76,9 @@ const {
   updateComment,
   updateContactMessageStatus,
   updateArticleEditorial,
+  createEditorialDiscussion,
+  getEditorialDiscussions,
+  updateEditorialDiscussion,
 } = require('./db');
 const { categories, categoryFromSlug, categoryToSlug } = require('./categories');
 const { slugify } = require('./slugify');
@@ -927,7 +930,7 @@ app.post('/admin/logout', requireAdminOrigin, (req, res) => {
 app.get('/admin', (req, res) => {
   const statisticsFilters = parseStatisticsFilters(req.query);
   const articles = withReactionTotalsForList(searchArticles({ query: req.query.q, limit: 50 }))
-    .map((article) => ({ ...article, telegramPublication: getTelegramPublication(article.id) }));
+    .map((article) => ({ ...article, telegramPublication: getTelegramPublication(article.id), editorialDiscussions: getEditorialDiscussions(article.id) }));
   res.set('Cache-Control', 'no-store');
   res.type('html').send(renderAdminPage({
     comments: getAdminComments(100),
@@ -1201,6 +1204,26 @@ app.post('/admin/articles/:id/telegram', requireAdminOrigin, async (req, res) =>
   } finally {
     telegramSendingArticleIds.delete(id);
   }
+});
+
+app.post('/admin/articles/:id/discussions/generate', requireAdminOrigin, async (req, res) => {
+  const id = parseArticleId(req.params.id); const article = id ? getArticleById(id) : null;
+  if (!article) return res.status(404).type('text').send('Статья не найдена.');
+  try {
+    const items = await generateEditorialDiscussions({ titleRu: article.titleRu || article.titleFi, summaryRu: article.summaryRu || article.summaryFi, category: article.category });
+    items.forEach((item) => createEditorialDiscussion({ articleId:id, note:item.note, question:item.question, createdBy:req.adminAccount.username }));
+    auditAdminAction(req, 'editorial_discussion.generate', 'article', id, { count: items.length });
+    return res.redirect(303, `/admin?tab=articles&article=discussion-generated`);
+  } catch { return res.redirect(303, '/admin?tab=articles&article=discussion-error'); }
+});
+
+app.post('/admin/discussions/:id', requireAdminOrigin, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10); const status = String(req.body.status || 'draft');
+  const note = String(req.body.note || '').trim(); const question = String(req.body.question || '').trim();
+  if (!Number.isInteger(id) || !note || !question || note.length > 3000 || question.length > 500) return res.status(400).type('text').send('Проверьте редакционный текст.');
+  if (!updateEditorialDiscussion(id, { note, question, status })) return res.status(400).type('text').send('Недопустимый статус.');
+  auditAdminAction(req, `editorial_discussion.${status}`, 'discussion', id);
+  return res.redirect(303, '/admin?tab=articles');
 });
 
 app.post('/admin/comments/:id', requireAdminOrigin, (req, res) => {

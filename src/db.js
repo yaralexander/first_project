@@ -97,6 +97,19 @@ function createDatabase() {
       FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS editorial_discussions (
+      id INTEGER PRIMARY KEY,
+      article_id INTEGER NOT NULL,
+      note TEXT NOT NULL,
+      question TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft','approved','published','deleted')) DEFAULT 'draft',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_editorial_discussions_article_status ON editorial_discussions(article_id,status);
+
     CREATE INDEX IF NOT EXISTS idx_article_reactions_article
       ON article_reactions (article_id, reaction);
 
@@ -1104,6 +1117,18 @@ function updateContactMessageStatus(id, status) {
   return db.prepare('UPDATE contact_messages SET status = ? WHERE id = ?').run(status, id).changes === 1;
 }
 
+function createEditorialDiscussion({ articleId, note, question, createdBy }) {
+  return db.prepare('INSERT INTO editorial_discussions (article_id,note,question,created_by) VALUES (?,?,?,?)').run(articleId, note, question, createdBy).lastInsertRowid;
+}
+function getEditorialDiscussions(articleId) {
+  return db.prepare('SELECT * FROM editorial_discussions WHERE article_id = ? AND status != \'deleted\' ORDER BY id DESC').all(articleId).map((r) => ({ id:r.id, articleId:r.article_id, note:r.note, question:r.question, status:r.status, createdBy:r.created_by, createdAt:r.created_at }));
+}
+function updateEditorialDiscussion(id, fields) {
+  const allowed = new Set(['draft','approved','published','deleted']);
+  if (!allowed.has(fields.status)) return false;
+  return db.prepare('UPDATE editorial_discussions SET note = ?, question = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(fields.note, fields.question, fields.status, id).changes === 1;
+}
+
 function getUnreadContactMessageCount() {
   return db.prepare("SELECT COUNT(*) AS count FROM contact_messages WHERE status = 'new'").get().count;
 }
@@ -1170,4 +1195,7 @@ module.exports = {
   getContactMessages,
   getUnreadContactMessageCount,
   updateContactMessageStatus,
+  createEditorialDiscussion,
+  getEditorialDiscussions,
+  updateEditorialDiscussion,
 };
