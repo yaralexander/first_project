@@ -84,6 +84,7 @@ const {
   renderListPage,
   renderNotFound,
   renderAboutPage,
+  renderContactPage,
   renderRobots,
   renderSitemap,
 } = require('./render');
@@ -596,6 +597,10 @@ app.get('/about', (req, res) => {
   res.type('html').send(renderAboutPage({ siteUrl: SITE_URL }));
 });
 
+app.get('/contact', (req, res) => {
+  res.type('html').send(renderContactPage({ siteUrl: SITE_URL, status: typeof req.query.contact === 'string' ? req.query.contact : '' }));
+});
+
 app.get('/sitemap.xml', (req, res) => {
   const categorySlugs = getCategories().map(categoryToSlug).filter(Boolean);
   const sitemap = renderSitemap({
@@ -819,7 +824,7 @@ app.post('/contact', (req, res) => {
   const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
   if (!name || name.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !body || body.length > 3000) return res.status(400).redirect('/?contact=invalid#contact');
   createContactMessage({ name, email, body });
-  return res.redirect(303, '/?contact=sent#contact');
+  return res.redirect(303, '/contact?contact=sent');
 });
 
 app.get('/admin/basic', (req, res) => {
