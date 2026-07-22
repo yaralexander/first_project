@@ -228,9 +228,9 @@ function toDateTimeLocal(value) {
 }
 
 function renderTelegramControl(article, telegramConfigured) {
-  if (article.telegramPublication) return `<p class="form-message" role="status">Отправлено в Telegram: ${escapeHtml(formatDate(article.telegramPublication.sentAt))}.</p>`;
+  if (article.telegramPublication) return `<p class="form-message" role="status">✓ Опубликовано в Telegram: ${escapeHtml(formatDate(article.telegramPublication.sentAt))}.</p>`;
   if (!telegramConfigured) return '<p class="summary">Telegram не настроен: укажите переменные на сервере.</p>';
-  return `<form action="/admin/articles/${article.id}/telegram" method="post"><button type="submit">Отправить в Telegram</button></form>`;
+  return `<form class="telegram-publish-form" action="/admin/articles/${article.id}/telegram" method="post"><button class="telegram-publish-button" type="submit">✈ Запостить в Telegram</button></form>`;
 }
 
 function renderAdminArticleForm(article, categories, telegramConfigured, canDelete) {
@@ -301,6 +301,7 @@ function renderAdminPage({
   siteUrl,
   tab = 'stats',
   contactMessages = [],
+  unreadContactMessages = 0,
 }) {
   const canDelete = currentAccount && currentAccount.role === 'admin';
   const statusLabels = { pending: 'На модерации', approved: 'Опубликован', rejected: 'Отклонён' };
@@ -346,7 +347,8 @@ function renderAdminPage({
   const activeTab = new Set(['stats', 'articles', 'comments', 'duplicates', 'audit', 'messages']).has(tab) ? tab : 'stats';
   const tabPanel = (name, label, html) => `<section class="admin-tab-panel${activeTab === name ? ' is-active' : ''}" id="admin-tab-${name}" data-admin-tab="${name}"><h2 class="sr-only">${label}</h2>${html}</section>`;
   const contactMarkup = contactMessages.length ? `<div class="admin-list">${contactMessages.map((message) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(message.name)} · <a href="mailto:${escapeHtml(message.email)}">${escapeHtml(message.email)}</a></h2><span class="admin-status admin-status--${escapeHtml(message.status)}">${escapeHtml(message.status === 'new' ? 'Новое' : message.status === 'read' ? 'Прочитано' : 'Архив')}</span></div><time class="comment-date">${escapeHtml(formatDate(message.createdAt))}</time><p class="comment-body">${escapeHtml(message.body)}</p>${message.status === 'new' ? `<form action="/admin/contact-messages/${message.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>` : '<p class="summary">Сообщений пока нет.</p>';
-  const tabNav = `<nav class="admin-tabs" aria-label="Разделы админ-панели">${[['stats', '📊 Статистика'], ['articles', '📰 Статьи'], ['comments', '💬 Комментарии'], ['messages', '✉️ Сообщения'], ['duplicates', '🔎 Повторы'], ['audit', '🛡 Журнал']].map(([name, label]) => `<a class="${activeTab === name ? 'active' : ''}" href="/admin?tab=${name}">${label}</a>`).join('')}</nav>`;
+  const messageBadge = unreadContactMessages > 0 ? ` <span class="admin-tab-badge" aria-label="Непрочитанных: ${unreadContactMessages}">${unreadContactMessages > 99 ? '99+' : unreadContactMessages}</span>` : '';
+  const tabNav = `<nav class="admin-tabs" aria-label="Разделы админ-панели">${[['stats', '📊 Статистика'], ['articles', '📰 Статьи'], ['comments', '💬 Комментарии'], ['messages', `✉️ Сообщения${messageBadge}`], ['duplicates', '🔎 Повторы'], ['audit', '🛡 Журнал']].map(([name, label]) => `<a class="${activeTab === name ? 'active' : ''}" href="/admin?tab=${name}">${label}</a>`).join('')}</nav>`;
   const content = `<div class="admin-wrap">
     <header class="admin-hero"><div><p class="eyebrow">Закрытая зона</p><h1 class="page-heading">Редакция и модерация</h1></div><div class="admin-account"><p>Вошли как <strong>${escapeHtml(currentAccount.displayName || currentAccount.username)}</strong> · ${escapeHtml(currentAccount.role)} · ${escapeHtml(currentAccount.authMethod || 'basic')}</p><form action="/admin/logout" method="post"><button type="submit">Выйти</button></form></div></header>
     ${notices}${tabNav}

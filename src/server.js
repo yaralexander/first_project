@@ -32,6 +32,7 @@ const {
   getAdminAuditLog,
   getAdminComments,
   getContactMessages,
+  getUnreadContactMessageCount,
   getAdminSources,
   getAdminStatistics,
   getArticleBySlug,
@@ -945,6 +946,7 @@ app.get('/admin', (req, res) => {
     siteUrl: SITE_URL,
     tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
     contactMessages: getContactMessages(100),
+    unreadContactMessages: getUnreadContactMessageCount(),
   }));
 });
 

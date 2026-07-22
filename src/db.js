@@ -1094,6 +1094,10 @@ function updateContactMessageStatus(id, status) {
   return db.prepare('UPDATE contact_messages SET status = ? WHERE id = ?').run(status, id).changes === 1;
 }
 
+function getUnreadContactMessageCount() {
+  return db.prepare("SELECT COUNT(*) AS count FROM contact_messages WHERE status = 'new'").get().count;
+}
+
 module.exports = {
   articleExists,
   cleanupAnalytics,
@@ -1152,5 +1156,6 @@ module.exports = {
   updateCommentStatus,
   createContactMessage,
   getContactMessages,
+  getUnreadContactMessageCount,
   updateContactMessageStatus,
 };
