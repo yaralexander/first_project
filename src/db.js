@@ -54,6 +54,17 @@ function createDatabase() {
     CREATE INDEX IF NOT EXISTS idx_comments_status_created_at
       ON comments (status, created_at);
 
+    CREATE TABLE IF NOT EXISTS contact_messages (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('new', 'read', 'archived')) DEFAULT 'new',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_contact_messages_status_created_at
+      ON contact_messages (status, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS analytics_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -1070,6 +1081,19 @@ function deleteComment(commentId) {
   return db.prepare('DELETE FROM comments WHERE id = ?').run(commentId).changes === 1;
 }
 
+function createContactMessage({ name, email, body }) {
+  return db.prepare('INSERT INTO contact_messages (name, email, body) VALUES (?, ?, ?)').run(name, email, body).lastInsertRowid;
+}
+
+function getContactMessages(limit = 100) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 300);
+  return db.prepare('SELECT id, name, email, body, status, created_at FROM contact_messages ORDER BY CASE status WHEN \'new\' THEN 0 WHEN \'read\' THEN 1 ELSE 2 END, created_at DESC, id DESC LIMIT ?').all(safeLimit).map((row) => ({ id: row.id, name: row.name, email: row.email, body: row.body, status: row.status, createdAt: row.created_at }));
+}
+
+function updateContactMessageStatus(id, status) {
+  return db.prepare('UPDATE contact_messages SET status = ? WHERE id = ?').run(status, id).changes === 1;
+}
+
 module.exports = {
   articleExists,
   cleanupAnalytics,
@@ -1126,4 +1150,7 @@ module.exports = {
   updateArticleEditorial,
   updateComment,
   updateCommentStatus,
+  createContactMessage,
+  getContactMessages,
+  updateContactMessageStatus,
 };

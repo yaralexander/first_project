@@ -23,6 +23,7 @@ const {
   countArticlesByCategory,
   countPublishedSearchResults,
   createComment,
+  createContactMessage,
   createManualArticle,
   createImportedDraft,
   deleteArticle,
@@ -30,6 +31,7 @@ const {
   findSimilarArticle,
   getAdminAuditLog,
   getAdminComments,
+  getContactMessages,
   getAdminSources,
   getAdminStatistics,
   getArticleBySlug,
@@ -69,6 +71,7 @@ const {
   resolveDuplicateArticle,
   updateCommentStatus,
   updateComment,
+  updateContactMessageStatus,
   updateArticleEditorial,
 } = require('./db');
 const { categories, categoryFromSlug, categoryToSlug } = require('./categories');
@@ -810,6 +813,15 @@ app.get('/admin/login', (req, res) => {
   }));
 });
 
+app.post('/contact', (req, res) => {
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
+  const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
+  if (!name || name.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !body || body.length > 3000) return res.status(400).redirect('/?contact=invalid#contact');
+  createContactMessage({ name, email, body });
+  return res.redirect(303, '/?contact=sent#contact');
+});
+
 app.get('/admin/basic', (req, res) => {
   const account = verifyAdminAuthorization(req.get('authorization'), ADMIN_ACCOUNTS);
   if (!account) {
@@ -927,7 +939,14 @@ app.get('/admin', (req, res) => {
     duplicateStatus: typeof req.query.duplicate === 'string' ? req.query.duplicate : '',
     siteUrl: SITE_URL,
     tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
+    contactMessages: getContactMessages(100),
   }));
+});
+
+app.post('/admin/contact-messages/:id/read', requireAdminOrigin, (req, res) => {
+  updateContactMessageStatus(Number(req.params.id), 'read');
+  auditAdminAction(req, 'contact.read', 'contact_message', req.params.id);
+  return res.redirect(303, '/admin?tab=messages');
 });
 
 app.get('/admin/statistics.csv', (req, res) => {
