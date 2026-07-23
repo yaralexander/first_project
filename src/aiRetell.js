@@ -113,4 +113,14 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
   return { titleRu: parsed.titleRu.trim(), summaryRu: parsed.summaryRu.trim() };
 }
 
-module.exports = { retellArticle, PROMPT_VERSION };
+async function generateEditorialDiscussions({ titleRu, summaryRu, category }, attempt = 1) {
+  if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY не задан в .env');
+  const response = await fetch(API_URL, { method:'POST', headers:{'x-api-key':ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01','Content-Type':'application/json'}, body:JSON.stringify({ model:MODEL, max_tokens:900, system:'Ты редактор русскоязычного новостного сайта. Создай 3–5 вариантов редакционных начал дискуссии. Это не пользовательские комментарии и не отзывы. Каждый вариант: note — 2–5 нейтральных предложений по фактам статьи; question — один ясный вопрос читателям. Не выдумывай факты. Ответ строго JSON: {"items":[{"note":"...","question":"..."}]}', messages:[{role:'user',content:`Категория: ${category}\nЗаголовок: ${titleRu}\nПересказ: ${summaryRu}`}]} )});
+  if ((response.status === 429 || response.status >= 500) && attempt < 3) { await sleep(attempt * 1200); return generateEditorialDiscussions({titleRu,summaryRu,category}, attempt+1); }
+  if (!response.ok) throw new Error(`Anthropic API error ${response.status}`);
+  const data = await response.json(); const block = (data.content||[]).find((b)=>b.type==='text'); if (!block) throw new Error('Пустой ответ');
+  const parsed = extractJson(block.text); if (!Array.isArray(parsed.items)) throw new Error('Неверный формат дискуссии');
+  return parsed.items.slice(0,5).filter((x)=>x && x.note && x.question).map((x)=>({note:String(x.note).trim(),question:String(x.question).trim()}));
+}
+
+module.exports = { retellArticle, generateEditorialDiscussions, PROMPT_VERSION };

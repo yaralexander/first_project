@@ -4,7 +4,13 @@ const Parser = require('rss-parser');
 const { SOURCES, categorize } = require('./config');
 const { getRussianVersion } = require('./russianVersion');
 const { PROMPT_VERSION } = require('./aiRetell');
-const { articleExists, getNews, insertArticle } = require('./db');
+const {
+  articleExists,
+  findSimilarArticle,
+  getNews,
+  insertArticle,
+  recordDuplicateArticle,
+} = require('./db');
 const { slugify } = require('./slugify');
 
 const parser = new Parser({
@@ -46,12 +52,37 @@ async function fetchSource(source) {
       const titleFi = (entry.title || '').trim();
       const summaryFi = stripHtml(entry.contentSnippet || entry.content || entry.summary || '');
       const originalUrl = entry.link || entry.guid;
+      const publishedAt = entry.isoDate || entry.pubDate || null;
+      const category = categorize(titleFi, summaryFi);
       if (!titleFi || !originalUrl) {
         skipped += 1;
         continue;
       }
       if (articleExists(originalUrl)) {
         skipped += 1;
+        continue;
+      }
+      const similarArticle = findSimilarArticle({
+        sourceId: source.id,
+        titleFi,
+        summaryFi: summaryFi.slice(0, 800),
+        publishedAt,
+      });
+      if (similarArticle) {
+        recordDuplicateArticle({
+          originalUrl,
+          sourceId: source.id,
+          sourceName: source.name,
+          titleFi,
+          summaryFi: summaryFi.slice(0, 800),
+          externalGuid: entry.guid || null,
+          category,
+          publishedAt,
+          matchedArticleId: similarArticle.id,
+          similarity: similarArticle.similarity,
+        });
+        skipped += 1;
+        console.log(`[fetchSource] похожая тема пропущена: ${source.name} → ${similarArticle.sourceName} (${Math.round(similarArticle.similarity * 100)}%)`);
         continue;
       }
 
@@ -72,14 +103,14 @@ async function fetchSource(source) {
         originalUrl,
         externalGuid: entry.guid || null,
         slug: slugify(result.titleRu || titleFi, originalUrl || entry.guid),
-        category: categorize(titleFi, summaryFi),
+        category,
         titleFi,
         summaryFi,
         titleRu: result.titleRu,
         summaryRu: result.summaryRu,
         translationMethod: result.method,
         promptVersion: PROMPT_VERSION,
-        publishedAt: entry.isoDate || entry.pubDate || null,
+        publishedAt,
       })) inserted += 1;
       else skipped += 1;
     }
