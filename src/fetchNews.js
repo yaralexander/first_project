@@ -46,6 +46,7 @@ function stripHtml(html = '') {
 async function fetchSource(source) {
   let inserted = 0;
   let skipped = 0;
+  const insertedArticles = [];
   try {
     const feed = await parser.parseURL(source.url);
     for (const entry of feed.items || []) {
@@ -97,7 +98,7 @@ async function fetchSource(source) {
         continue;
       }
 
-      if (insertArticle({
+      const article = {
         sourceId: source.id,
         sourceName: source.name,
         originalUrl,
@@ -111,13 +112,20 @@ async function fetchSource(source) {
         translationMethod: result.method,
         promptVersion: PROMPT_VERSION,
         publishedAt,
-      })) inserted += 1;
-      else skipped += 1;
+        editorialStatus: 'normal',
+      };
+
+      if (insertArticle(article)) {
+        inserted += 1;
+        insertedArticles.push(article);
+      } else {
+        skipped += 1;
+      }
     }
   } catch (err) {
     console.error(`[fetchSource] ${source.name} (${source.url}) — ошибка:`, err.message);
   }
-  return { inserted, skipped };
+  return { inserted, skipped, insertedArticles };
 }
 
 async function fetchAllNews() {
@@ -125,8 +133,9 @@ async function fetchAllNews() {
   const results = await Promise.all(SOURCES.map(fetchSource));
   const inserted = results.reduce((sum, result) => sum + result.inserted, 0);
   const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
+  const insertedArticles = results.flatMap((result) => result.insertedArticles || []);
   console.log(`[fetchAllNews] добавлено: ${inserted}, пропущено: ${skipped}`);
-  return getNews().items;
+  return insertedArticles;
 }
 
 function getCachedNews() {

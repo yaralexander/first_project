@@ -179,6 +179,36 @@ function createDatabase() {
       ON admin_sessions (expires_at);
     CREATE INDEX IF NOT EXISTS idx_admin_sessions_email
       ON admin_sessions (email);
+
+    CREATE TABLE IF NOT EXISTS user_oauth_states (
+      state_hash TEXT PRIMARY KEY, nonce TEXT NOT NULL, code_verifier TEXT NOT NULL,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token_hash TEXT PRIMARY KEY, google_sub TEXT NOT NULL, email TEXT NOT NULL,
+      display_name TEXT, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS telegram_user_links (
+      user_id TEXT PRIMARY KEY, telegram_chat_id TEXT UNIQUE, link_code_hash TEXT UNIQUE,
+      code_expires_at TEXT, linked_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS user_subscriptions (
+      user_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
+      frequency TEXT NOT NULL DEFAULT 'daily' CHECK (frequency IN ('instant','daily')),
+      categories TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'finland' CHECK (scope IN ('finland','all')),
+      importance TEXT NOT NULL DEFAULT 'all' CHECK (importance IN ('all','important')),
+      source_ids TEXT NOT NULL DEFAULT '', max_posts_per_day INTEGER NOT NULL DEFAULT 5,
+      include_original INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS telegram_user_deliveries (
+      id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, article_id INTEGER NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, telegram_message_id TEXT,
+      UNIQUE(user_id, article_id), FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_user_deliveries_user_day
+      ON telegram_user_deliveries (user_id, sent_at DESC);
   `);
 
   const articleColumns = new Set(db.prepare('PRAGMA table_info(articles)').all().map((column) => column.name));
@@ -1002,6 +1032,89 @@ function cleanupAdminAuthData(now = new Date().toISOString()) {
   return cleanup();
 }
 
+function createUserOAuthState({ stateHash, nonce, codeVerifier, expiresAt }) {
+  db.prepare('INSERT INTO user_oauth_states (state_hash, nonce, code_verifier, expires_at) VALUES (?, ?, ?, ?)').run(stateHash, nonce, codeVerifier, expiresAt);
+}
+function consumeUserOAuthState(stateHash) {
+  const row = db.prepare('SELECT * FROM user_oauth_states WHERE state_hash = ?').get(stateHash);
+  if (row) db.prepare('DELETE FROM user_oauth_states WHERE state_hash = ?').run(stateHash);
+  return row ? { stateHash: row.state_hash, nonce: row.nonce, codeVerifier: row.code_verifier, expiresAt: row.expires_at } : null;
+}
+function createUserSession({ tokenHash, googleSub, email, displayName, expiresAt }) {
+  db.prepare('INSERT INTO user_sessions (token_hash, google_sub, email, display_name, expires_at) VALUES (?, ?, ?, ?, ?)').run(tokenHash, googleSub, email, displayName || null, expiresAt);
+}
+function getUserSession(tokenHash) {
+  const row = db.prepare("SELECT * FROM user_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime('now')").get(tokenHash);
+  if (!row) return null;
+  db.prepare('UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = ?').run(tokenHash);
+  return { tokenHash: row.token_hash, googleSub: row.google_sub, email: row.email, displayName: row.display_name, expiresAt: row.expires_at };
+}
+function deleteUserSession(tokenHash) { return db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(tokenHash).changes === 1; }
+function getUserSubscription(userId) {
+  const row = db.prepare('SELECT * FROM user_subscriptions WHERE user_id = ?').get(userId);
+  if (!row) return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
+  return { userId, enabled: Boolean(row.enabled), frequency: row.frequency, categories: row.categories ? row.categories.split(',').filter(Boolean) : [], scope: row.scope, importance: row.importance, sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [], maxPostsPerDay: row.max_posts_per_day, includeOriginal: Boolean(row.include_original) };
+}
+function getActiveUserSubscriptions() {
+  return db.prepare(`
+    SELECT subscriptions.user_id, subscriptions.enabled, subscriptions.frequency,
+      subscriptions.categories, subscriptions.scope, subscriptions.importance,
+      subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
+      links.telegram_chat_id, links.linked_at
+    FROM user_subscriptions AS subscriptions
+    JOIN telegram_user_links AS links ON links.user_id = subscriptions.user_id
+    WHERE subscriptions.enabled = 1 AND links.telegram_chat_id IS NOT NULL
+    ORDER BY subscriptions.updated_at DESC, subscriptions.user_id ASC
+  `).all().map((row) => ({
+    userId: row.user_id,
+    enabled: Boolean(row.enabled),
+    frequency: row.frequency,
+    categories: row.categories ? row.categories.split(',').filter(Boolean) : [],
+    scope: row.scope,
+    importance: row.importance,
+    sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [],
+    maxPostsPerDay: row.max_posts_per_day,
+    includeOriginal: Boolean(row.include_original),
+    telegramChatId: row.telegram_chat_id,
+    linkedAt: row.linked_at,
+  }));
+}
+function upsertUserSubscription({ userId, enabled, frequency, categories, scope, importance, sourceIds, maxPostsPerDay, includeOriginal }) {
+  db.prepare(`INSERT INTO user_subscriptions (user_id,enabled,frequency,categories,scope,importance,source_ids,max_posts_per_day,include_original,updated_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,frequency=excluded.frequency,categories=excluded.categories,scope=excluded.scope,importance=excluded.importance,source_ids=excluded.source_ids,max_posts_per_day=excluded.max_posts_per_day,include_original=excluded.include_original,updated_at=CURRENT_TIMESTAMP`).run(userId, enabled ? 1 : 0, frequency, categories.join(','), scope, importance, sourceIds.join(','), maxPostsPerDay, includeOriginal ? 1 : 0);
+}
+function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepare('INSERT INTO telegram_user_links (user_id,link_code_hash,code_expires_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET link_code_hash=excluded.link_code_hash,code_expires_at=excluded.code_expires_at,telegram_chat_id=NULL,linked_at=NULL').run(userId, linkCodeHash, expiresAt); }
+function linkTelegramUser({ linkCodeHash, telegramChatId }) { return db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").run(String(telegramChatId), linkCodeHash).changes === 1; }
+function getTelegramUserLink(userId) { const row = db.prepare('SELECT telegram_chat_id, linked_at FROM telegram_user_links WHERE user_id = ?').get(userId); return row ? { telegramChatId: row.telegram_chat_id, linkedAt: row.linked_at } : null; }
+function countTelegramUserDeliveries({ userId, day }) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM telegram_user_deliveries
+    WHERE user_id = ?
+      AND date(sent_at) = date(?)
+  `).get(userId, day);
+  return row.count;
+}
+function recordTelegramUserDelivery({ userId, articleId, telegramMessageId = null }) {
+  return db.prepare(`
+    INSERT INTO telegram_user_deliveries (user_id, article_id, telegram_message_id)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id, article_id) DO UPDATE SET
+      telegram_message_id = COALESCE(excluded.telegram_message_id, telegram_user_deliveries.telegram_message_id)
+  `).run(userId, articleId, telegramMessageId ? String(telegramMessageId) : null).changes > 0;
+}
+function hasTelegramUserDelivery({ userId, articleId }) {
+  return Boolean(db.prepare('SELECT 1 FROM telegram_user_deliveries WHERE user_id = ? AND article_id = ?').get(userId, articleId));
+}
+function getPublishedArticlesSince(sinceIso) {
+  return db.prepare(`
+    SELECT *
+    FROM articles
+    WHERE publication_status = 'published'
+      AND datetime(published_at) >= datetime(?)
+    ORDER BY published_at ASC, id ASC
+  `).all(sinceIso).map(toArticle);
+}
+
 function createComment({ articleId, authorName, body }) {
   return db.prepare(`
     INSERT INTO comments (article_id, author_name, body, status)
@@ -1178,6 +1291,21 @@ module.exports = {
   publishArticle,
   publishScheduledArticles,
   cleanupAdminAuthData,
+  createUserOAuthState,
+  consumeUserOAuthState,
+  createUserSession,
+  getUserSession,
+  deleteUserSession,
+  getUserSubscription,
+  getActiveUserSubscriptions,
+  upsertUserSubscription,
+  createTelegramLinkCode,
+  linkTelegramUser,
+  getTelegramUserLink,
+  countTelegramUserDeliveries,
+  recordTelegramUserDelivery,
+  hasTelegramUserDelivery,
+  getPublishedArticlesSince,
   consumeAdminOAuthState,
   recordAdminAction,
   recordView,

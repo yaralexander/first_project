@@ -55,6 +55,17 @@ const {
   consumeAdminOAuthState,
   createAdminOAuthState,
   createAdminSession,
+  createUserOAuthState,
+  consumeUserOAuthState,
+  createUserSession,
+  getUserSession,
+  deleteUserSession,
+  getUserSubscription,
+  getActiveUserSubscriptions,
+  upsertUserSubscription,
+  createTelegramLinkCode,
+  getTelegramUserLink,
+  linkTelegramUser,
   deleteAdminSession,
   getAdminSession,
   recordView,
@@ -65,10 +76,14 @@ const {
   getSitemapArticles,
   getTelegramPublication,
   insertArticle,
+  getPublishedArticlesSince,
   getReactionTotals,
   recordArticleReaction,
   recordAdminAction,
   recordTelegramPublication,
+  countTelegramUserDeliveries,
+  recordTelegramUserDelivery,
+  hasTelegramUserDelivery,
   publishArticle,
   publishScheduledArticles,
   resolveDuplicateArticle,
@@ -130,6 +145,8 @@ const ADMIN_SESSION_HOURS = Number.isInteger(configuredAdminSessionHours)
   : 12;
 const ADMIN_SESSION_COOKIE = 'fn_admin_session';
 const ADMIN_OAUTH_STATE_COOKIE = 'fn_admin_oauth_state';
+const USER_SESSION_COOKIE = 'fn_user_session';
+const USER_OAUTH_STATE_COOKIE = 'fn_user_oauth_state';
 const ADMIN_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 const configuredCommentWindow = Number.parseInt(process.env.COMMENT_RATE_LIMIT_WINDOW_SECONDS || '600', 10);
@@ -169,6 +186,7 @@ function getSiteUrl() {
 
 const SITE_URL = getSiteUrl();
 const GOOGLE_OAUTH_REDIRECT_URI = `${SITE_URL}/admin/auth/google/callback`;
+const GOOGLE_USER_OAUTH_REDIRECT_URI = `${SITE_URL}/account/auth/google/callback`;
 const GOOGLE_AUTH_ENABLED = Boolean(
   GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_ADMIN_ACCOUNTS.length,
 );
@@ -179,9 +197,12 @@ const GOOGLE_AUTH_PROVIDER = GOOGLE_AUTH_ENABLED
     redirectUri: GOOGLE_OAUTH_REDIRECT_URI,
   })
   : null;
+const GOOGLE_USER_AUTH_ENABLED = Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET);
+const GOOGLE_USER_AUTH_PROVIDER = GOOGLE_USER_AUTH_ENABLED ? createGoogleAuthProvider({ clientId: GOOGLE_OAUTH_CLIENT_ID, clientSecret: GOOGLE_OAUTH_CLIENT_SECRET, redirectUri: GOOGLE_USER_OAUTH_REDIRECT_URI }) : null;
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
 function getTelegramApiBaseUrl() {
   try {
@@ -268,6 +289,28 @@ function getGoogleAdminSession(req) {
     session: { ...session, role: configuredAccount.role },
     tokenHash,
   };
+}
+
+function getUserAuth(req) {
+  const token = getCookie(req, USER_SESSION_COOKIE);
+  if (!token || token.length > 300) return null;
+  const tokenHash = sha256(token);
+  const session = getUserSession(tokenHash);
+  return session ? { ...session, tokenHash } : null;
+}
+function setUserSessionCookie(res, token) {
+  const parts = [`${USER_SESSION_COOKIE}=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=43200'];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+function clearUserSessionCookie(res) { res.append('Set-Cookie', `${USER_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`); }
+function simpleAccountPage(req, res, message = '') {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const sub = getUserSubscription(user.googleSub);
+  const link = getTelegramUserLink(user.googleSub);
+  const categoriesOptions = categories.map((c) => `<label><input type="checkbox" name="categories" value="${c}"${sub.categories.includes(c) ? ' checked' : ''}>${c}</label>`).join('');
+  return res.type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Мои подписки — Финские Новости</title><style>body{font:16px system-ui;background:#f4f6f9;color:#14213d;max-width:760px;margin:40px auto;padding:0 20px}main{background:#fff;padding:28px;border-radius:18px;box-shadow:0 8px 30px #14213d18}label{display:inline-block;margin:8px 12px 8px 0}select,input{padding:9px;border:1px solid #ccd5e2;border-radius:8px}button{padding:11px 16px;border:0;border-radius:9px;background:#0d2b52;color:#fff;font-weight:700}.row{margin:18px 0}.msg{background:#e6f7ee;padding:10px;border-radius:8px}</style></head><body><main><p><a href="/">← На сайт</a></p><h1>Моя Telegram-рассылка</h1><p>Вы вошли как ${user.email}. Редакционный канал сайта и ваша персональная рассылка работают отдельно.</p>${message ? `<p class="msg">${message}</p>` : ''}<form method="post" action="/account/subscription"><div class="row"><label><input type="checkbox" name="enabled" ${sub.enabled ? 'checked' : ''}> Включить рассылку</label></div><div class="row">Частота: <select name="frequency"><option value="instant" ${sub.frequency === 'instant' ? 'selected' : ''}>Сразу после публикации</option><option value="daily" ${sub.frequency === 'daily' ? 'selected' : ''}>Ежедневная подборка</option></select></div><div class="row">Охват: <select name="scope"><option value="finland" ${sub.scope === 'finland' ? 'selected' : ''}>Только Финляндия</option><option value="all" ${sub.scope === 'all' ? 'selected' : ''}>Финляндия и мир</option></select></div><div class="row">Важность: <select name="importance"><option value="all" ${sub.importance === 'all' ? 'selected' : ''}>Все выбранные статьи</option><option value="important" ${sub.importance === 'important' ? 'selected' : ''}>Только важные и срочные</option></select></div><div class="row"><strong>Темы</strong><br>${categoriesOptions || '<span>Нет доступных категорий.</span>'}</div><div class="row">Максимум постов в день: <input name="max_posts_per_day" type="number" min="1" max="30" value="${sub.maxPostsPerDay}"></div><div class="row"><label><input type="checkbox" name="include_original" ${sub.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинал</label></div><button>Сохранить настройки</button></form><hr><h2>Подключение Telegram</h2><p>${link && link.telegramChatId ? 'Telegram подключён.' : 'Откройте бота, нажмите Start и используйте одноразовый код, который появится после нажатия кнопки.'}</p><form method="post" action="/account/telegram/code"><button>Получить код подключения</button></form><form method="post" action="/account/logout" style="margin-top:20px"><button type="submit">Выйти</button></form></main></body></html>`);
 }
 
 function setAdminSessionCookie(res, token) {
@@ -444,7 +487,7 @@ function getAnonymousVisitorHash(req, day) {
     .digest('hex');
 }
 
-function buildTelegramMessage(article) {
+function buildTelegramMessage(article, { includeOriginal = true } = {}) {
   const editorialLabel = article.editorialStatus === 'urgent'
     ? 'Срочно'
     : article.editorialStatus === 'important'
@@ -452,18 +495,53 @@ function buildTelegramMessage(article) {
       : '';
   const title = article.titleRu || article.titleFi || '';
   const text = article.summaryRu || article.summaryFi || '';
-  const url = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
-  return [editorialLabel, title, text, url].filter(Boolean).join('\n\n');
+  const siteUrl = article.slug ? `${SITE_URL}/news/${encodeURIComponent(article.slug)}` : '';
+  const originalUrl = includeOriginal && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
+    ? article.originalUrl
+    : '';
+  return [
+    editorialLabel,
+    title,
+    text,
+    siteUrl ? `Сайт: ${siteUrl}` : '',
+    originalUrl ? `Источник: ${originalUrl}` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
-async function sendTelegramMessage(article) {
+function buildTelegramDigestMessage(articles, subscription) {
+  const header = subscription.frequency === 'daily'
+    ? 'Ежедневная подборка Финских Новостей'
+    : 'Подборка новостей Финских Новостей';
+  const lines = articles.map((article, index) => {
+    const title = article.titleRu || article.titleFi || '';
+    const siteLink = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
+    const source = article.sourceName ? ` (${article.sourceName})` : '';
+    const originalLink = subscription.includeOriginal !== false && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
+      ? `\nИсточник: ${article.originalUrl}`
+      : '';
+    return `${index + 1}. ${title}${source}\n${siteLink}${originalLink}`;
+  });
+  const suffix = subscription.includeOriginal === false ? '\n\nСсылки на первоисточники скрыты в ваших настройках.' : '';
+  return [header, '', ...lines].join('\n') + suffix;
+}
+
+function articleMatchesSubscription(article, subscription) {
+  if (!article || article.publicationStatus !== 'published') return false;
+  if (subscription.importance === 'important' && !['important', 'urgent'].includes(article.editorialStatus || 'normal')) return false;
+  if (subscription.scope === 'finland' && (article.category || '') === 'Мир') return false;
+  if (subscription.categories.length && !subscription.categories.includes(article.category || '')) return false;
+  if (subscription.sourceIds.length && !subscription.sourceIds.includes(article.sourceId || '')) return false;
+  return true;
+}
+
+async function sendTelegramMessageToChat(chatId, text) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: buildTelegramMessage(article) }),
+      body: JSON.stringify({ chat_id: chatId, text }),
       signal: controller.signal,
     });
     let payload;
@@ -479,6 +557,79 @@ async function sendTelegramMessage(article) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function sendTelegramMessage(article) {
+  return sendTelegramMessageToChat(TELEGRAM_CHAT_ID, buildTelegramMessage(article, { includeOriginal: true }));
+}
+
+function getTelegramTodayKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+async function notifyTelegramSubscribersForArticles(articles, { frequency, sinceIso = null } = {}) {
+  try {
+    return await deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso });
+  } catch (error) {
+    console.error('[telegram-notify] ошибка доставки:', error.message);
+    return { delivered: 0, skipped: 0 };
+  }
+}
+
+async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null } = {}) {
+  if (!TELEGRAM_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
+  const subscriptions = getActiveUserSubscriptions().filter((subscription) => subscription.frequency === frequency);
+  if (!subscriptions.length) return { delivered: 0, skipped: 0 };
+  const today = getTelegramTodayKey();
+  let delivered = 0;
+  let skipped = 0;
+  for (const subscription of subscriptions) {
+    const quota = subscription.maxPostsPerDay || 5;
+    let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
+    if (sentToday >= quota) {
+      skipped += 1;
+      continue;
+    }
+    const eligible = articles.filter((article) => articleMatchesSubscription(article, subscription) && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id }));
+    if (sinceIso) {
+      eligible.sort((a, b) => new Date(a.publishedAt || 0) - new Date(b.publishedAt || 0));
+    }
+    const remaining = quota - sentToday;
+    const batch = sinceIso ? eligible.slice(-remaining) : eligible.slice(0, remaining);
+    if (!batch.length) {
+      skipped += 1;
+      continue;
+    }
+    if (frequency === 'daily') {
+      const text = buildTelegramDigestMessage(batch, subscription);
+      try {
+        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, text);
+        for (const article of batch) {
+          if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
+            delivered += 1;
+          }
+        }
+      } catch (error) {
+        console.error('[telegram-digest] ошибка отправки:', error.message);
+        skipped += 1;
+      }
+      continue;
+    }
+    for (const article of batch) {
+      try {
+        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, { includeOriginal: subscription.includeOriginal !== false }));
+        if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
+          delivered += 1;
+          sentToday += 1;
+        }
+      } catch (error) {
+        console.error('[telegram-instant] ошибка отправки:', error.message);
+        skipped += 1;
+      }
+      if (sentToday >= quota) break;
+    }
+  }
+  return { delivered, skipped };
 }
 
 function consumeCommentRateLimit(ip) {
@@ -545,7 +696,10 @@ async function safeRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
   try {
-    await fetchAllNews();
+    const insertedArticles = await fetchAllNews();
+    if (insertedArticles.length) {
+      await notifyTelegramSubscribersForArticles(insertedArticles, { frequency: 'instant' });
+    }
   } catch (err) {
     console.error('[safeRefresh] ошибка обновления:', err);
   } finally {
@@ -553,7 +707,7 @@ async function safeRefresh() {
   }
 }
 
-function runScheduledPublishing() {
+async function runScheduledPublishing() {
   const published = publishScheduledArticles(new Date().toISOString());
   for (const article of published) {
     recordAdminAction({
@@ -565,7 +719,17 @@ function runScheduledPublishing() {
       details: { slug: article.slug, title: article.title },
     });
   }
+  if (published.length) {
+    await notifyTelegramSubscribersForArticles(published, { frequency: 'instant' });
+  }
   return published;
+}
+
+async function runDailyTelegramDigest() {
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { delivered: 0, skipped: 0 };
+  return notifyTelegramSubscribersForArticles(articles, { frequency: 'daily', sinceIso });
 }
 
 // GET /api/news — вся лента, опционально ?category=Политика&source=yle&limit=50
@@ -918,6 +1082,41 @@ app.get('/admin/auth/google/callback', async (req, res) => {
   }
 });
 
+app.get('/account/login', (req, res) => {
+  if (getUserAuth(req)) return res.redirect(303, '/account');
+  if (!GOOGLE_USER_AUTH_ENABLED) return res.status(503).send('Google-вход для пользователей не настроен.');
+  return res.type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Вход — Финские Новости</title><style>body{font:17px system-ui;background:#f4f6f9;display:grid;place-items:center;min-height:80vh}.card{background:white;padding:35px;border-radius:18px;text-align:center;box-shadow:0 8px 30px #14213d18}a{display:inline-block;padding:12px 22px;background:#0d2b52;color:white;border-radius:9px;text-decoration:none;font-weight:700}</style><main class="card"><h1>Персональная рассылка</h1><p>Войдите через Google, чтобы настроить Telegram-уведомления.</p><a href="/account/login/start">Войти через Google</a></main>');
+});
+app.get('/account/login/start', (req, res) => {
+  if (getUserAuth(req)) return res.redirect(303, '/account');
+  if (!GOOGLE_USER_AUTH_ENABLED) return res.status(503).send('Google-вход для пользователей не настроен.');
+  const state = randomBase64Url(32); const nonce = randomBase64Url(32); const pkce = createPkcePair();
+  createUserOAuthState({ stateHash: sha256(state), nonce, codeVerifier: pkce.verifier, expiresAt: new Date(Date.now() + 600000).toISOString() });
+  res.append('Set-Cookie', `${USER_OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}; Path=/account/auth/google/callback; HttpOnly; SameSite=Lax; Max-Age=600`);
+  return res.redirect(303, GOOGLE_USER_AUTH_PROVIDER.createAuthorizationUrl({ state, nonce, codeChallenge: pkce.challenge }));
+});
+app.get('/account/auth/google/callback', async (req, res) => {
+  const state = typeof req.query.state === 'string' ? req.query.state : ''; const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const saved = state && safelyMatches(state, getCookie(req, USER_OAUTH_STATE_COOKIE)) ? consumeUserOAuthState(sha256(state)) : null;
+  if (!saved || !code || Date.parse(saved.expiresAt) <= Date.now()) return res.redirect(303, '/account/login?error=state');
+  try { const identity = await GOOGLE_USER_AUTH_PROVIDER.exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
+});
+app.get('/account', (req, res) => simpleAccountPage(req, res));
+app.post('/account/subscription', (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []); upsertUserSubscription({ userId: user.googleSub, enabled: req.body.enabled === 'on', frequency: req.body.frequency === 'instant' ? 'instant' : 'daily', categories: cats.filter((c) => categories.includes(c)), scope: req.body.scope === 'all' ? 'all' : 'finland', importance: req.body.importance === 'important' ? 'important' : 'all', sourceIds: [], maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)), includeOriginal: req.body.include_original === 'on' }); return simpleAccountPage(req, res, 'Настройки сохранены.'); });
+app.post('/account/telegram/code', (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const raw = randomBase64Url(8); createTelegramLinkCode({ userId: user.googleSub, linkCodeHash: sha256(raw), expiresAt: new Date(Date.now() + 900000).toISOString() }); return simpleAccountPage(req, res, `Одноразовый код: <strong>${raw}</strong>. В Telegram откройте бота и отправьте /start ${raw}.`); });
+app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
+
+app.post('/telegram/webhook', express.json(), (req, res) => {
+  if (TELEGRAM_WEBHOOK_SECRET && req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) {
+    return res.status(403).json({ ok: false });
+  }
+  const message = req.body && req.body.message;
+  const text = message && typeof message.text === 'string' ? message.text.trim() : '';
+  const match = /^\/start\s+([A-Za-z0-9_-]{8,64})$/.exec(text);
+  if (match && message.chat && message.chat.id) linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(message.chat.id) });
+  return res.status(200).json({ ok: true });
+});
+
 app.use('/admin', requireAdmin);
 
 app.post('/admin/logout', requireAdminOrigin, (req, res) => {
@@ -1011,6 +1210,10 @@ app.post('/admin/articles', requireAdminOrigin, (req, res) => {
     title: input.title,
     scheduledPublishAt: input.scheduledPublishAt,
   });
+  if (!scheduled) {
+    const article = getArticleById(articleId);
+    if (article) notifyTelegramSubscribersForArticles([article], { frequency: 'instant' }).catch((error) => console.error('[telegram-admin-create] ошибка доставки:', error.message));
+  }
   if (scheduled) return res.redirect(303, '/admin?article=scheduled');
   return res.redirect(303, `/news/${encodeURIComponent(slug)}`);
 });
@@ -1123,6 +1326,8 @@ app.post('/admin/duplicates/:id/publish', requireAdminOrigin, async (req, res) =
       originalUrl: duplicate.originalUrl,
       matchedArticleId: duplicate.matchedArticleId,
     });
+    const article = getArticleById(inserted);
+    if (article) notifyTelegramSubscribersForArticles([article], { frequency: 'instant' }).catch((error) => console.error('[telegram-duplicate-publish] ошибка доставки:', error.message));
     return res.redirect(303, '/admin?duplicate=published');
   } catch {
     return res.redirect(303, '/admin?duplicate=error');
@@ -1158,6 +1363,7 @@ app.post('/admin/articles/:id/publish', requireAdminOrigin, (req, res) => {
     return res.status(400).type('text').send('Заполните категорию и сохраните черновик перед публикацией.');
   }
   auditAdminAction(req, 'article.publish', 'article', id, { slug: article.slug, title: article.titleRu || article.titleFi });
+  notifyTelegramSubscribersForArticles([getArticleById(id)], { frequency: 'instant' }).catch((error) => console.error('[telegram-admin-publish] ошибка доставки:', error.message));
   return res.redirect(303, '/admin?import=published');
 });
 
@@ -1262,7 +1468,7 @@ app.listen(PORT, () => {
   console.log(`Финские Новости — API запущен на http://localhost:${PORT}`);
   console.log(`Обновление RSS каждые ${REFRESH_MIN} мин.`);
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
-  runScheduledPublishing();
+  runScheduledPublishing().catch((error) => console.error('[startup scheduled publish] ошибка:', error.message));
   safeRefresh();
   cleanupAnalytics(ANALYTICS_RETENTION_DAYS);
   cleanupAdminAuthData();
@@ -1273,9 +1479,14 @@ cron.schedule(`*/${REFRESH_MIN} * * * *`, safeRefresh, {
   name: 'rss-refresh',
   noOverlap: true,
 });
-cron.schedule('* * * * *', runScheduledPublishing, {
+cron.schedule('* * * * *', () => runScheduledPublishing().catch((error) => console.error('[scheduled-publishing] ошибка:', error.message)), {
   name: 'scheduled-publishing',
   noOverlap: true,
+});
+cron.schedule('0 8 * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
+  name: 'telegram-digest',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
 });
 cron.schedule('15 0 * * *', () => cleanupAnalytics(ANALYTICS_RETENTION_DAYS), {
   name: 'analytics-cleanup',
