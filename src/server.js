@@ -292,6 +292,15 @@ function getCookie(req, name) {
   return '';
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getGoogleAdminSession(req) {
   if (!GOOGLE_AUTH_ENABLED) return null;
   const token = getCookie(req, ADMIN_SESSION_COOKIE);
