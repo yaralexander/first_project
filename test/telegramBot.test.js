@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   RUSSIAN_BOT_COMMANDS,
   configureRussianTelegramBot,
+  configureTelegramWebhook,
   getRussianTelegramReply,
 } = require('../src/telegramBot');
 
@@ -51,4 +52,34 @@ test('returns clear Russian replies for linking, help and settings', () => {
   });
   assert.match(settings, /Настройки тем и частоты рассылки/);
   assert.match(settings, /https:\/\/finskienovosti\.fi\/account/);
+});
+
+test('configures a secure Telegram webhook for the personal bot', async () => {
+  const calls = [];
+  const result = await configureTelegramWebhook(async (method, body) => {
+    calls.push({ method, body });
+    return true;
+  }, {
+    siteUrl: 'https://finskienovosti.fi/',
+    secret: 'safe_webhook_secret',
+  });
+
+  assert.deepEqual(result, {
+    configured: true,
+    url: 'https://finskienovosti.fi/telegram/webhook',
+  });
+  assert.deepEqual(calls, [{
+    method: 'setWebhook',
+    body: {
+      url: 'https://finskienovosti.fi/telegram/webhook',
+      allowed_updates: ['message'],
+      drop_pending_updates: false,
+      secret_token: 'safe_webhook_secret',
+    },
+  }]);
+
+  const skipped = await configureTelegramWebhook(() => {
+    throw new Error('must not call Telegram');
+  }, { siteUrl: 'http://localhost:3000' });
+  assert.deepEqual(skipped, { configured: false, reason: 'https-required' });
 });

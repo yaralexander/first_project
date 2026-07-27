@@ -11,6 +11,7 @@ const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
   configureRussianTelegramBot,
+  configureTelegramWebhook,
   getRussianTelegramReply,
 } = require('./telegramBot');
 const {
@@ -102,6 +103,9 @@ const {
 const { categories, categoryFromSlug, categoryToSlug } = require('./categories');
 const { slugify } = require('./slugify');
 const {
+  renderAccountErrorPage,
+  renderAccountLoginPage,
+  renderAccountPage,
   renderArticlePage,
   renderAdminPage,
   renderAdminLoginPage,
@@ -225,7 +229,10 @@ function getUserGoogleAuthProvider(req) {
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET
+  || (process.env.TELEGRAM_BOT_TOKEN
+    ? crypto.createHash('sha256').update(`finskienovosti-webhook:${process.env.TELEGRAM_BOT_TOKEN}`).digest('hex')
+    : '');
 
 function getTelegramApiBaseUrl() {
   try {
@@ -238,6 +245,7 @@ function getTelegramApiBaseUrl() {
 }
 
 const TELEGRAM_API_BASE_URL = getTelegramApiBaseUrl();
+const TELEGRAM_BOT_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN);
 const TELEGRAM_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
 const TELEGRAM_BOT_USERNAME = String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
 let telegramBotProfileCache = null;
@@ -322,7 +330,16 @@ async function callTelegramBotMethod(method, body) {
 async function configureTelegramBotInterface() {
   if (!TELEGRAM_BOT_TOKEN) return;
   await configureRussianTelegramBot(callTelegramBotMethod);
+  const webhook = await configureTelegramWebhook(callTelegramBotMethod, {
+    siteUrl: SITE_URL,
+    secret: TELEGRAM_WEBHOOK_SECRET,
+  });
   console.log('[telegram] русское меню и описание бота настроены');
+  if (webhook.configured) {
+    console.log(`[telegram] webhook подключён: ${webhook.url}`);
+  } else {
+    console.warn('[telegram] webhook не подключён: SITE_URL должен использовать HTTPS');
+  }
 }
 
 function isImportProviderConfigured() {
@@ -428,24 +445,19 @@ async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') 
     const sub = getUserSubscription(user.googleSub);
     const link = getTelegramUserLink(user.googleSub);
     const botProfile = await getTelegramBotProfile();
-    const categoriesOptions = categories.map((c) => `<label><input type="checkbox" name="categories" value="${c}"${sub.categories.includes(c) ? ' checked' : ''}>${c}</label>`).join('');
-    const telegramStatus = link && link.telegramChatId
-      ? `Telegram подключён. Чат: ${escapeHtml(link.telegramChatId)}`
-      : 'Telegram ещё не подключён.';
-    const botLabel = botProfile ? `@${botProfile.username}` : 'бот проекта «Финские Новости»';
-    const botUrl = botProfile
-      ? `https://t.me/${botProfile.username}${telegramLinkCode ? `?start=${encodeURIComponent(telegramLinkCode)}` : ''}`
-      : '';
-    const telegramSetup = link && link.telegramChatId
-      ? '<div class="bot-callout bot-callout--connected"><strong>✓ Telegram подключён</strong><span>Рассылка будет приходить в привязанный чат. Ниже выберите темы и сохраните настройки.</span></div>'
-      : telegramLinkCode
-        ? `<div class="bot-callout"><strong>Код подключения готов</strong><span>Нужный бот: <b>${escapeHtml(botLabel)}</b>. Код действует 15 минут.</span>${botUrl ? `<a class="button button--telegram" href="${escapeHtml(botUrl)}" target="_blank" rel="noopener noreferrer">Открыть ${escapeHtml(botLabel)} в Telegram</a><span class="subtle">В Telegram нажмите кнопку <b>Start / Запустить</b>. Код уже добавлен в ссылку.</span>` : `<span>Откройте ${escapeHtml(botLabel)} и отправьте команду:</span><code class="command">/start ${escapeHtml(telegramLinkCode)}</code>`}<details><summary>Если кнопка не сработала</summary><p>Скопируйте и отправьте боту эту команду:</p><code class="command">/start ${escapeHtml(telegramLinkCode)}</code></details></div>`
-        : `<div class="step"><strong>Шаг 1.</strong> Нажмите кнопку «Получить код подключения» ниже.</div><div class="step"><strong>Шаг 2.</strong> После этого появится кнопка, которая откроет нужного Telegram-бота${botProfile ? ` — <b>${escapeHtml(botLabel)}</b>` : ''}.</div><div class="step"><strong>Шаг 3.</strong> В Telegram нажмите <b>Start / Запустить</b>, вернитесь сюда и обновите страницу.</div>`;
-    const statusMessage = message ? `<div class="notice">${message}</div>` : '';
-    return res.type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Личный кабинет — Финские Новости</title><style>:root{--bg:#f4f6f9;--card:#fff;--ink:#14213d;--muted:#6b7a90;--line:#dbe4ef;--brand:#0d2b52;--accent:#f59e0b;--ok:#e6f7ee}*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--ink)}a{color:var(--brand);text-decoration:none}.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 56px}.topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}.topbar .brand{display:flex;align-items:center;gap:12px;font-weight:800}.pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted)}.hero{background:linear-gradient(135deg,#fff 0,#eef4ff 100%);border:1px solid var(--line);border-radius:22px;padding:26px;box-shadow:0 10px 30px #14213d10;margin-bottom:18px}.hero h1{margin:0 0 8px;font-size:clamp(28px,4vw,40px);line-height:1.08}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;align-items:start}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:0 10px 30px #14213d0d}.section-title{margin:0 0 10px;font-size:20px}.notice{margin:0 0 16px;padding:12px 14px;border-radius:12px;background:var(--ok);color:#0f5132;border:1px solid #ccebd7}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 0}.stat{padding:14px;border-radius:16px;background:#f8fbff;border:1px solid var(--line)}.stat strong{display:block;font-size:20px;margin-top:6px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:flex;flex-direction:column;gap:8px}.field input,.field select,.field textarea{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit}.field textarea{min-height:120px;resize:vertical}.checklist{display:flex;flex-wrap:wrap;gap:10px}.checklist label{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:999px;background:#fff}.actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:16px}.button{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:800;cursor:pointer}.button--ghost{background:#fff;color:var(--brand);border:1px solid var(--line)}.button--telegram{width:100%;background:#229ed9;font-size:17px}.button--telegram:hover{background:#168ac0}.subtle{color:var(--muted)}.step{padding:14px 16px;border-radius:14px;background:#f8fafc;border:1px solid var(--line);margin-bottom:10px}.bot-callout{display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:16px;background:#eef8fd;border:1px solid #b9e1f4}.bot-callout--connected{background:var(--ok);border-color:#ccebd7}.command{display:block;padding:12px 14px;border-radius:10px;background:#0d2b52;color:#fff;font-size:15px;overflow-wrap:anywhere}.bot-callout details{border-top:1px solid #b9d5e4;padding-top:10px}.bot-callout summary{cursor:pointer;font-weight:700}.footer-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.footer-links a{padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:#fff}.mobile-only{display:none}@media (max-width:900px){.grid,.form-grid,.stats{grid-template-columns:1fr}.topbar{flex-direction:column;align-items:flex-start}.mobile-only{display:inline-flex}}</style></head><body><div class="wrap"><div class="topbar"><div class="brand"><span class="pill">🧭 Личный кабинет</span><span class="subtle">Финские Новости</span></div><div class="footer-links"><a href="/">На сайт</a><a href="/contact">Контакты</a><a href="/about">О проекте</a></div></div><section class="hero"><h1>Персональная Telegram-рассылка</h1><p class="subtle">Вы вошли как <strong>${escapeHtml(user.email)}</strong>. Здесь можно настроить, какие новости получать, как часто и с какими ссылками.</p>${statusMessage}<div class="stats"><div class="stat"><span class="subtle">Подключение</span><strong>${telegramStatus}</strong></div><div class="stat"><span class="subtle">Частота</span><strong>${sub.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</strong></div><div class="stat"><span class="subtle">Постов в день</span><strong>${sub.maxPostsPerDay}</strong></div></div></section><div class="grid"><section class="card"><h2 class=\"section-title\">Настройки рассылки</h2><form method=\"post\" action=\"/account/subscription\"><div class=\"form-grid\"><label class=\"field\"><span>Включить рассылку</span><span><input type=\"checkbox\" name=\"enabled\" ${sub.enabled ? 'checked' : ''}> Активна</span></label><label class=\"field\"><span>Частота</span><select name=\"frequency\"><option value=\"instant\" ${sub.frequency === 'instant' ? 'selected' : ''}>Сразу после публикации</option><option value=\"daily\" ${sub.frequency === 'daily' ? 'selected' : ''}>Ежедневная подборка</option></select></label><label class=\"field\"><span>Охват</span><select name=\"scope\"><option value=\"finland\" ${sub.scope === 'finland' ? 'selected' : ''}>Только Финляндия</option><option value=\"all\" ${sub.scope === 'all' ? 'selected' : ''}>Финляндия и мир</option></select></label><label class=\"field\"><span>Важность</span><select name=\"importance\"><option value=\"all\" ${sub.importance === 'all' ? 'selected' : ''}>Все выбранные статьи</option><option value=\"important\" ${sub.importance === 'important' ? 'selected' : ''}>Только важные и срочные</option></select></label><label class=\"field\"><span>Максимум постов в день</span><input name=\"max_posts_per_day\" type=\"number\" min=\"1\" max=\"30\" value=\"${sub.maxPostsPerDay}\"></label><label class=\"field\"><span>Источник ссылки</span><label style=\"padding:0;border:0;background:transparent\"><input type=\"checkbox\" name=\"include_original\" ${sub.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинал</label></label></div><div class=\"field\" style=\"margin-top:16px\"><span>Темы</span><div class=\"checklist\">${categoriesOptions || '<span class=\"subtle\">Нет доступных категорий.</span>'}</div></div><div class=\"actions\"><button class=\"button\" type=\"submit\">Сохранить настройки</button><a class=\"button button--ghost\" href=\"/account\">Обновить страницу</a></div></form></section><aside><section class=\"card\"><h2 class=\"section-title\">Подключение Telegram</h2><p class=\"subtle\">${link && link.telegramChatId ? 'Подключение готово.' : `Для персональной рассылки используется ${escapeHtml(botLabel)}.`}</p>${telegramSetup}${link && link.telegramChatId ? '' : '<form method=\"post\" action=\"/account/telegram/code\" class=\"actions\"><button class=\"button\" type=\"submit\">Получить код подключения</button></form>'}</section><section class=\"card\" style=\"margin-top:18px\"><h2 class=\"section-title\">Что вы можете настроить</h2><ul class=\"subtle\"><li>Мгновенную отправку или ежедневную подборку.</li><li>Только Финляндию или новости мира тоже.</li><li>Темы, важность и лимит постов в день.</li></ul></section></aside></div><form method=\"post\" action=\"/account/logout\" style=\"margin-top:22px\"><button class=\"button button--ghost\" type=\"submit\">Выйти</button></form><p class=\"subtle\" style=\"margin-top:12px\">Редакционный канал сайта и ваша персональная рассылка работают отдельно.</p></div></body></html>`);
+    return res.type('html').send(renderAccountPage({
+      siteUrl: SITE_URL,
+      user,
+      subscription: sub,
+      categories,
+      telegramLink: link,
+      botProfile,
+      message,
+      telegramLinkCode,
+    }));
   } catch (error) {
     console.error('[account] failed to render account page', error);
-    return res.status(500).type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Личный кабинет — ошибка</title><style>body{font:16px system-ui;background:#f4f6f9;margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.card{max-width:720px;background:#fff;border:1px solid #dbe4ef;border-radius:18px;padding:28px;box-shadow:0 10px 30px #14213d10}a{color:#0d2b52}</style></head><body><main class="card"><h1>Не удалось открыть личный кабинет</h1><p>Мы уже записали ошибку и сейчас разберёмся с ней. Попробуйте обновить страницу чуть позже.</p><p><a href="/account/login">Вернуться к входу</a> · <a href="/">На главную</a></p></main></body></html>`);
+    return res.status(500).type('html').send(renderAccountErrorPage({ siteUrl: SITE_URL }));
   }
 }
 
@@ -694,7 +706,7 @@ async function notifyTelegramSubscribersForArticles(articles, { frequency, since
 }
 
 async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null } = {}) {
-  if (!TELEGRAM_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
+  if (!TELEGRAM_BOT_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
   const subscriptions = getActiveUserSubscriptions().filter((subscription) => subscription.frequency === frequency);
   if (!subscriptions.length) return { delivered: 0, skipped: 0 };
   const today = getTelegramTodayKey();
@@ -1201,8 +1213,12 @@ app.get('/admin/auth/google/callback', async (req, res) => {
 
 app.get('/account/login', (req, res) => {
   if (getUserAuth(req)) return res.redirect(303, '/account');
-  if (!GOOGLE_USER_AUTH_ENABLED) return res.status(503).send('Google-вход для пользователей не настроен.');
-  return res.type('html').send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Вход — Финские Новости</title><style>body{font:17px system-ui;background:#f4f6f9;display:grid;place-items:center;min-height:80vh}.card{background:white;padding:35px;border-radius:18px;text-align:center;box-shadow:0 8px 30px #14213d18}a{display:inline-block;padding:12px 22px;background:#0d2b52;color:white;border-radius:9px;text-decoration:none;font-weight:700}</style><main class="card"><h1>Персональная рассылка</h1><p>Войдите через Google, чтобы настроить Telegram-уведомления.</p><a href="/account/login/start">Войти через Google</a></main>');
+  const status = GOOGLE_USER_AUTH_ENABLED ? 200 : 503;
+  return res.status(status).type('html').send(renderAccountLoginPage({
+    siteUrl: SITE_URL,
+    googleEnabled: GOOGLE_USER_AUTH_ENABLED,
+    error: typeof req.query.error === 'string' ? req.query.error : '',
+  }));
 });
 app.get('/account/login/start', (req, res) => {
   if (getUserAuth(req)) return res.redirect(303, '/account');
@@ -1220,7 +1236,22 @@ app.get('/account/auth/google/callback', async (req, res) => {
 });
 app.get('/account', async (req, res) => simpleAccountPage(req, res));
 app.post('/account/subscription', async (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []); upsertUserSubscription({ userId: user.googleSub, enabled: req.body.enabled === 'on', frequency: req.body.frequency === 'instant' ? 'instant' : 'daily', categories: cats.filter((c) => categories.includes(c)), scope: req.body.scope === 'all' ? 'all' : 'finland', importance: req.body.importance === 'important' ? 'important' : 'all', sourceIds: [], maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)), includeOriginal: req.body.include_original === 'on' }); return simpleAccountPage(req, res, 'Настройки сохранены.'); });
-app.post('/account/telegram/code', async (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const raw = randomBase64Url(8); createTelegramLinkCode({ userId: user.googleSub, linkCodeHash: sha256(raw), expiresAt: new Date(Date.now() + 900000).toISOString() }); return simpleAccountPage(req, res, 'Код создан. Нажмите кнопку подключения к Telegram ниже.', raw); });
+app.post('/account/telegram/connect', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const botProfile = await getTelegramBotProfile();
+  if (!botProfile?.username) {
+    return simpleAccountPage(req, res, 'Не удалось открыть Telegram. Проверьте настройку TELEGRAM_BOT_TOKEN.');
+  }
+  const raw = randomBase64Url(16);
+  createTelegramLinkCode({
+    userId: user.googleSub,
+    linkCodeHash: sha256(raw),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  return res.redirect(303, `https://t.me/${botProfile.username}?start=${encodeURIComponent(raw)}`);
+});
+app.post('/account/telegram/code', (req, res) => res.redirect(307, '/account/telegram/connect'));
 app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
 
 app.post('/telegram/webhook', express.json(), async (req, res) => {

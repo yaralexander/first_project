@@ -368,12 +368,130 @@ function renderAdminPage({
 }
 
 function renderAboutPage({ siteUrl }) {
-  return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content: `<article class="info-page"><section class="page-top"><p class="eyebrow">О проекте</p><h1 class="page-heading">Новости Финляндии — понятно и с уважением к источникам</h1><p class="page-intro">«Финские Новости» помогают следить за актуальными событиями Финляндии на русском языке.</p></section><section class="info-card"><h2>Как мы работаем</h2><p>Мы собираем открытые RSS-анонсы и публикуем краткие русскоязычные пересказы. У каждой новости указан источник и доступна ссылка на оригинальный материал.</p></section><section class="info-card"><h2>Комментарии</h2><p>Комментарий сначала попадает на премодерацию. После одобрения редакцией его имя и текст становятся видны на странице соответствующей новости.</p></section><section class="info-card"><h2>Конфиденциальность и статистика</h2><p>Сайт учитывает просмотры и реакции с помощью анонимного дневного идентификатора. Мы не храним IP-адреса или User-Agent в открытом виде.</p></section><p class="info-note"><strong>Важно:</strong> это краткое описание работы сайта, а не юридическая консультация.</p></article>` });
+  const content = `<article class="info-page">
+    <section class="info-hero">
+      <div><p class="eyebrow">О проекте</p><h1 class="page-heading">Новости Финляндии — понятно и с уважением к источникам</h1><p class="page-intro">Следите за событиями Финляндии на русском языке и всегда переходите к первоисточнику, когда нужен полный контекст.</p></div>
+      <div class="info-hero-mark" aria-hidden="true">${brandMark}</div>
+    </section>
+    <div class="info-grid">
+      <section class="info-card"><span class="info-card-icon">🇫🇮</span><h2>Что мы публикуем</h2><p>Мы собираем открытые RSS-анонсы финских СМИ и публикуем краткие русскоязычные пересказы. У каждой новости указан источник и доступна ссылка на оригинальный материал.</p></section>
+      <section class="info-card"><span class="info-card-icon">✨</span><h2>Как используется ИИ</h2><p>ИИ помогает подготовить пересказ, но не заменяет оригинальную статью. Редакционные материалы и обсуждения всегда имеют понятную маркировку.</p></section>
+      <section class="info-card"><span class="info-card-icon">💬</span><h2>Комментарии</h2><p>Комментарий сначала попадает на премодерацию. После одобрения редакцией его имя и текст становятся видны на странице соответствующей новости.</p></section>
+      <section class="info-card" id="privacy"><span class="info-card-icon">🛡️</span><h2>Конфиденциальность</h2><p>Сайт учитывает просмотры и реакции с помощью анонимного дневного идентификатора. IP-адреса и User-Agent не сохраняются в открытом виде.</p></section>
+    </div>
+    <aside class="info-note"><strong>Главный принцип:</strong> краткий пересказ помогает быстро понять событие, а оригинальный источник остаётся основой материала.</aside>
+  </article>`;
+  return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content });
 }
 
 function renderContactPage({ siteUrl, status = '' }) {
   const message = status === 'sent' ? '<p class="form-message" role="status">Сообщение отправлено в редакцию.</p>' : '';
-  return documentPage({ title: 'Контакты — Финские Новости', description: 'Свяжитесь с редакцией Финских Новостей.', canonicalPath: '/contact', siteUrl, content: `<article class="contact-page"><p class="eyebrow">Обратная связь</p><h1 class="page-heading">Контакты</h1><p class="page-intro">Свяжитесь с нами по вопросам сотрудничества и предложений.</p>${message}<form class="contact-form contact-form--page" action="/contact" method="post"><label>Ваше имя<input name="name" maxlength="80" placeholder="Иван Иванов" required></label><label>E-mail для ответа<input name="email" type="email" maxlength="254" placeholder="ivan@example.com" required></label><label>Сообщение<textarea name="body" maxlength="3000" placeholder="Ваше сообщение…" required></textarea></label><button type="submit">✈ Отправить сообщение</button></form><p class="summary">Мы всегда рады обратной связи и предложениям по улучшению сервиса.</p></article>` });
+  const content = `<article class="contact-page">
+    <section class="page-top"><p class="eyebrow">Обратная связь</p><h1 class="page-heading">Связаться с редакцией</h1><p class="page-intro">Расскажите о новости, предложите сотрудничество или сообщите, что можно улучшить.</p></section>
+    <div class="contact-layout">
+      <form class="contact-form contact-form--page" action="/contact" method="post">
+        ${message}
+        <label>Ваше имя<input name="name" maxlength="80" autocomplete="name" placeholder="Иван Иванов" required></label>
+        <label>E-mail для ответа<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="ivan@example.com" required></label>
+        <label>Сообщение<textarea name="body" maxlength="3000" placeholder="Ваше сообщение…" required></textarea></label>
+        <button type="submit">✈ Отправить сообщение</button>
+      </form>
+      <aside class="contact-aside"><p class="eyebrow">Как это работает</p><h2>Сообщение попадёт прямо в редакцию</h2><p>Мы сохраняем обращение в защищённом разделе админ-панели. E-mail нужен только для ответа.</p><a href="/about#privacy">О конфиденциальности →</a></aside>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Контакты — Финские Новости', description: 'Свяжитесь с редакцией Финских Новостей.', canonicalPath: '/contact', siteUrl, content });
+}
+
+function renderAccountPage({
+  siteUrl,
+  user,
+  subscription,
+  categories = defaultCategories,
+  telegramLink = null,
+  botProfile = null,
+  message = '',
+  telegramLinkCode = '',
+}) {
+  const selectedCategories = Array.isArray(subscription.categories) ? subscription.categories : [];
+  const categoryOptions = categories.map((category) => `<label class="account-choice"><input type="checkbox" name="categories" value="${escapeHtml(category)}"${selectedCategories.includes(category) ? ' checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('');
+  const telegramConnected = Boolean(telegramLink?.telegramChatId);
+  const telegramStatus = telegramConnected ? 'Подключён' : 'Не подключён';
+  const botLabel = botProfile?.username ? `@${botProfile.username}` : 'бот проекта «Финские Новости»';
+  const statusMessage = message ? `<p class="account-notice" role="status">${escapeHtml(message)}</p>` : '';
+  let telegramSetup;
+  if (telegramConnected) {
+    telegramSetup = '<div class="account-callout account-callout--success"><strong>✓ Telegram подключён</strong><span>Выберите темы и сохраните настройки — рассылка будет приходить в привязанный чат.</span></div>';
+  } else {
+    telegramSetup = `<div class="account-callout"><strong>Подключение почти автоматическое</strong><span>Нажмите кнопку ниже — откроется именно ${escapeHtml(botLabel)} с готовой безопасной привязкой.</span><span><b>Имя канала вводить не нужно.</b> В Telegram останется нажать только «Запустить» — это обязательное подтверждение Telegram.</span></div>`;
+  }
+  const content = `<article class="account-page">
+    <section class="account-hero">
+      <div><p class="eyebrow">Личный кабинет</p><h1>Персональная Telegram-рассылка</h1><p>Здравствуйте, <strong>${escapeHtml(user.displayName || user.email)}</strong>. Настройте темы, частоту и количество новостей — бот пришлёт только выбранное.</p></div>
+      <span class="account-hero-icon" aria-hidden="true">✈</span>
+    </section>
+    ${statusMessage}
+    <dl class="account-stats">
+      <div><dt>Telegram</dt><dd class="${telegramConnected ? 'is-connected' : ''}">${telegramStatus}</dd></div>
+      <div><dt>Частота</dt><dd>${subscription.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</dd></div>
+      <div><dt>Лимит</dt><dd>${subscription.maxPostsPerDay} в день</dd></div>
+    </dl>
+    <div class="account-layout">
+      <section class="account-card account-card--settings">
+        <div class="account-section-head"><div><p class="eyebrow">Настройки</p><h2>Ваша новостная лента</h2></div><span>01</span></div>
+        <form class="account-form" method="post" action="/account/subscription">
+          <label class="account-toggle"><input type="checkbox" name="enabled"${subscription.enabled ? ' checked' : ''}><span><strong>Включить рассылку</strong><small>Получать новые публикации в Telegram</small></span></label>
+          <div class="account-form-grid">
+            <label class="account-field"><span>Частота</span><select name="frequency"><option value="instant"${subscription.frequency === 'instant' ? ' selected' : ''}>Сразу после публикации</option><option value="daily"${subscription.frequency === 'daily' ? ' selected' : ''}>Ежедневная подборка</option></select></label>
+            <label class="account-field"><span>Охват</span><select name="scope"><option value="finland"${subscription.scope === 'finland' ? ' selected' : ''}>Только Финляндия</option><option value="all"${subscription.scope === 'all' ? ' selected' : ''}>Финляндия и мир</option></select></label>
+            <label class="account-field"><span>Важность</span><select name="importance"><option value="all"${subscription.importance === 'all' ? ' selected' : ''}>Все выбранные статьи</option><option value="important"${subscription.importance === 'important' ? ' selected' : ''}>Только важные и срочные</option></select></label>
+            <label class="account-field"><span>Максимум постов в день</span><input name="max_posts_per_day" type="number" min="1" max="30" value="${subscription.maxPostsPerDay}"></label>
+          </div>
+          <fieldset class="account-fieldset"><legend>Темы</legend><div class="account-choices">${categoryOptions || '<span class="account-muted">Нет доступных категорий.</span>'}</div></fieldset>
+          <label class="account-toggle account-toggle--compact"><input type="checkbox" name="include_original"${subscription.includeOriginal ? ' checked' : ''}><span><strong>Добавлять ссылку на оригинал</strong><small>Можно прочитать полный материал у источника</small></span></label>
+          <div class="account-actions"><button class="account-button" type="submit">Сохранить настройки</button><a class="account-button account-button--ghost" href="/account">Обновить</a></div>
+        </form>
+      </section>
+      <aside class="account-side">
+        <section class="account-card">
+          <div class="account-section-head"><div><p class="eyebrow">Подключение</p><h2>Telegram</h2></div><span>02</span></div>
+          <p class="account-muted">${telegramConnected ? `Привязанный чат: ${escapeHtml(telegramLink.telegramChatId)}` : `Для рассылки используется ${escapeHtml(botLabel)}.`}</p>
+          ${telegramSetup}
+          ${telegramConnected ? '' : '<form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Подключить Telegram</button></form>'}
+        </section>
+        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Можно отключить её в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li><li>Настройки сохраняются только для вашего аккаунта.</li></ul></section>
+      </aside>
+    </div>
+    <form class="account-logout" method="post" action="/account/logout"><button class="account-button account-button--ghost" type="submit">Выйти из кабинета</button></form>
+  </article>`;
+  return documentPage({ title: 'Личный кабинет — Финские Новости', description: 'Настройки персональной Telegram-рассылки Финских Новостей.', canonicalPath: '/account', siteUrl, robots: 'noindex', content });
+}
+
+function renderAccountLoginPage({ siteUrl, googleEnabled = true, error = '' }) {
+  const errorMessage = error === 'state'
+    ? 'Сессия входа устарела. Попробуйте войти ещё раз.'
+    : error === 'failed'
+      ? 'Google не подтвердил вход. Проверьте аккаунт и повторите попытку.'
+      : '';
+  const action = googleEnabled
+    ? '<a class="google-login-button account-google-button" href="/account/login/start"><span>G</span>Войти через Google</a>'
+    : '<p class="account-notice account-notice--error">Вход временно недоступен: Google-авторизация не настроена.</p>';
+  const content = `<section class="account-login">
+    <div class="account-login-card">
+      <span class="account-login-mark">${brandMark}</span>
+      <p class="eyebrow">Персональная рассылка</p>
+      <h1>Ваши новости — в удобное время</h1>
+      <p>Войдите через Google, выберите темы и получайте персональную подборку в Telegram.</p>
+      ${errorMessage ? `<p class="account-notice account-notice--error" role="alert">${escapeHtml(errorMessage)}</p>` : ''}
+      ${action}
+      <div class="account-login-benefits"><span>✓ Без пароля</span><span>✓ Настройки под вашим контролем</span><span>✓ Можно отключить в любой момент</span></div>
+    </div>
+  </section>`;
+  return documentPage({ title: 'Вход в личный кабинет — Финские Новости', description: 'Вход в настройки персональной Telegram-рассылки.', canonicalPath: '/account/login', siteUrl, robots: 'noindex', content });
+}
+
+function renderAccountErrorPage({ siteUrl }) {
+  const content = '<section class="account-login"><div class="account-login-card"><span class="account-login-mark">⚠️</span><p class="eyebrow">Личный кабинет</p><h1>Не удалось открыть кабинет</h1><p>Ошибка уже записана. Попробуйте обновить страницу или войти заново.</p><div class="account-actions account-actions--center"><a class="account-button" href="/account/login">Вернуться ко входу</a><a class="account-button account-button--ghost" href="/">На главную</a></div></div></section>';
+  return documentPage({ title: 'Личный кабинет — ошибка', description: 'Не удалось открыть личный кабинет.', canonicalPath: '/account', siteUrl, robots: 'noindex', content });
 }
 
 function renderAdminArticleDeletePage({ article, siteUrl }) {
@@ -404,4 +522,18 @@ function renderRobots({ siteUrl }) {
   return `User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${siteUrl}/sitemap.xml\n`;
 }
 
-module.exports = { renderArticlePage, renderAdminPage, renderAdminLoginPage, renderAdminArticleDeletePage, renderAboutPage, renderContactPage, renderListPage, renderNotFound, renderRobots, renderSitemap };
+module.exports = {
+  renderAccountErrorPage,
+  renderAccountLoginPage,
+  renderAccountPage,
+  renderArticlePage,
+  renderAdminPage,
+  renderAdminLoginPage,
+  renderAdminArticleDeletePage,
+  renderAboutPage,
+  renderContactPage,
+  renderListPage,
+  renderNotFound,
+  renderRobots,
+  renderSitemap,
+};

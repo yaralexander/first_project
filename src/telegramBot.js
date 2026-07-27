@@ -26,6 +26,31 @@ async function configureRussianTelegramBot(callMethod) {
   }
 }
 
+function getTelegramWebhookUrl(siteUrl) {
+  try {
+    const url = new URL(siteUrl);
+    if (url.protocol !== 'https:') return '';
+    return `${url.origin}/telegram/webhook`;
+  } catch {
+    return '';
+  }
+}
+
+async function configureTelegramWebhook(callMethod, { siteUrl, secret = '' } = {}) {
+  const url = getTelegramWebhookUrl(siteUrl);
+  if (!url) return { configured: false, reason: 'https-required' };
+
+  const body = {
+    url,
+    allowed_updates: ['message'],
+    drop_pending_updates: false,
+  };
+  if (secret) body.secret_token = secret;
+
+  await callMethod('setWebhook', body);
+  return { configured: true, url };
+}
+
 function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false } = {}) {
   const normalizedText = String(text || '').trim();
   const accountLink = String(accountUrl || '').replace(/\/$/, '') + '/account';
@@ -50,7 +75,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false } = {
     return [
       'Здравствуйте! Это бот «Финские Новости». 🇫🇮',
       'Он отправляет персональную подборку новостей на русском языке.',
-      'Чтобы подключить рассылку, войдите в личный кабинет, получите код и нажмите кнопку «Открыть бота и подключить»:',
+      'Чтобы подключить рассылку, войдите в личный кабинет и нажмите «Подключить Telegram». Имя канала вводить не нужно.',
       accountLink,
     ].join('\n\n');
   }
@@ -72,5 +97,7 @@ module.exports = {
   RUSSIAN_BOT_DESCRIPTION,
   RUSSIAN_BOT_SHORT_DESCRIPTION,
   configureRussianTelegramBot,
+  configureTelegramWebhook,
+  getTelegramWebhookUrl,
   getRussianTelegramReply,
 };
