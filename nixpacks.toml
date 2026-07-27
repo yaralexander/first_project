@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_20", "python3", "gcc", "gnumake", "pkg-config"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["npm ci --no-audit --no-fund --foreground-scripts --verbose"]
 
 [start]
 cmd = "npm run start"
