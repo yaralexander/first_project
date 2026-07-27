@@ -1062,14 +1062,23 @@ function createUserSession({ tokenHash, googleSub, email, displayName, expiresAt
 function getUserSession(tokenHash) {
   const row = db.prepare("SELECT * FROM user_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime('now')").get(tokenHash);
   if (!row) return null;
-  db.prepare('UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = ?').run(tokenHash);
+  try {
+    db.prepare('UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE token_hash = ?').run(tokenHash);
+  } catch (error) {
+    if (!String(error && error.message || '').includes('last_seen_at')) throw error;
+  }
   return { tokenHash: row.token_hash, googleSub: row.google_sub, email: row.email, displayName: row.display_name, expiresAt: row.expires_at };
 }
 function deleteUserSession(tokenHash) { return db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(tokenHash).changes === 1; }
 function getUserSubscription(userId) {
-  const row = db.prepare('SELECT * FROM user_subscriptions WHERE user_id = ?').get(userId);
-  if (!row) return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
-  return { userId, enabled: Boolean(row.enabled), frequency: row.frequency, categories: row.categories ? row.categories.split(',').filter(Boolean) : [], scope: row.scope, importance: row.importance, sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [], maxPostsPerDay: row.max_posts_per_day, includeOriginal: Boolean(row.include_original) };
+  try {
+    const row = db.prepare('SELECT * FROM user_subscriptions WHERE user_id = ?').get(userId);
+    if (!row) return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
+    return { userId, enabled: Boolean(row.enabled), frequency: row.frequency, categories: row.categories ? row.categories.split(',').filter(Boolean) : [], scope: row.scope, importance: row.importance, sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [], maxPostsPerDay: row.max_posts_per_day, includeOriginal: Boolean(row.include_original) };
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') console.error('[db] failed to load user subscription', error);
+    return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
+  }
 }
 function getActiveUserSubscriptions() {
   return db.prepare(`
@@ -1100,7 +1109,15 @@ function upsertUserSubscription({ userId, enabled, frequency, categories, scope,
 }
 function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepare('INSERT INTO telegram_user_links (user_id,link_code_hash,code_expires_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET link_code_hash=excluded.link_code_hash,code_expires_at=excluded.code_expires_at,telegram_chat_id=NULL,linked_at=NULL').run(userId, linkCodeHash, expiresAt); }
 function linkTelegramUser({ linkCodeHash, telegramChatId }) { return db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").run(String(telegramChatId), linkCodeHash).changes === 1; }
-function getTelegramUserLink(userId) { const row = db.prepare('SELECT telegram_chat_id, linked_at FROM telegram_user_links WHERE user_id = ?').get(userId); return row ? { telegramChatId: row.telegram_chat_id, linkedAt: row.linked_at } : null; }
+function getTelegramUserLink(userId) {
+  try {
+    const row = db.prepare('SELECT telegram_chat_id, linked_at FROM telegram_user_links WHERE user_id = ?').get(userId);
+    return row ? { telegramChatId: row.telegram_chat_id, linkedAt: row.linked_at } : null;
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') console.error('[db] failed to load telegram user link', error);
+    return null;
+  }
+}
 function countTelegramUserDeliveries({ userId, day }) {
   const row = db.prepare(`
     SELECT COUNT(*) AS count
