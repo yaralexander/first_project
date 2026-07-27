@@ -238,6 +238,19 @@ function createDatabase() {
   if (!duplicateColumns.has('resolved_at')) db.exec('ALTER TABLE article_duplicate_log ADD COLUMN resolved_at TEXT');
   if (!duplicateColumns.has('resolved_by')) db.exec('ALTER TABLE article_duplicate_log ADD COLUMN resolved_by TEXT');
 
+  const adminSessionColumns = new Set(db.prepare('PRAGMA table_info(admin_sessions)').all().map((column) => column.name));
+  if (!adminSessionColumns.has('last_seen_at')) db.exec('ALTER TABLE admin_sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
+
+  const userSessionColumns = new Set(db.prepare('PRAGMA table_info(user_sessions)').all().map((column) => column.name));
+  if (!userSessionColumns.has('last_seen_at')) db.exec('ALTER TABLE user_sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  if (!userSessionColumns.has('display_name')) db.exec('ALTER TABLE user_sessions ADD COLUMN display_name TEXT');
+
+  const userSubscriptionColumns = new Set(db.prepare('PRAGMA table_info(user_subscriptions)').all().map((column) => column.name));
+  if (!userSubscriptionColumns.has('source_ids')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN source_ids TEXT NOT NULL DEFAULT ''");
+  if (!userSubscriptionColumns.has('max_posts_per_day')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN max_posts_per_day INTEGER NOT NULL DEFAULT 5");
+  if (!userSubscriptionColumns.has('include_original')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN include_original INTEGER NOT NULL DEFAULT 1');
+  if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
+
   return db;
 }
 
