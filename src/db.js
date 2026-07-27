@@ -251,6 +251,9 @@ function createDatabase() {
   if (!userSubscriptionColumns.has('include_original')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN include_original INTEGER NOT NULL DEFAULT 1');
   if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
+  const telegramUserLinkColumns = new Set(db.prepare('PRAGMA table_info(telegram_user_links)').all().map((column) => column.name));
+  if (!telegramUserLinkColumns.has('linked_at')) db.exec('ALTER TABLE telegram_user_links ADD COLUMN linked_at TEXT');
+
   return db;
 }
 
