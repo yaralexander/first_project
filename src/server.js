@@ -10,6 +10,10 @@ const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
+  configureRussianTelegramBot,
+  getRussianTelegramReply,
+} = require('./telegramBot');
+const {
   createGoogleAuthProvider,
   createPkcePair,
   findGoogleAdminAccount,
@@ -287,6 +291,38 @@ async function getTelegramBotProfile() {
   })();
 
   return telegramBotProfileRequest;
+}
+
+async function callTelegramBotMethod(method, body) {
+  if (!TELEGRAM_BOT_TOKEN) throw new Error('telegram bot token is not configured');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload || payload.ok !== true) {
+      throw new Error(`telegram ${method} failed`);
+    }
+    return payload.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function configureTelegramBotInterface() {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  await configureRussianTelegramBot(callTelegramBotMethod);
+  console.log('[telegram] русское меню и описание бота настроены');
 }
 
 function isImportProviderConfigured() {
@@ -635,28 +671,9 @@ function articleMatchesSubscription(article, subscription) {
 }
 
 async function sendTelegramMessageToChat(chatId, text) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }),
-      signal: controller.signal,
-    });
-    let payload;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (!response.ok || !payload || payload.ok !== true || !payload.result || payload.result.message_id === undefined) {
-      throw new Error('telegram request failed');
-    }
-    return payload.result.message_id;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text });
+  if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
+  return result.message_id;
 }
 
 async function sendTelegramMessage(article) {
@@ -1206,14 +1223,27 @@ app.post('/account/subscription', async (req, res) => { const user = getUserAuth
 app.post('/account/telegram/code', async (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const raw = randomBase64Url(8); createTelegramLinkCode({ userId: user.googleSub, linkCodeHash: sha256(raw), expiresAt: new Date(Date.now() + 900000).toISOString() }); return simpleAccountPage(req, res, 'Код создан. Нажмите кнопку подключения к Telegram ниже.', raw); });
 app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
 
-app.post('/telegram/webhook', express.json(), (req, res) => {
+app.post('/telegram/webhook', express.json(), async (req, res) => {
   if (TELEGRAM_WEBHOOK_SECRET && req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) {
     return res.status(403).json({ ok: false });
   }
   const message = req.body && req.body.message;
   const text = message && typeof message.text === 'string' ? message.text.trim() : '';
-  const match = /^\/start\s+([A-Za-z0-9_-]{8,64})$/.exec(text);
-  if (match && message.chat && message.chat.id) linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(message.chat.id) });
+  const chatId = message && message.chat && message.chat.id;
+  const match = /^\/start(?:@[A-Za-z0-9_]{5,32})?\s+([A-Za-z0-9_-]{8,64})$/i.exec(text);
+  const linkSucceeded = Boolean(
+    match && chatId && linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(chatId) }),
+  );
+  if (chatId && TELEGRAM_BOT_TOKEN) {
+    try {
+      await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
+        accountUrl: SITE_URL,
+        linkSucceeded,
+      }));
+    } catch (error) {
+      console.error('[telegram webhook] не удалось отправить ответ:', error.message);
+    }
+  }
   return res.status(200).json({ ok: true });
 });
 
@@ -1567,6 +1597,9 @@ app.post('/admin/comments/:id/delete', requireAdminOrigin, requireAdministrator,
 app.listen(PORT, () => {
   console.log(`Финские Новости — API запущен на http://localhost:${PORT}`);
   console.log(`Обновление RSS каждые ${REFRESH_MIN} мин.`);
+  configureTelegramBotInterface().catch((error) => {
+    console.error('[telegram] не удалось настроить русское меню:', error.message);
+  });
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
   runScheduledPublishing().catch((error) => console.error('[startup scheduled publish] ошибка:', error.message));
   safeRefresh();
