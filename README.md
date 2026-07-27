@@ -141,7 +141,9 @@ origin, явно перечислите разрешённые адреса в `
 
 1. В Google Cloud создайте OAuth Client типа **Web application**.
 2. Добавьте точный redirect URI
-   `https://finskienovosti.fi/admin/auth/google/callback`.
+   `https://finskienovosti.fi/admin/auth/google/callback`
+   и, если нужен вход через `www`, также
+   `https://www.finskienovosti.fi/admin/auth/google/callback`.
 3. В Coolify задайте `GOOGLE_OAUTH_CLIENT_ID`,
    `GOOGLE_OAUTH_CLIENT_SECRET` и `ADMIN_GOOGLE_ACCOUNTS_JSON`.
 4. Оставьте старый `ADMIN_USER`/`ADMIN_PASSWORD` только как временный аварийный

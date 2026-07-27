@@ -185,20 +185,39 @@ function getSiteUrl() {
 }
 
 const SITE_URL = getSiteUrl();
-const GOOGLE_OAUTH_REDIRECT_URI = `${SITE_URL}/admin/auth/google/callback`;
-const GOOGLE_USER_OAUTH_REDIRECT_URI = `${SITE_URL}/account/auth/google/callback`;
 const GOOGLE_AUTH_ENABLED = Boolean(
   GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_ADMIN_ACCOUNTS.length,
 );
-const GOOGLE_AUTH_PROVIDER = GOOGLE_AUTH_ENABLED
-  ? createGoogleAuthProvider({
+const GOOGLE_USER_AUTH_ENABLED = Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET);
+
+function getRequestOrigin(req) {
+  try {
+    const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+    const forwardedHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
+    const host = forwardedHost || req.get('host') || '';
+    const protocol = forwardedProto || (req.secure ? 'https' : 'http');
+    const origin = new URL(`${protocol}://${host}`).origin;
+    return origin === 'null' ? SITE_URL : origin;
+  } catch {
+    return SITE_URL;
+  }
+}
+
+function getAdminGoogleAuthProvider(req) {
+  return createGoogleAuthProvider({
     clientId: GOOGLE_OAUTH_CLIENT_ID,
     clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
-    redirectUri: GOOGLE_OAUTH_REDIRECT_URI,
-  })
-  : null;
-const GOOGLE_USER_AUTH_ENABLED = Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET);
-const GOOGLE_USER_AUTH_PROVIDER = GOOGLE_USER_AUTH_ENABLED ? createGoogleAuthProvider({ clientId: GOOGLE_OAUTH_CLIENT_ID, clientSecret: GOOGLE_OAUTH_CLIENT_SECRET, redirectUri: GOOGLE_USER_OAUTH_REDIRECT_URI }) : null;
+    redirectUri: `${getRequestOrigin(req)}/admin/auth/google/callback`,
+  });
+}
+
+function getUserGoogleAuthProvider(req) {
+  return createGoogleAuthProvider({
+    clientId: GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri: `${getRequestOrigin(req)}/account/auth/google/callback`,
+  });
+}
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
@@ -1023,7 +1042,7 @@ app.get('/admin/auth/google', (req, res) => {
     expiresAt: new Date(Date.now() + ADMIN_OAUTH_STATE_TTL_MS).toISOString(),
   });
   setAdminOAuthStateCookie(res, state);
-  const authorizationUrl = GOOGLE_AUTH_PROVIDER.createAuthorizationUrl({
+  const authorizationUrl = getAdminGoogleAuthProvider(req).createAuthorizationUrl({
     state,
     nonce,
     codeChallenge: pkce.challenge,
@@ -1045,7 +1064,7 @@ app.get('/admin/auth/google/callback', async (req, res) => {
     return res.redirect(303, '/admin/login?error=invalid-state');
   }
   try {
-    const identity = await GOOGLE_AUTH_PROVIDER.exchangeAndVerify({
+    const identity = await getAdminGoogleAuthProvider(req).exchangeAndVerify({
       code,
       codeVerifier: savedState.codeVerifier,
       nonce: savedState.nonce,
@@ -1097,13 +1116,13 @@ app.get('/account/login/start', (req, res) => {
   const state = randomBase64Url(32); const nonce = randomBase64Url(32); const pkce = createPkcePair();
   createUserOAuthState({ stateHash: sha256(state), nonce, codeVerifier: pkce.verifier, expiresAt: new Date(Date.now() + 600000).toISOString() });
   res.append('Set-Cookie', `${USER_OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}; Path=/account/auth/google/callback; HttpOnly; SameSite=Lax; Max-Age=600`);
-  return res.redirect(303, GOOGLE_USER_AUTH_PROVIDER.createAuthorizationUrl({ state, nonce, codeChallenge: pkce.challenge }));
+  return res.redirect(303, getUserGoogleAuthProvider(req).createAuthorizationUrl({ state, nonce, codeChallenge: pkce.challenge }));
 });
 app.get('/account/auth/google/callback', async (req, res) => {
   const state = typeof req.query.state === 'string' ? req.query.state : ''; const code = typeof req.query.code === 'string' ? req.query.code : '';
   const saved = state && safelyMatches(state, getCookie(req, USER_OAUTH_STATE_COOKIE)) ? consumeUserOAuthState(sha256(state)) : null;
   if (!saved || !code || Date.parse(saved.expiresAt) <= Date.now()) return res.redirect(303, '/account/login?error=state');
-  try { const identity = await GOOGLE_USER_AUTH_PROVIDER.exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
+  try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
 });
 app.get('/account', (req, res) => simpleAccountPage(req, res));
 app.post('/account/subscription', (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []); upsertUserSubscription({ userId: user.googleSub, enabled: req.body.enabled === 'on', frequency: req.body.frequency === 'instant' ? 'instant' : 'daily', categories: cats.filter((c) => categories.includes(c)), scope: req.body.scope === 'all' ? 'all' : 'finland', importance: req.body.importance === 'important' ? 'important' : 'all', sourceIds: [], maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)), includeOriginal: req.body.include_original === 'on' }); return simpleAccountPage(req, res, 'Настройки сохранены.'); });
