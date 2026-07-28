@@ -15,6 +15,13 @@ const {
   getRussianTelegramReply,
 } = require('./telegramBot');
 const {
+  articleMatchesSubscription,
+  buildTelegramDigestMessage,
+  buildTelegramMessage,
+  isQuietTime,
+  normalizeContentTypes,
+} = require('./telegramDelivery');
+const {
   createGoogleAuthProvider,
   createPkcePair,
   findGoogleAdminAccount,
@@ -442,14 +449,19 @@ async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') 
   try {
     const user = getUserAuth(req);
     if (!user) return res.redirect(303, '/account/login');
-    const sub = getUserSubscription(user.googleSub);
     const link = getTelegramUserLink(user.googleSub);
+    let sub = getUserSubscription(user.googleSub);
+    if (link?.telegramChatId && !sub.persisted) {
+      upsertUserSubscription({ ...sub, enabled: true });
+      sub = getUserSubscription(user.googleSub);
+    }
     const botProfile = await getTelegramBotProfile();
     return res.type('html').send(renderAccountPage({
       siteUrl: SITE_URL,
       user,
       subscription: sub,
       categories,
+      sources: getAdminSources(),
       telegramLink: link,
       botProfile,
       message,
@@ -635,53 +647,6 @@ function getAnonymousVisitorHash(req, day) {
     .digest('hex');
 }
 
-function buildTelegramMessage(article, { includeOriginal = true } = {}) {
-  const editorialLabel = article.editorialStatus === 'urgent'
-    ? 'Срочно'
-    : article.editorialStatus === 'important'
-      ? 'Важно'
-      : '';
-  const title = article.titleRu || article.titleFi || '';
-  const text = article.summaryRu || article.summaryFi || '';
-  const siteUrl = article.slug ? `${SITE_URL}/news/${encodeURIComponent(article.slug)}` : '';
-  const originalUrl = includeOriginal && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
-    ? article.originalUrl
-    : '';
-  return [
-    editorialLabel,
-    title,
-    text,
-    siteUrl ? `Сайт: ${siteUrl}` : '',
-    originalUrl ? `Источник: ${originalUrl}` : '',
-  ].filter(Boolean).join('\n\n');
-}
-
-function buildTelegramDigestMessage(articles, subscription) {
-  const header = subscription.frequency === 'daily'
-    ? 'Ежедневная подборка Финских Новостей'
-    : 'Подборка новостей Финских Новостей';
-  const lines = articles.map((article, index) => {
-    const title = article.titleRu || article.titleFi || '';
-    const siteLink = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
-    const source = article.sourceName ? ` (${article.sourceName})` : '';
-    const originalLink = subscription.includeOriginal !== false && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
-      ? `\nИсточник: ${article.originalUrl}`
-      : '';
-    return `${index + 1}. ${title}${source}\n${siteLink}${originalLink}`;
-  });
-  const suffix = subscription.includeOriginal === false ? '\n\nСсылки на первоисточники скрыты в ваших настройках.' : '';
-  return [header, '', ...lines].join('\n') + suffix;
-}
-
-function articleMatchesSubscription(article, subscription) {
-  if (!article || article.publicationStatus !== 'published') return false;
-  if (subscription.importance === 'important' && !['important', 'urgent'].includes(article.editorialStatus || 'normal')) return false;
-  if (subscription.scope === 'finland' && (article.category || '') === 'Мир') return false;
-  if (subscription.categories.length && !subscription.categories.includes(article.category || '')) return false;
-  if (subscription.sourceIds.length && !subscription.sourceIds.includes(article.sourceId || '')) return false;
-  return true;
-}
-
 async function sendTelegramMessageToChat(chatId, text) {
   const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text });
   if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
@@ -689,23 +654,23 @@ async function sendTelegramMessageToChat(chatId, text) {
 }
 
 async function sendTelegramMessage(article) {
-  return sendTelegramMessageToChat(TELEGRAM_CHAT_ID, buildTelegramMessage(article, { includeOriginal: true }));
+  return sendTelegramMessageToChat(TELEGRAM_CHAT_ID, buildTelegramMessage(article, { siteUrl: SITE_URL, includeOriginal: true }));
 }
 
 function getTelegramTodayKey(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
 
-async function notifyTelegramSubscribersForArticles(articles, { frequency, sinceIso = null } = {}) {
+async function notifyTelegramSubscribersForArticles(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
   try {
-    return await deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso });
+    return await deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso, retryOnly });
   } catch (error) {
     console.error('[telegram-notify] ошибка доставки:', error.message);
     return { delivered: 0, skipped: 0 };
   }
 }
 
-async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null } = {}) {
+async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
   if (!TELEGRAM_BOT_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
   const subscriptions = getActiveUserSubscriptions().filter((subscription) => subscription.frequency === frequency);
   if (!subscriptions.length) return { delivered: 0, skipped: 0 };
@@ -713,8 +678,16 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
+    if (isQuietTime(subscription)) {
+      skipped += 1;
+      continue;
+    }
     const quota = subscription.maxPostsPerDay || 5;
     let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
+    if (retryOnly && sentToday > 0) {
+      skipped += 1;
+      continue;
+    }
     if (sentToday >= quota) {
       skipped += 1;
       continue;
@@ -730,7 +703,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       continue;
     }
     if (frequency === 'daily') {
-      const text = buildTelegramDigestMessage(batch, subscription);
+      const text = buildTelegramDigestMessage(batch, subscription, { siteUrl: SITE_URL });
       try {
         const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, text);
         for (const article of batch) {
@@ -746,7 +719,10 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
     }
     for (const article of batch) {
       try {
-        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, { includeOriginal: subscription.includeOriginal !== false }));
+        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
+          siteUrl: SITE_URL,
+          includeOriginal: subscription.includeOriginal !== false,
+        }));
         if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
           delivered += 1;
           sentToday += 1;
@@ -854,11 +830,18 @@ async function runScheduledPublishing() {
   return published;
 }
 
-async function runDailyTelegramDigest() {
+async function runDailyTelegramDigest({ retryOnly = false } = {}) {
   const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const articles = getPublishedArticlesSince(sinceIso);
   if (!articles.length) return { delivered: 0, skipped: 0 };
-  return notifyTelegramSubscribersForArticles(articles, { frequency: 'daily', sinceIso });
+  return notifyTelegramSubscribersForArticles(articles, { frequency: 'daily', sinceIso, retryOnly });
+}
+
+async function runInstantTelegramCatchup() {
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { delivered: 0, skipped: 0 };
+  return notifyTelegramSubscribersForArticles(articles, { frequency: 'instant', sinceIso });
 }
 
 // GET /api/news — вся лента, опционально ?category=Политика&source=yle&limit=50
@@ -1235,7 +1218,36 @@ app.get('/account/auth/google/callback', async (req, res) => {
   try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
 });
 app.get('/account', async (req, res) => simpleAccountPage(req, res));
-app.post('/account/subscription', async (req, res) => { const user = getUserAuth(req); if (!user) return res.redirect(303, '/account/login'); const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []); upsertUserSubscription({ userId: user.googleSub, enabled: req.body.enabled === 'on', frequency: req.body.frequency === 'instant' ? 'instant' : 'daily', categories: cats.filter((c) => categories.includes(c)), scope: req.body.scope === 'all' ? 'all' : 'finland', importance: req.body.importance === 'important' ? 'important' : 'all', sourceIds: [], maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)), includeOriginal: req.body.include_original === 'on' }); return simpleAccountPage(req, res, 'Настройки сохранены.'); });
+app.post('/account/subscription', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []);
+  const requestedSources = Array.isArray(req.body.source_ids) ? req.body.source_ids : (req.body.source_ids ? [req.body.source_ids] : []);
+  const allowedSourceIds = new Set(getAdminSources().map((source) => source.sourceId));
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const quietStart = timePattern.test(req.body.quiet_start || '') ? req.body.quiet_start : '22:00';
+  const quietEnd = timePattern.test(req.body.quiet_end || '') ? req.body.quiet_end : '07:00';
+  upsertUserSubscription({
+    userId: user.googleSub,
+    enabled: req.body.enabled === 'on',
+    frequency: req.body.frequency === 'instant' ? 'instant' : 'daily',
+    categories: cats.filter((category) => categories.includes(category)),
+    scope: req.body.scope === 'all' ? 'all' : 'finland',
+    importance: req.body.importance === 'important' ? 'important' : 'all',
+    sourceIds: requestedSources.filter((sourceId) => allowedSourceIds.has(sourceId)),
+    maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)),
+    includeOriginal: req.body.include_original === 'on',
+    quietHoursEnabled: req.body.quiet_hours_enabled === 'on',
+    quietStart,
+    quietEnd,
+    timezone: 'Europe/Helsinki',
+    contentTypes: normalizeContentTypes(req.body.content_types),
+  });
+  if (req.body.enabled === 'on') {
+    runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message));
+  }
+  return simpleAccountPage(req, res, 'Настройки сохранены.');
+});
 app.post('/account/telegram/connect', async (req, res) => {
   const user = getUserAuth(req);
   if (!user) return res.redirect(303, '/account/login');
@@ -1252,6 +1264,28 @@ app.post('/account/telegram/connect', async (req, res) => {
   return res.redirect(303, `https://t.me/${botProfile.username}?start=${encodeURIComponent(raw)}`);
 });
 app.post('/account/telegram/code', (req, res) => res.redirect(307, '/account/telegram/connect'));
+app.post('/account/telegram/test', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const link = getTelegramUserLink(user.googleSub);
+  if (!link?.telegramChatId) {
+    return simpleAccountPage(req, res, 'Сначала подключите Telegram.');
+  }
+  if (!TELEGRAM_BOT_CONFIGURED) {
+    return simpleAccountPage(req, res, 'Telegram-бот временно не настроен на сервере.');
+  }
+  try {
+    await sendTelegramMessageToChat(link.telegramChatId, [
+      '✅ Доставка работает',
+      'Это проверочное сообщение от «Финских Новостей».',
+      `Открыть личный кабинет: ${SITE_URL}/account`,
+    ].join('\n\n'));
+    return simpleAccountPage(req, res, 'Проверочное сообщение отправлено в Telegram.');
+  } catch (error) {
+    console.error('[telegram-test] ошибка отправки:', error.message);
+    return simpleAccountPage(req, res, 'Не удалось отправить проверочное сообщение. Проверьте бота и повторите позже.');
+  }
+});
 app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
 
 app.post('/telegram/webhook', express.json(), async (req, res) => {
@@ -1262,9 +1296,15 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   const text = message && typeof message.text === 'string' ? message.text.trim() : '';
   const chatId = message && message.chat && message.chat.id;
   const match = /^\/start(?:@[A-Za-z0-9_]{5,32})?\s+([A-Za-z0-9_-]{8,64})$/i.exec(text);
-  const linkSucceeded = Boolean(
-    match && chatId && linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(chatId) }),
-  );
+  const linkedUserId = match && chatId
+    ? linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(chatId) })
+    : null;
+  const linkSucceeded = Boolean(linkedUserId);
+  if (linkedUserId) {
+    const subscription = getUserSubscription(linkedUserId);
+    upsertUserSubscription({ ...subscription, enabled: true });
+    runInstantTelegramCatchup().catch((error) => console.error('[telegram-link-catchup] ошибка:', error.message));
+  }
   if (chatId && TELEGRAM_BOT_TOKEN) {
     try {
       await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
@@ -1647,8 +1687,17 @@ cron.schedule('* * * * *', () => runScheduledPublishing().catch((error) => conso
   name: 'scheduled-publishing',
   noOverlap: true,
 });
+cron.schedule('*/5 * * * *', () => runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message)), {
+  name: 'telegram-instant-catchup',
+  noOverlap: true,
+});
 cron.schedule('0 8 * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
   name: 'telegram-digest',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
+});
+cron.schedule('0 10 * * *', () => runDailyTelegramDigest({ retryOnly: true }).catch((error) => console.error('[telegram-digest-retry] ошибка:', error.message)), {
+  name: 'telegram-digest-retry',
   noOverlap: true,
   timezone: 'Europe/Helsinki',
 });

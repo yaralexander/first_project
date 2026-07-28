@@ -407,17 +407,24 @@ function renderAccountPage({
   user,
   subscription,
   categories = defaultCategories,
+  sources = [],
   telegramLink = null,
   botProfile = null,
   message = '',
   telegramLinkCode = '',
 }) {
   const selectedCategories = Array.isArray(subscription.categories) ? subscription.categories : [];
+  const selectedSources = Array.isArray(subscription.sourceIds) ? subscription.sourceIds : [];
+  const selectedContentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
   const categoryOptions = categories.map((category) => `<label class="account-choice"><input type="checkbox" name="categories" value="${escapeHtml(category)}"${selectedCategories.includes(category) ? ' checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('');
+  const sourceOptions = sources.map((source) => `<label class="account-choice"><input type="checkbox" name="source_ids" value="${escapeHtml(source.sourceId)}"${selectedSources.includes(source.sourceId) ? ' checked' : ''}><span>${escapeHtml(source.sourceName || source.sourceId)}</span></label>`).join('');
   const telegramConnected = Boolean(telegramLink?.telegramChatId);
   const telegramStatus = telegramConnected ? 'Подключён' : 'Не подключён';
   const botLabel = botProfile?.username ? `@${botProfile.username}` : 'бот проекта «Финские Новости»';
   const statusMessage = message ? `<p class="account-notice" role="status">${escapeHtml(message)}</p>` : '';
+  const deliveryWarning = telegramConnected && !subscription.enabled
+    ? '<p class="account-notice account-notice--error" role="alert">Telegram подключён, но рассылка выключена. Включите переключатель «Получать новые публикации» и сохраните настройки.</p>'
+    : '';
   let telegramSetup;
   if (telegramConnected) {
     telegramSetup = '<div class="account-callout account-callout--success"><strong>✓ Telegram подключён</strong><span>Выберите темы и сохраните настройки — рассылка будет приходить в привязанный чат.</span></div>';
@@ -430,6 +437,7 @@ function renderAccountPage({
       <span class="account-hero-icon" aria-hidden="true">✈</span>
     </section>
     ${statusMessage}
+    ${deliveryWarning}
     <dl class="account-stats">
       <div><dt>Telegram</dt><dd class="${telegramConnected ? 'is-connected' : ''}">${telegramStatus}</dd></div>
       <div><dt>Частота</dt><dd>${subscription.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</dd></div>
@@ -447,6 +455,25 @@ function renderAccountPage({
             <label class="account-field"><span>Максимум постов в день</span><input name="max_posts_per_day" type="number" min="1" max="30" value="${subscription.maxPostsPerDay}"></label>
           </div>
           <fieldset class="account-fieldset"><legend>Темы</legend><div class="account-choices">${categoryOptions || '<span class="account-muted">Нет доступных категорий.</span>'}</div></fieldset>
+          <fieldset class="account-fieldset"><legend>Источники новостей</legend><div class="account-choices">${sourceOptions || '<span class="account-muted">Источники появятся после обновления новостей.</span>'}</div><small class="account-muted">Если ничего не выбрано, будут использоваться все источники.</small></fieldset>
+          <fieldset class="account-fieldset">
+            <legend>Что присылать</legend>
+            <div class="account-choices">
+              <label class="account-choice"><input type="checkbox" name="content_types" value="news"${selectedContentTypes.includes('news') ? ' checked' : ''}><span>📰 Новости</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="holidays"${selectedContentTypes.includes('holidays') ? ' checked' : ''}><span>🇫🇮 Праздники <small>скоро</small></span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня <small>скоро</small></span></label>
+            </div>
+            <small class="account-muted">Новости уже работают. Праздники и слово/фраза дня сохраняются в настройках и будут включены после запуска этих рубрик.</small>
+          </fieldset>
+          <fieldset class="account-fieldset account-quiet">
+            <legend>Не беспокоить</legend>
+            <label class="account-toggle account-toggle--compact"><input type="checkbox" name="quiet_hours_enabled"${subscription.quietHoursEnabled ? ' checked' : ''}><span><strong>Не отправлять ночью</strong><small>Отложенные новости придут после окончания тихого времени.</small></span></label>
+            <div class="account-form-grid">
+              <label class="account-field"><span>Начало</span><input name="quiet_start" type="time" value="${escapeHtml(subscription.quietStart || '22:00')}"></label>
+              <label class="account-field"><span>Окончание</span><input name="quiet_end" type="time" value="${escapeHtml(subscription.quietEnd || '07:00')}"></label>
+            </div>
+            <small class="account-muted">Часовой пояс: Финляндия (Europe/Helsinki), с автоматическим переходом на летнее время.</small>
+          </fieldset>
           <label class="account-toggle account-toggle--compact"><input type="checkbox" name="include_original"${subscription.includeOriginal ? ' checked' : ''}><span><strong>Добавлять ссылку на оригинал</strong><small>Можно прочитать полный материал у источника</small></span></label>
           <div class="account-actions"><button class="account-button" type="submit">Сохранить настройки</button><a class="account-button account-button--ghost" href="/account">Обновить</a></div>
         </form>
@@ -456,9 +483,11 @@ function renderAccountPage({
           <div class="account-section-head"><div><p class="eyebrow">Подключение</p><h2>Telegram</h2></div><span>02</span></div>
           <p class="account-muted">${telegramConnected ? `Привязанный чат: ${escapeHtml(telegramLink.telegramChatId)}` : `Для рассылки используется ${escapeHtml(botLabel)}.`}</p>
           ${telegramSetup}
-          ${telegramConnected ? '' : '<form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Подключить Telegram</button></form>'}
+          ${telegramConnected
+            ? '<form method="post" action="/account/telegram/test" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Проверить доставку</button></form>'
+            : '<form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Подключить Telegram</button></form>'}
         </section>
-        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Можно отключить её в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li><li>Настройки сохраняются только для вашего аккаунта.</li></ul></section>
+        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Каждая новость содержит заголовок, краткое описание и ссылку «Читать далее» на сайт.</li><li>Ночные сообщения откладываются, а не теряются.</li><li>Можно отключить рассылку в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li></ul></section>
       </aside>
     </div>
     <form class="account-logout" method="post" action="/account/logout"><button class="account-button account-button--ghost" type="submit">Выйти из кабинета</button></form>

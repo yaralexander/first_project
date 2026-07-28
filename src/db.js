@@ -200,7 +200,13 @@ function createDatabase() {
       categories TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'finland' CHECK (scope IN ('finland','all')),
       importance TEXT NOT NULL DEFAULT 'all' CHECK (importance IN ('all','important')),
       source_ids TEXT NOT NULL DEFAULT '', max_posts_per_day INTEGER NOT NULL DEFAULT 5,
-      include_original INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      include_original INTEGER NOT NULL DEFAULT 1,
+      quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
+      quiet_start TEXT NOT NULL DEFAULT '22:00',
+      quiet_end TEXT NOT NULL DEFAULT '07:00',
+      timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki',
+      content_types TEXT NOT NULL DEFAULT 'news',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS telegram_user_deliveries (
       id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, article_id INTEGER NOT NULL,
@@ -249,6 +255,11 @@ function createDatabase() {
   if (!userSubscriptionColumns.has('source_ids')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN source_ids TEXT NOT NULL DEFAULT ''");
   if (!userSubscriptionColumns.has('max_posts_per_day')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN max_posts_per_day INTEGER NOT NULL DEFAULT 5");
   if (!userSubscriptionColumns.has('include_original')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN include_original INTEGER NOT NULL DEFAULT 1');
+  if (!userSubscriptionColumns.has('quiet_hours_enabled')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0');
+  if (!userSubscriptionColumns.has('quiet_start')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN quiet_start TEXT NOT NULL DEFAULT '22:00'");
+  if (!userSubscriptionColumns.has('quiet_end')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN quiet_end TEXT NOT NULL DEFAULT '07:00'");
+  if (!userSubscriptionColumns.has('timezone')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki'");
+  if (!userSubscriptionColumns.has('content_types')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN content_types TEXT NOT NULL DEFAULT 'news'");
   if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
   const telegramUserLinkColumns = new Set(db.prepare('PRAGMA table_info(telegram_user_links)').all().map((column) => column.name));
@@ -1071,13 +1082,46 @@ function getUserSession(tokenHash) {
 }
 function deleteUserSession(tokenHash) { return db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(tokenHash).changes === 1; }
 function getUserSubscription(userId) {
+  const defaults = {
+    userId,
+    enabled: false,
+    frequency: 'daily',
+    categories: [],
+    scope: 'finland',
+    importance: 'all',
+    sourceIds: [],
+    maxPostsPerDay: 5,
+    includeOriginal: true,
+    quietHoursEnabled: false,
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    timezone: 'Europe/Helsinki',
+    contentTypes: ['news'],
+    persisted: false,
+  };
   try {
     const row = db.prepare('SELECT * FROM user_subscriptions WHERE user_id = ?').get(userId);
-    if (!row) return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
-    return { userId, enabled: Boolean(row.enabled), frequency: row.frequency, categories: row.categories ? row.categories.split(',').filter(Boolean) : [], scope: row.scope, importance: row.importance, sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [], maxPostsPerDay: row.max_posts_per_day, includeOriginal: Boolean(row.include_original) };
+    if (!row) return defaults;
+    return {
+      ...defaults,
+      persisted: true,
+      enabled: Boolean(row.enabled),
+      frequency: row.frequency,
+      categories: row.categories ? row.categories.split(',').filter(Boolean) : [],
+      scope: row.scope,
+      importance: row.importance,
+      sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [],
+      maxPostsPerDay: row.max_posts_per_day,
+      includeOriginal: Boolean(row.include_original),
+      quietHoursEnabled: Boolean(row.quiet_hours_enabled),
+      quietStart: row.quiet_start || defaults.quietStart,
+      quietEnd: row.quiet_end || defaults.quietEnd,
+      timezone: row.timezone || defaults.timezone,
+      contentTypes: row.content_types ? row.content_types.split(',').filter(Boolean) : defaults.contentTypes,
+    };
   } catch (error) {
     if (process.env.NODE_ENV !== 'test') console.error('[db] failed to load user subscription', error);
-    return { userId, enabled: false, frequency: 'daily', categories: [], scope: 'finland', importance: 'all', sourceIds: [], maxPostsPerDay: 5, includeOriginal: true };
+    return defaults;
   }
 }
 function getActiveUserSubscriptions() {
@@ -1085,6 +1129,8 @@ function getActiveUserSubscriptions() {
     SELECT subscriptions.user_id, subscriptions.enabled, subscriptions.frequency,
       subscriptions.categories, subscriptions.scope, subscriptions.importance,
       subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
+      subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
+      subscriptions.timezone, subscriptions.content_types,
       links.telegram_chat_id, links.linked_at
     FROM user_subscriptions AS subscriptions
     JOIN telegram_user_links AS links ON links.user_id = subscriptions.user_id
@@ -1100,15 +1146,76 @@ function getActiveUserSubscriptions() {
     sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [],
     maxPostsPerDay: row.max_posts_per_day,
     includeOriginal: Boolean(row.include_original),
+    quietHoursEnabled: Boolean(row.quiet_hours_enabled),
+    quietStart: row.quiet_start || '22:00',
+    quietEnd: row.quiet_end || '07:00',
+    timezone: row.timezone || 'Europe/Helsinki',
+    contentTypes: row.content_types ? row.content_types.split(',').filter(Boolean) : ['news'],
     telegramChatId: row.telegram_chat_id,
     linkedAt: row.linked_at,
   }));
 }
-function upsertUserSubscription({ userId, enabled, frequency, categories, scope, importance, sourceIds, maxPostsPerDay, includeOriginal }) {
-  db.prepare(`INSERT INTO user_subscriptions (user_id,enabled,frequency,categories,scope,importance,source_ids,max_posts_per_day,include_original,updated_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,frequency=excluded.frequency,categories=excluded.categories,scope=excluded.scope,importance=excluded.importance,source_ids=excluded.source_ids,max_posts_per_day=excluded.max_posts_per_day,include_original=excluded.include_original,updated_at=CURRENT_TIMESTAMP`).run(userId, enabled ? 1 : 0, frequency, categories.join(','), scope, importance, sourceIds.join(','), maxPostsPerDay, includeOriginal ? 1 : 0);
+function upsertUserSubscription({
+  userId,
+  enabled,
+  frequency,
+  categories,
+  scope,
+  importance,
+  sourceIds,
+  maxPostsPerDay,
+  includeOriginal,
+  quietHoursEnabled = false,
+  quietStart = '22:00',
+  quietEnd = '07:00',
+  timezone = 'Europe/Helsinki',
+  contentTypes = ['news'],
+}) {
+  db.prepare(`
+    INSERT INTO user_subscriptions (
+      user_id, enabled, frequency, categories, scope, importance, source_ids,
+      max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
+      quiet_end, timezone, content_types, updated_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET
+      enabled=excluded.enabled,
+      frequency=excluded.frequency,
+      categories=excluded.categories,
+      scope=excluded.scope,
+      importance=excluded.importance,
+      source_ids=excluded.source_ids,
+      max_posts_per_day=excluded.max_posts_per_day,
+      include_original=excluded.include_original,
+      quiet_hours_enabled=excluded.quiet_hours_enabled,
+      quiet_start=excluded.quiet_start,
+      quiet_end=excluded.quiet_end,
+      timezone=excluded.timezone,
+      content_types=excluded.content_types,
+      updated_at=CURRENT_TIMESTAMP
+  `).run(
+    userId,
+    enabled ? 1 : 0,
+    frequency,
+    categories.join(','),
+    scope,
+    importance,
+    sourceIds.join(','),
+    maxPostsPerDay,
+    includeOriginal ? 1 : 0,
+    quietHoursEnabled ? 1 : 0,
+    quietStart,
+    quietEnd,
+    timezone,
+    contentTypes.join(','),
+  );
 }
 function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepare('INSERT INTO telegram_user_links (user_id,link_code_hash,code_expires_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET link_code_hash=excluded.link_code_hash,code_expires_at=excluded.code_expires_at,telegram_chat_id=NULL,linked_at=NULL').run(userId, linkCodeHash, expiresAt); }
-function linkTelegramUser({ linkCodeHash, telegramChatId }) { return db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").run(String(telegramChatId), linkCodeHash).changes === 1; }
+function linkTelegramUser({ linkCodeHash, telegramChatId }) {
+  const link = db.prepare("SELECT user_id FROM telegram_user_links WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").get(linkCodeHash);
+  if (!link) return null;
+  const result = db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE user_id = ? AND link_code_hash = ?").run(String(telegramChatId), link.user_id, linkCodeHash);
+  return result.changes === 1 ? link.user_id : null;
+}
 function getTelegramUserLink(userId) {
   try {
     const row = db.prepare('SELECT telegram_chat_id, linked_at FROM telegram_user_links WHERE user_id = ?').get(userId);
