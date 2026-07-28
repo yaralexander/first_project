@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { compareArticles } = require('./articleSimilarity');
+const { classifyArticle } = require('./articleClassifier');
+const { assessArticleQuality } = require('./articleQuality');
+const { applyFoundationSchema } = require('./schemaFoundation');
+const { createTaxonomyRepository } = require('./taxonomyRepository');
 
 const databasePath = process.env.DATABASE_PATH
   || path.join(__dirname, '..', 'data', 'finskienovosti.db');
@@ -265,10 +269,13 @@ function createDatabase() {
   const telegramUserLinkColumns = new Set(db.prepare('PRAGMA table_info(telegram_user_links)').all().map((column) => column.name));
   if (!telegramUserLinkColumns.has('linked_at')) db.exec('ALTER TABLE telegram_user_links ADD COLUMN linked_at TEXT');
 
+  applyFoundationSchema(db);
+
   return db;
 }
 
 const db = createDatabase();
+const taxonomyRepository = createTaxonomyRepository(db);
 
 const findArticleByUrl = db.prepare('SELECT id FROM articles WHERE original_url = ?');
 const insertArticleStatement = db.prepare(`
@@ -287,8 +294,276 @@ function articleExists(originalUrl) {
   return Boolean(findArticleByUrl.get(originalUrl));
 }
 
+function getArticleClassification(articleId) {
+  const article = db.prepare(`
+    SELECT region_code, classification_confidence, importance_level,
+      importance_reason, quality_confidence, quality_status, quality_reason,
+      quality_reviewed_at, quality_reviewed_by, quality_publish_on_approval
+    FROM articles WHERE id = ?
+  `).get(articleId);
+  if (!article) return null;
+  const tags = db.prepare(`
+    SELECT tags.id, tags.name, tags.slug, article_tags.confidence
+    FROM article_tags
+    JOIN managed_tags AS tags ON tags.id = article_tags.tag_id
+    WHERE article_tags.article_id = ?
+    ORDER BY tags.name COLLATE NOCASE
+  `).all(articleId).map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    confidence: row.confidence,
+  }));
+  const audiences = db.prepare(`
+    SELECT audiences.id, audiences.code, audiences.name, article_audiences.confidence
+    FROM article_audiences
+    JOIN managed_audiences AS audiences ON audiences.id = article_audiences.audience_id
+    WHERE article_audiences.article_id = ?
+    ORDER BY audiences.sort_order, audiences.name COLLATE NOCASE
+  `).all(articleId).map((row) => ({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    confidence: row.confidence,
+  }));
+  const region = taxonomyRepository.list('regions')
+    .find((item) => item.code === article.region_code) || null;
+  const processing = db.prepare(`
+    SELECT details
+    FROM article_processing_log
+    WHERE article_id = ? AND stage = 'classification'
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(articleId);
+  let explanation = '';
+  try {
+    explanation = JSON.parse(processing?.details || '{}').explanation || '';
+  } catch {
+    explanation = '';
+  }
+  return {
+    region,
+    tags,
+    audiences,
+    confidence: article.classification_confidence,
+    explanation,
+    importanceLevel: article.importance_level || 1,
+    importanceReason: article.importance_reason || '',
+    qualityConfidence: article.quality_confidence,
+    qualityStatus: article.quality_status || 'unchecked',
+    qualityReason: article.quality_reason || '',
+    qualityReviewedAt: article.quality_reviewed_at,
+    qualityReviewedBy: article.quality_reviewed_by,
+    qualityPublishOnApproval: Boolean(article.quality_publish_on_approval),
+  };
+}
+
+const replaceArticleClassification = db.transaction((
+  articleId,
+  classification,
+  quality,
+  { preserveCategory = false, gatePublication = false } = {},
+) => {
+  const current = db.prepare(`
+    SELECT category, publication_status, quality_status, quality_publish_on_approval
+    FROM articles
+    WHERE id = ?
+  `).get(articleId);
+  if (!current) return false;
+  const publishOnApproval = gatePublication
+    && quality.status === 'manual_review'
+    && current.publication_status === 'published';
+  db.prepare(`
+    UPDATE articles
+    SET category = ?, region_code = ?, classification_confidence = ?,
+      importance_level = ?, importance_reason = ?,
+      quality_confidence = ?, quality_status = ?, quality_reason = ?,
+      quality_reviewed_at = NULL, quality_reviewed_by = NULL,
+      quality_publish_on_approval = ?,
+      publication_status = CASE
+        WHEN ? = 1 AND ? = 'manual_review' THEN 'draft'
+        ELSE publication_status
+      END
+    WHERE id = ?
+  `).run(
+    preserveCategory && current.category ? current.category : classification.category,
+    classification.regionCode,
+    classification.confidence,
+    quality.importanceLevel,
+    quality.importanceReason,
+    quality.confidence,
+    quality.status,
+    quality.reason,
+    publishOnApproval ? 1 : Number(current.quality_publish_on_approval || 0),
+    gatePublication ? 1 : 0,
+    quality.status,
+    articleId,
+  );
+  db.prepare('DELETE FROM article_tags WHERE article_id = ?').run(articleId);
+  db.prepare('DELETE FROM article_audiences WHERE article_id = ?').run(articleId);
+  const insertTag = db.prepare(`
+    INSERT INTO article_tags (article_id, tag_id, confidence)
+    VALUES (?, ?, ?)
+  `);
+  classification.tagIds.forEach((tagId) => insertTag.run(articleId, tagId, classification.confidence));
+  const insertAudience = db.prepare(`
+    INSERT INTO article_audiences (article_id, audience_id, confidence)
+    VALUES (?, ?, ?)
+  `);
+  classification.audienceIds.forEach((audienceId) => insertAudience.run(articleId, audienceId, classification.confidence));
+  db.prepare(`
+    INSERT INTO article_processing_log (
+      article_id, original_url, status, stage, confidence, details
+    )
+    SELECT id, original_url, ?, 'classification', ?, ?
+    FROM articles WHERE id = ?
+  `).run(
+    quality.status === 'manual_review' ? 'manual_review' : 'processing',
+    classification.confidence,
+    JSON.stringify({
+      ...classification.evidence,
+      explanation: classification.explanation,
+      quality,
+    }),
+    articleId,
+  );
+  return true;
+});
+
+function classifyAndStoreArticle(articleId, { preserveCategory = false, gatePublication = false } = {}) {
+  const row = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+  if (!row) return null;
+  const classification = classifyArticle(toArticle(row), {
+    categories: taxonomyRepository.list('categories', { includeHidden: false }),
+    tags: taxonomyRepository.list('tags', { includeHidden: false }),
+    regions: taxonomyRepository.list('regions', { includeHidden: false }),
+    audiences: taxonomyRepository.list('audiences', { includeHidden: false }),
+  });
+  let quality = assessArticleQuality(toArticle(row), classification);
+  if (!gatePublication
+    && row.quality_status === 'manual_review'
+    && row.quality_publish_on_approval
+    && quality.status === 'passed') {
+    quality = {
+      ...quality,
+      status: 'manual_review',
+      reason: 'Повторная автоматическая проверка пройдена, но публикация всё ещё требует решения редактора.',
+    };
+  }
+  replaceArticleClassification(articleId, classification, quality, { preserveCategory, gatePublication });
+  return { ...classification, quality };
+}
+
+function classifyUnclassifiedArticles(limit = 500, { includeClassified = false } = {}) {
+  const safeLimit = Math.min(1000, Math.max(1, Number.parseInt(limit, 10) || 500));
+  const rows = db.prepare(`
+    SELECT id
+    FROM articles
+    ${includeClassified ? '' : 'WHERE classification_confidence IS NULL'}
+    ORDER BY id ASC
+    LIMIT ?
+  `).all(safeLimit);
+  rows.forEach((row) => classifyAndStoreArticle(row.id));
+  return rows.length;
+}
+
+function getQualityReviewQueue(limit = 100) {
+  const safeLimit = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 100));
+  return db.prepare(`
+    SELECT *
+    FROM articles
+    WHERE quality_status = 'manual_review'
+    ORDER BY importance_level DESC, COALESCE(published_at, created_at) DESC, id DESC
+    LIMIT ?
+  `).all(safeLimit).map((row) => {
+    const article = toArticle(row);
+    return { ...article, classification: getArticleClassification(article.id) };
+  });
+}
+
+function countQualityReviewQueue() {
+  return db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM articles
+    WHERE quality_status = 'manual_review'
+  `).get().count;
+}
+
+const reviewArticleQuality = db.transaction(({
+  id,
+  decision,
+  category,
+  importanceLevel,
+  reviewedBy,
+  note = '',
+}) => {
+  const article = db.prepare(`
+    SELECT id, publication_status, quality_publish_on_approval
+    FROM articles
+    WHERE id = ? AND quality_status = 'manual_review'
+  `).get(id);
+  if (!article || !['approve', 'reject'].includes(decision)) return false;
+  const level = Math.min(5, Math.max(1, Number.parseInt(importanceLevel, 10) || 1));
+  const reviewerNote = String(note || '').trim();
+  if (decision === 'approve') {
+    db.prepare(`
+      UPDATE articles
+      SET category = ?, importance_level = ?, quality_status = 'passed',
+        quality_confidence = 1, quality_reason = ?,
+        quality_reviewed_at = CURRENT_TIMESTAMP, quality_reviewed_by = ?,
+        publication_status = CASE WHEN quality_publish_on_approval = 1 THEN 'published' ELSE publication_status END,
+        published_at = CASE
+          WHEN quality_publish_on_approval = 1 THEN COALESCE(published_at, CURRENT_TIMESTAMP)
+          ELSE published_at
+        END,
+        quality_publish_on_approval = 0
+      WHERE id = ?
+    `).run(
+      category,
+      level,
+      reviewerNote
+        ? `Проверено редактором: ${reviewerNote}`
+        : 'Проверено и одобрено редактором.',
+      reviewedBy,
+      id,
+    );
+  } else {
+    db.prepare(`
+      UPDATE articles
+      SET quality_status = 'rejected', publication_status = 'draft',
+        quality_reason = ?, quality_reviewed_at = CURRENT_TIMESTAMP,
+        quality_reviewed_by = ?, quality_publish_on_approval = 0
+      WHERE id = ?
+    `).run(
+      reviewerNote
+        ? `Скрыто редактором: ${reviewerNote}`
+        : 'Скрыто редактором после проверки качества.',
+      reviewedBy,
+      id,
+    );
+  }
+  db.prepare(`
+    INSERT INTO article_processing_log (
+      article_id, original_url, status, stage, confidence, details
+    )
+    SELECT id, original_url, ?, 'quality_review', 1, ?
+    FROM articles WHERE id = ?
+  `).run(
+    decision === 'approve' ? 'published' : 'manual_review',
+    JSON.stringify({ decision, category, importanceLevel: level, reviewedBy, note: reviewerNote }),
+    id,
+  );
+  return {
+    published: decision === 'approve' && Boolean(article.quality_publish_on_approval),
+  };
+});
+
 function insertArticle(article) {
-  return insertArticleStatement.run(article).changes === 1;
+  const result = insertArticleStatement.run(article);
+  if (result.changes !== 1) return 0;
+  const articleId = Number(result.lastInsertRowid);
+  classifyAndStoreArticle(articleId, { gatePublication: true });
+  return articleId;
 }
 
 function articleDate(value) {
@@ -450,6 +725,17 @@ function toArticle(row) {
     publicationStatus: row.publication_status || 'published',
     importedAt: row.imported_at,
     scheduledPublishAt: row.scheduled_publish_at,
+    importanceLevel: row.importance_level || 1,
+    importanceReason: row.importance_reason || '',
+    classificationConfidence: row.classification_confidence,
+    qualityConfidence: row.quality_confidence,
+    qualityStatus: row.quality_status || 'unchecked',
+    qualityReason: row.quality_reason || '',
+    qualityReviewedAt: row.quality_reviewed_at,
+    qualityReviewedBy: row.quality_reviewed_by,
+    qualityPublishOnApproval: Boolean(row.quality_publish_on_approval),
+    regionCode: row.region_code || 'finland',
+    isUrgent: Boolean(row.is_urgent),
   };
 }
 
@@ -494,7 +780,9 @@ function getHomeArticles({ limit = 50, offset = 0, source = '', sort = 'newest' 
 
 function getArticleBySlug(slug) {
   const row = db.prepare("SELECT * FROM articles WHERE slug = ? AND publication_status = 'published'").get(slug);
-  return row ? toArticle(row) : null;
+  if (!row) return null;
+  const article = toArticle(row);
+  return { ...article, classification: getArticleClassification(article.id) };
 }
 
 function countArticles({ source = '' } = {}) {
@@ -516,6 +804,96 @@ function getArticlesByCategory(category, { limit = 50, offset = 0 } = {}) {
 
 function countArticlesByCategory(category) {
   return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE category = ? AND publication_status = 'published'").get(category).count;
+}
+
+function withClassification(article) {
+  return article ? { ...article, classification: getArticleClassification(article.id) } : null;
+}
+
+function getArticlesByTagSlug(slug, { limit = 50, offset = 0 } = {}) {
+  const pagination = normalizePagination(limit, offset);
+  return db.prepare(`
+    SELECT DISTINCT articles.*
+    FROM articles
+    JOIN article_tags ON article_tags.article_id = articles.id
+    JOIN managed_tags ON managed_tags.id = article_tags.tag_id
+    WHERE managed_tags.slug = ? AND managed_tags.is_visible = 1
+      AND articles.publication_status = 'published'
+    ORDER BY articles.published_at DESC, articles.id DESC
+    LIMIT ? OFFSET ?
+  `).all(slug, pagination.limit, pagination.offset).map(toArticle);
+}
+
+function countArticlesByTagSlug(slug) {
+  return db.prepare(`
+    SELECT COUNT(DISTINCT articles.id) AS count
+    FROM articles
+    JOIN article_tags ON article_tags.article_id = articles.id
+    JOIN managed_tags ON managed_tags.id = article_tags.tag_id
+    WHERE managed_tags.slug = ? AND managed_tags.is_visible = 1
+      AND articles.publication_status = 'published'
+  `).get(slug).count;
+}
+
+function getArticlesByRegionCode(code, { limit = 50, offset = 0 } = {}) {
+  const pagination = normalizePagination(limit, offset);
+  return db.prepare(`
+    SELECT * FROM articles
+    WHERE region_code = ? AND publication_status = 'published'
+    ORDER BY published_at DESC, id DESC
+    LIMIT ? OFFSET ?
+  `).all(code, pagination.limit, pagination.offset).map(toArticle);
+}
+
+function countArticlesByRegionCode(code) {
+  return db.prepare(`
+    SELECT COUNT(*) AS count FROM articles
+    WHERE region_code = ? AND publication_status = 'published'
+  `).get(code).count;
+}
+
+function getRelatedArticles(articleId, limit = 4) {
+  const article = db.prepare('SELECT id, category, region_code FROM articles WHERE id = ?').get(articleId);
+  if (!article) return [];
+  const safeLimit = Math.min(12, Math.max(1, Number.parseInt(limit, 10) || 4));
+  return db.prepare(`
+    SELECT DISTINCT candidate.*,
+      CASE WHEN candidate.category = @category THEN 2 ELSE 0 END
+      + CASE WHEN candidate.region_code = @regionCode THEN 1 ELSE 0 END
+      + COUNT(shared_tags.tag_id) AS relevance
+    FROM articles AS candidate
+    LEFT JOIN article_tags AS candidate_tags ON candidate_tags.article_id = candidate.id
+    LEFT JOIN article_tags AS shared_tags
+      ON shared_tags.article_id = @articleId AND shared_tags.tag_id = candidate_tags.tag_id
+    WHERE candidate.id <> @articleId AND candidate.publication_status = 'published'
+      AND (candidate.category = @category OR candidate.region_code = @regionCode OR shared_tags.tag_id IS NOT NULL)
+    GROUP BY candidate.id
+    ORDER BY relevance DESC, candidate.published_at DESC, candidate.id DESC
+    LIMIT @limit
+  `).all({
+    articleId,
+    category: article.category,
+    regionCode: article.region_code,
+    limit: safeLimit,
+  }).map(toArticle);
+}
+
+function getAdjacentArticles(articleId) {
+  const article = db.prepare('SELECT id, published_at FROM articles WHERE id = ?').get(articleId);
+  if (!article) return { newer: null, older: null };
+  const newer = db.prepare(`
+    SELECT * FROM articles
+    WHERE publication_status = 'published' AND id <> ?
+      AND (datetime(published_at) > datetime(?) OR (published_at = ? AND id > ?))
+    ORDER BY published_at ASC, id ASC LIMIT 1
+  `).get(articleId, article.published_at, article.published_at, articleId);
+  const older = db.prepare(`
+    SELECT * FROM articles
+    WHERE publication_status = 'published' AND id <> ?
+      AND (datetime(published_at) < datetime(?) OR (published_at = ? AND id < ?))
+    ORDER BY published_at DESC, id DESC LIMIT 1
+  `).get(articleId, article.published_at, article.published_at, articleId);
+  return { newer: newer ? toArticle(newer) : null, older: older ? toArticle(older) : null };
 }
 
 function getCategories() {
@@ -590,7 +968,7 @@ function getAdminSources() {
 }
 
 function createManualArticle({ title, body, category, slug, originalUrl, publishedAt, editorialStatus, pinnedUntil, scheduledPublishAt, publicationStatus = 'published' }) {
-  return db.prepare(`
+  const articleId = Number(db.prepare(`
     INSERT INTO articles (
       source_id, source_name, original_url, external_guid, slug, category,
       title_fi, summary_fi, title_ru, summary_ru, translation_method,
@@ -613,11 +991,13 @@ function createManualArticle({ title, body, category, slug, originalUrl, publish
     pinnedUntil,
     publicationStatus,
     scheduledPublishAt: scheduledPublishAt || null,
-  }).lastInsertRowid;
+  }).lastInsertRowid);
+  classifyAndStoreArticle(articleId, { preserveCategory: true });
+  return articleId;
 }
 
 function createImportedDraft({ sourceName, originalUrl, slug, titleFi, summaryFi, titleRu, summaryRu, translationMethod, promptVersion, importedAt }) {
-  return db.prepare(`
+  const articleId = Number(db.prepare(`
     INSERT INTO articles (
       source_id, source_name, original_url, external_guid, slug, category,
       title_fi, summary_fi, title_ru, summary_ru, translation_method,
@@ -630,7 +1010,9 @@ function createImportedDraft({ sourceName, originalUrl, slug, titleFi, summaryFi
     sourceName, originalUrl, originalUrl, slug,
     titleFi, summaryFi, titleRu, summaryRu, translationMethod,
     promptVersion || null, importedAt, importedAt,
-  ).lastInsertRowid;
+  ).lastInsertRowid);
+  classifyAndStoreArticle(articleId);
+  return articleId;
 }
 
 function publishArticle(articleId) {
@@ -642,12 +1024,14 @@ function publishArticle(articleId) {
 }
 
 function updateArticleEditorial({ id, title, body, category, editorialStatus, pinnedUntil, scheduledPublishAt }) {
-  return db.prepare(`
+  const updated = db.prepare(`
     UPDATE articles
     SET title_ru = ?, summary_ru = ?, category = ?, editorial_status = ?, pinned_until = ?,
       scheduled_publish_at = CASE WHEN publication_status = 'draft' THEN ? ELSE NULL END
     WHERE id = ?
   `).run(title, body, category, editorialStatus, pinnedUntil, scheduledPublishAt || null, id).changes === 1;
+  if (updated) classifyAndStoreArticle(id, { preserveCategory: true });
+  return updated;
 }
 
 function publishScheduledArticles(now = new Date().toISOString()) {
@@ -728,8 +1112,20 @@ function getPublishedSearchCondition(query) {
       OR unicode_lower(COALESCE(title_fi, '')) LIKE ? ESCAPE '\\'
       OR unicode_lower(COALESCE(summary_ru, '')) LIKE ? ESCAPE '\\'
       OR unicode_lower(COALESCE(summary_fi, '')) LIKE ? ESCAPE '\\'
+      OR unicode_lower(COALESCE(category, '')) LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM article_tags
+        JOIN managed_tags ON managed_tags.id = article_tags.tag_id
+        WHERE article_tags.article_id = articles.id
+          AND unicode_lower(managed_tags.name) LIKE ? ESCAPE '\\'
+      )
+      OR EXISTS (
+        SELECT 1 FROM managed_regions
+        WHERE managed_regions.code = articles.region_code
+          AND unicode_lower(managed_regions.name) LIKE ? ESCAPE '\\'
+      )
     )`,
-    values: [pattern, pattern, pattern, pattern],
+    values: [pattern, pattern, pattern, pattern, pattern, pattern, pattern],
   };
 }
 
@@ -756,7 +1152,9 @@ function countPublishedSearchResults(query = '') {
 
 function getArticleById(id) {
   const row = db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
-  return row ? toArticle(row) : null;
+  if (!row) return null;
+  const article = toArticle(row);
+  return { ...article, classification: getArticleClassification(article.id) };
 }
 
 function getTelegramPublication(articleId) {
@@ -1081,6 +1479,9 @@ function getUserSession(tokenHash) {
   return { tokenHash: row.token_hash, googleSub: row.google_sub, email: row.email, displayName: row.display_name, expiresAt: row.expires_at };
 }
 function deleteUserSession(tokenHash) { return db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(tokenHash).changes === 1; }
+function csvValues(value, fallback = []) {
+  return value ? String(value).split(',').map((item) => item.trim()).filter(Boolean) : fallback;
+}
 function getUserSubscription(userId) {
   const defaults = {
     userId,
@@ -1097,6 +1498,15 @@ function getUserSubscription(userId) {
     quietEnd: '07:00',
     timezone: 'Europe/Helsinki',
     contentTypes: ['news'],
+    excludedCategories: [],
+    tagIds: [],
+    regionCodes: ['finland'],
+    audienceCodes: [],
+    minimumImportance: 1,
+    deliveryTimes: [],
+    deliveryWeekdays: ['1', '2', '3', '4', '5', '6', '0'],
+    quietWeekdays: ['1', '2', '3', '4', '5', '6', '0'],
+    allowCriticalDuringQuiet: false,
     persisted: false,
   };
   try {
@@ -1107,17 +1517,26 @@ function getUserSubscription(userId) {
       persisted: true,
       enabled: Boolean(row.enabled),
       frequency: row.frequency,
-      categories: row.categories ? row.categories.split(',').filter(Boolean) : [],
+      categories: csvValues(row.categories),
       scope: row.scope,
       importance: row.importance,
-      sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [],
+      sourceIds: csvValues(row.source_ids),
       maxPostsPerDay: row.max_posts_per_day,
       includeOriginal: Boolean(row.include_original),
       quietHoursEnabled: Boolean(row.quiet_hours_enabled),
       quietStart: row.quiet_start || defaults.quietStart,
       quietEnd: row.quiet_end || defaults.quietEnd,
       timezone: row.timezone || defaults.timezone,
-      contentTypes: row.content_types ? row.content_types.split(',').filter(Boolean) : defaults.contentTypes,
+      contentTypes: csvValues(row.content_types, defaults.contentTypes),
+      excludedCategories: csvValues(row.excluded_categories),
+      tagIds: csvValues(row.tag_ids),
+      regionCodes: csvValues(row.region_codes, defaults.regionCodes),
+      audienceCodes: csvValues(row.audience_codes),
+      minimumImportance: Math.min(5, Math.max(1, Number(row.minimum_importance) || 1)),
+      deliveryTimes: csvValues(row.delivery_times),
+      deliveryWeekdays: csvValues(row.delivery_weekdays, defaults.deliveryWeekdays),
+      quietWeekdays: csvValues(row.quiet_weekdays, defaults.quietWeekdays),
+      allowCriticalDuringQuiet: Boolean(row.allow_critical_during_quiet),
     };
   } catch (error) {
     if (process.env.NODE_ENV !== 'test') console.error('[db] failed to load user subscription', error);
@@ -1130,7 +1549,11 @@ function getActiveUserSubscriptions() {
       subscriptions.categories, subscriptions.scope, subscriptions.importance,
       subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
       subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
-      subscriptions.timezone, subscriptions.content_types,
+      subscriptions.timezone, subscriptions.content_types, subscriptions.excluded_categories,
+      subscriptions.tag_ids, subscriptions.region_codes, subscriptions.audience_codes,
+      subscriptions.minimum_importance, subscriptions.delivery_times,
+      subscriptions.delivery_weekdays, subscriptions.quiet_weekdays,
+      subscriptions.allow_critical_during_quiet,
       links.telegram_chat_id, links.linked_at
     FROM user_subscriptions AS subscriptions
     JOIN telegram_user_links AS links ON links.user_id = subscriptions.user_id
@@ -1140,17 +1563,26 @@ function getActiveUserSubscriptions() {
     userId: row.user_id,
     enabled: Boolean(row.enabled),
     frequency: row.frequency,
-    categories: row.categories ? row.categories.split(',').filter(Boolean) : [],
+    categories: csvValues(row.categories),
     scope: row.scope,
     importance: row.importance,
-    sourceIds: row.source_ids ? row.source_ids.split(',').filter(Boolean) : [],
+    sourceIds: csvValues(row.source_ids),
     maxPostsPerDay: row.max_posts_per_day,
     includeOriginal: Boolean(row.include_original),
     quietHoursEnabled: Boolean(row.quiet_hours_enabled),
     quietStart: row.quiet_start || '22:00',
     quietEnd: row.quiet_end || '07:00',
     timezone: row.timezone || 'Europe/Helsinki',
-    contentTypes: row.content_types ? row.content_types.split(',').filter(Boolean) : ['news'],
+    contentTypes: csvValues(row.content_types, ['news']),
+    excludedCategories: csvValues(row.excluded_categories),
+    tagIds: csvValues(row.tag_ids),
+    regionCodes: csvValues(row.region_codes, ['finland']),
+    audienceCodes: csvValues(row.audience_codes),
+    minimumImportance: Math.min(5, Math.max(1, Number(row.minimum_importance) || 1)),
+    deliveryTimes: csvValues(row.delivery_times),
+    deliveryWeekdays: csvValues(row.delivery_weekdays, ['1', '2', '3', '4', '5', '6', '0']),
+    quietWeekdays: csvValues(row.quiet_weekdays, ['1', '2', '3', '4', '5', '6', '0']),
+    allowCriticalDuringQuiet: Boolean(row.allow_critical_during_quiet),
     telegramChatId: row.telegram_chat_id,
     linkedAt: row.linked_at,
   }));
@@ -1170,44 +1602,88 @@ function upsertUserSubscription({
   quietEnd = '07:00',
   timezone = 'Europe/Helsinki',
   contentTypes = ['news'],
+  excludedCategories = [],
+  tagIds = [],
+  regionCodes = ['finland'],
+  audienceCodes = [],
+  minimumImportance = 1,
+  deliveryTimes = [],
+  deliveryWeekdays = ['1', '2', '3', '4', '5', '6', '0'],
+  quietWeekdays = ['1', '2', '3', '4', '5', '6', '0'],
+  allowCriticalDuringQuiet = false,
 }) {
-  db.prepare(`
-    INSERT INTO user_subscriptions (
-      user_id, enabled, frequency, categories, scope, importance, source_ids,
-      max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
-      quiet_end, timezone, content_types, updated_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(user_id) DO UPDATE SET
-      enabled=excluded.enabled,
-      frequency=excluded.frequency,
-      categories=excluded.categories,
-      scope=excluded.scope,
-      importance=excluded.importance,
-      source_ids=excluded.source_ids,
-      max_posts_per_day=excluded.max_posts_per_day,
-      include_original=excluded.include_original,
-      quiet_hours_enabled=excluded.quiet_hours_enabled,
-      quiet_start=excluded.quiet_start,
-      quiet_end=excluded.quiet_end,
-      timezone=excluded.timezone,
-      content_types=excluded.content_types,
-      updated_at=CURRENT_TIMESTAMP
-  `).run(
-    userId,
-    enabled ? 1 : 0,
+  const settings = {
+    enabled: Boolean(enabled),
     frequency,
-    categories.join(','),
+    categories,
     scope,
     importance,
-    sourceIds.join(','),
+    sourceIds,
     maxPostsPerDay,
-    includeOriginal ? 1 : 0,
-    quietHoursEnabled ? 1 : 0,
+    includeOriginal: Boolean(includeOriginal),
+    quietHoursEnabled: Boolean(quietHoursEnabled),
     quietStart,
     quietEnd,
     timezone,
-    contentTypes.join(','),
-  );
+    contentTypes,
+    excludedCategories,
+    tagIds,
+    regionCodes,
+    audienceCodes,
+    minimumImportance: Math.min(5, Math.max(1, Number(minimumImportance) || 1)),
+    deliveryTimes,
+    deliveryWeekdays,
+    quietWeekdays,
+    allowCriticalDuringQuiet: Boolean(allowCriticalDuringQuiet),
+  };
+  const save = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO user_subscriptions (
+        user_id, enabled, frequency, categories, scope, importance, source_ids,
+        max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
+        quiet_end, timezone, content_types, excluded_categories, tag_ids,
+        region_codes, audience_codes, minimum_importance, delivery_times,
+        delivery_weekdays, quiet_weekdays, allow_critical_during_quiet, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id) DO UPDATE SET
+        enabled=excluded.enabled,
+        frequency=excluded.frequency,
+        categories=excluded.categories,
+        scope=excluded.scope,
+        importance=excluded.importance,
+        source_ids=excluded.source_ids,
+        max_posts_per_day=excluded.max_posts_per_day,
+        include_original=excluded.include_original,
+        quiet_hours_enabled=excluded.quiet_hours_enabled,
+        quiet_start=excluded.quiet_start,
+        quiet_end=excluded.quiet_end,
+        timezone=excluded.timezone,
+        content_types=excluded.content_types,
+        excluded_categories=excluded.excluded_categories,
+        tag_ids=excluded.tag_ids,
+        region_codes=excluded.region_codes,
+        audience_codes=excluded.audience_codes,
+        minimum_importance=excluded.minimum_importance,
+        delivery_times=excluded.delivery_times,
+        delivery_weekdays=excluded.delivery_weekdays,
+        quiet_weekdays=excluded.quiet_weekdays,
+        allow_critical_during_quiet=excluded.allow_critical_during_quiet,
+        updated_at=CURRENT_TIMESTAMP
+    `).run(
+      userId, settings.enabled ? 1 : 0, frequency, categories.join(','), scope, importance,
+      sourceIds.join(','), maxPostsPerDay, settings.includeOriginal ? 1 : 0,
+      settings.quietHoursEnabled ? 1 : 0, quietStart, quietEnd, timezone,
+      contentTypes.join(','), excludedCategories.join(','), tagIds.join(','),
+      regionCodes.join(','), audienceCodes.join(','), settings.minimumImportance,
+      deliveryTimes.join(','), deliveryWeekdays.join(','), quietWeekdays.join(','),
+      settings.allowCriticalDuringQuiet ? 1 : 0,
+    );
+    db.prepare(`
+      INSERT INTO user_preference_history (user_id, settings_json)
+      VALUES (?, ?)
+    `).run(userId, JSON.stringify(settings));
+  });
+  save();
 }
 function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepare('INSERT INTO telegram_user_links (user_id,link_code_hash,code_expires_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET link_code_hash=excluded.link_code_hash,code_expires_at=excluded.code_expires_at,telegram_chat_id=NULL,linked_at=NULL').run(userId, linkCodeHash, expiresAt); }
 function linkTelegramUser({ linkCodeHash, telegramChatId }) {
@@ -1252,7 +1728,88 @@ function getPublishedArticlesSince(sinceIso) {
     WHERE publication_status = 'published'
       AND datetime(published_at) >= datetime(?)
     ORDER BY published_at ASC, id ASC
-  `).all(sinceIso).map(toArticle);
+  `).all(sinceIso).map(toArticle).map((article) => ({
+    ...article,
+    classification: getArticleClassification(article.id),
+  }));
+}
+
+function enqueueTask({ taskType, payload, idempotencyKey, maxAttempts = 5, availableAt = null }) {
+  return db.prepare(`
+    INSERT INTO task_queue (task_type, payload_json, idempotency_key, max_attempts, available_at)
+    VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    ON CONFLICT(idempotency_key) DO NOTHING
+  `).run(taskType, JSON.stringify(payload || {}), idempotencyKey, maxAttempts, availableAt).changes === 1;
+}
+
+function claimDueTasks(taskType, limit = 10) {
+  const safeLimit = Math.min(50, Math.max(1, Number.parseInt(limit, 10) || 10));
+  return db.transaction(() => {
+    const rows = db.prepare(`
+      SELECT * FROM task_queue
+      WHERE task_type = ? AND status IN ('queued','retry')
+        AND datetime(available_at) <= datetime('now')
+      ORDER BY available_at ASC, id ASC LIMIT ?
+    `).all(taskType, safeLimit);
+    const claim = db.prepare(`
+      UPDATE task_queue SET status = 'running', locked_at = CURRENT_TIMESTAMP,
+        attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status IN ('queued','retry')
+    `);
+    return rows.filter((row) => claim.run(row.id).changes === 1).map((row) => ({
+      id: row.id,
+      taskType: row.task_type,
+      payload: JSON.parse(row.payload_json),
+      idempotencyKey: row.idempotency_key,
+      attempts: row.attempts + 1,
+      maxAttempts: row.max_attempts,
+    }));
+  })();
+}
+
+function completeTask(id) {
+  return db.prepare(`
+    UPDATE task_queue SET status = 'done', locked_at = NULL,
+      last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(id).changes === 1;
+}
+
+function failTask(id, errorMessage) {
+  const row = db.prepare('SELECT attempts, max_attempts FROM task_queue WHERE id = ?').get(id);
+  if (!row) return false;
+  const dead = row.attempts >= row.max_attempts;
+  const delayMinutes = Math.min(60, 2 ** Math.max(0, row.attempts - 1));
+  return db.prepare(`
+    UPDATE task_queue SET status = ?, locked_at = NULL, last_error = ?,
+      available_at = datetime('now', ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(dead ? 'dead' : 'retry', String(errorMessage || 'unknown_error').slice(0, 500), `+${delayMinutes} minutes`, id).changes === 1;
+}
+
+function recordTelegramDeliveryAttempt({ userId = null, articleId = null, deliveryKind, status, telegramMessageId = null, errorCode = null }) {
+  return db.prepare(`
+    INSERT INTO telegram_delivery_log (
+      user_id, article_id, delivery_kind, status, telegram_message_id, error_code
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(userId, articleId, deliveryKind, status, telegramMessageId ? String(telegramMessageId) : null, errorCode).lastInsertRowid;
+}
+
+function recordSearchQuery(query, resultCount) {
+  return db.prepare('INSERT INTO search_analytics (query, result_count) VALUES (?, ?)').run(String(query).slice(0, 120), Number(resultCount) || 0).lastInsertRowid;
+}
+
+function getOperationalMetrics() {
+  const reduceCounts = (rows) => rows.reduce((result, row) => ({ ...result, [row.status]: row.count }), {});
+  const queue = reduceCounts(db.prepare('SELECT status, COUNT(*) AS count FROM task_queue GROUP BY status').all());
+  const delivery = reduceCounts(db.prepare(`
+    SELECT status, COUNT(*) AS count FROM telegram_delivery_log
+    WHERE attempted_at >= datetime('now', '-24 hours') GROUP BY status
+  `).all());
+  const searches = db.prepare(`
+    SELECT query, COUNT(*) AS searches, MAX(result_count) AS resultCount
+    FROM search_analytics WHERE searched_on >= date('now', '-6 days')
+    GROUP BY unicode_lower(query) ORDER BY searches DESC, query ASC LIMIT 10
+  `).all();
+  return { queue, delivery, searches };
 }
 
 function createComment({ articleId, authorName, body }) {
@@ -1386,11 +1943,68 @@ function getUnreadContactMessageCount() {
   return db.prepare("SELECT COUNT(*) AS count FROM contact_messages WHERE status = 'new'").get().count;
 }
 
+function getManagedTaxonomy() {
+  const listWithUsage = (type) => taxonomyRepository.list(type).map((item) => ({
+    ...item,
+    usage: taxonomyRepository.usage(type, item.id),
+  }));
+  return {
+    categories: listWithUsage('categories'),
+    tags: listWithUsage('tags'),
+    regions: listWithUsage('regions'),
+    audiences: listWithUsage('audiences'),
+  };
+}
+
+function getVisibleManagedCategories() {
+  return taxonomyRepository.list('categories', { includeHidden: false });
+}
+
+function getManagedCategoryBySlug(slug) {
+  return taxonomyRepository.categoryBySlug(slug);
+}
+
+function resolveManagedCategorySlug(slug) {
+  return taxonomyRepository.categoryResolution(slug);
+}
+
+function getManagedCategoryByName(name) {
+  return taxonomyRepository.categoryByName(name);
+}
+
+function createManagedTaxonomyItem(type, input) {
+  return taxonomyRepository.create(type, input);
+}
+
+function updateManagedTaxonomyItem(type, id, input) {
+  return taxonomyRepository.update(type, id, input);
+}
+
+function setManagedTaxonomyVisibility(type, id, isVisible) {
+  return taxonomyRepository.setVisibility(type, id, isVisible);
+}
+
+function deleteManagedTaxonomyItem(type, id) {
+  return taxonomyRepository.remove(type, id);
+}
+
+function mergeManagedCategories(sourceId, targetId, actor) {
+  return taxonomyRepository.mergeCategories(sourceId, targetId, actor);
+}
+
+function getManagedTaxonomyUsage(type, id) {
+  return taxonomyRepository.usage(type, id);
+}
+
 module.exports = {
   articleExists,
+  claimDueTasks,
   cleanupAnalytics,
+  completeTask,
   countArticles,
   countArticlesByCategory,
+  countArticlesByRegionCode,
+  countArticlesByTagSlug,
   countPublishedSearchResults,
   createComment,
   createAdminOAuthState,
@@ -1404,18 +2018,29 @@ module.exports = {
   deleteArticle,
   countUntranslatedArticles,
   deleteUntranslatedArticles,
+  enqueueTask,
+  failTask,
   findSimilarArticle,
   getAdminAuditLog,
   getAdminSession,
   getArticleBySlug,
   getArticleById,
+  getArticleClassification,
+  getQualityReviewQueue,
+  countQualityReviewQueue,
+  reviewArticleQuality,
   getArticles,
   getArticlesByCategory,
+  getArticlesByRegionCode,
+  getArticlesByTagSlug,
+  getAdjacentArticles,
+  getRelatedArticles,
   getHomeArticles,
   getApprovedComments,
   getLatestApprovedComments,
   getCategories,
   getNews,
+  getOperationalMetrics,
   getAnalyticsSecret,
   getAdminStatistics,
   getAdminSources,
@@ -1428,6 +2053,8 @@ module.exports = {
   getSitemapArticles,
   getTelegramPublication,
   insertArticle,
+  classifyAndStoreArticle,
+  classifyUnclassifiedArticles,
   publishArticle,
   publishScheduledArticles,
   cleanupAdminAuthData,
@@ -1452,6 +2079,8 @@ module.exports = {
   recordDuplicateArticle,
   resolveDuplicateArticle,
   recordTelegramPublication,
+  recordTelegramDeliveryAttempt,
+  recordSearchQuery,
   recordArticleReaction,
   getReactionTotals,
   searchArticles,
@@ -1462,6 +2091,17 @@ module.exports = {
   createContactMessage,
   getContactMessages,
   getUnreadContactMessageCount,
+  getManagedTaxonomy,
+  getVisibleManagedCategories,
+  getManagedCategoryBySlug,
+  resolveManagedCategorySlug,
+  getManagedCategoryByName,
+  createManagedTaxonomyItem,
+  updateManagedTaxonomyItem,
+  setManagedTaxonomyVisibility,
+  deleteManagedTaxonomyItem,
+  mergeManagedCategories,
+  getManagedTaxonomyUsage,
   updateContactMessageStatus,
   createEditorialDiscussion,
   getEditorialDiscussions,

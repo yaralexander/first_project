@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "test": "node --test",
     "refresh-once": "node src/fetchNews.js --once",
-    "db:migrate-json": "node src/migrateJsonToSqlite.js"
+    "db:migrate-json": "node src/migrateJsonToSqlite.js",
+    "db:backup": "node src/backupDatabase.js"
   },
   "dependencies": {
     "better-sqlite3": "12.9.0",

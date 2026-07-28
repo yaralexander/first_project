@@ -18,7 +18,8 @@ const {
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
-  isQuietTime,
+  canDeliverArticleNow,
+  isDeliveryScheduleDue,
   normalizeContentTypes,
 } = require('./telegramDelivery');
 const {
@@ -32,13 +33,19 @@ const {
 const { categorize } = require('./config');
 const {
   countArticles,
+  claimDueTasks,
+  completeTask,
   countUntranslatedArticles,
   countArticlesByCategory,
+  countArticlesByRegionCode,
+  countArticlesByTagSlug,
   countPublishedSearchResults,
   createComment,
   createContactMessage,
   createManualArticle,
   createImportedDraft,
+  enqueueTask,
+  failTask,
   deleteArticle,
   deleteUntranslatedArticles,
   deleteComment,
@@ -47,17 +54,35 @@ const {
   getAdminComments,
   getContactMessages,
   getUnreadContactMessageCount,
+  getManagedTaxonomy,
+  getVisibleManagedCategories,
+  resolveManagedCategorySlug,
+  getManagedCategoryByName,
+  createManagedTaxonomyItem,
+  updateManagedTaxonomyItem,
+  setManagedTaxonomyVisibility,
+  deleteManagedTaxonomyItem,
+  mergeManagedCategories,
   getAdminSources,
   getAdminStatistics,
   getArticleBySlug,
   getArticleById,
+  getArticleClassification,
+  getQualityReviewQueue,
+  countQualityReviewQueue,
+  reviewArticleQuality,
   getArticles,
   getArticlesByCategory,
+  getArticlesByRegionCode,
+  getArticlesByTagSlug,
+  getAdjacentArticles,
+  getRelatedArticles,
   getAnalyticsSecret,
   getApprovedComments,
   getLatestApprovedComments,
   getCategories,
   getNews,
+  getOperationalMetrics,
   getRecentDuplicateArticles,
   getDuplicateArticleById,
   getHomeArticles,
@@ -88,11 +113,15 @@ const {
   getSitemapArticles,
   getTelegramPublication,
   insertArticle,
+  classifyAndStoreArticle,
+  classifyUnclassifiedArticles,
   getPublishedArticlesSince,
   getReactionTotals,
   recordArticleReaction,
   recordAdminAction,
   recordTelegramPublication,
+  recordTelegramDeliveryAttempt,
+  recordSearchQuery,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
@@ -107,7 +136,11 @@ const {
   getEditorialDiscussions,
   updateEditorialDiscussion,
 } = require('./db');
-const { categories, categoryFromSlug, categoryToSlug } = require('./categories');
+const {
+  categories: fallbackCategories,
+  categoryFromSlug: fallbackCategoryFromSlug,
+  categoryToSlug: fallbackCategoryToSlug,
+} = require('./categories');
 const { slugify } = require('./slugify');
 const {
   renderAccountErrorPage,
@@ -182,6 +215,7 @@ const PAGE_SIZE = 50;
 const ARTICLE_TITLE_MAX_LENGTH = 300;
 const ARTICLE_BODY_MAX_LENGTH = 20000;
 const EDITORIAL_STATUSES = new Set(['normal', 'important', 'urgent']);
+const TAXONOMY_TYPES = new Set(['categories', 'tags', 'regions', 'audiences']);
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10000;
 const RUSSIAN_PROVIDER = (process.env.RUSSIAN_PROVIDER || 'claude').toLowerCase();
 const configuredAnalyticsRetention = Number.parseInt(process.env.ANALYTICS_RETENTION_DAYS || '90', 10);
@@ -460,8 +494,9 @@ async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') 
       siteUrl: SITE_URL,
       user,
       subscription: sub,
-      categories,
+      categories: managedCategories(),
       sources: getAdminSources(),
+      taxonomy: getManagedTaxonomy(),
       telegramLink: link,
       botProfile,
       message,
@@ -582,6 +617,54 @@ function parseArticleId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function managedCategories() {
+  const names = getVisibleManagedCategories().map((category) => category.name);
+  return names.length ? names : fallbackCategories;
+}
+
+function categoryToSlug(category) {
+  return getManagedCategoryByName(category)?.slug || fallbackCategoryToSlug(category);
+}
+
+function categorySlugResolution(slug) {
+  const managed = resolveManagedCategorySlug(slug);
+  if (managed) return managed;
+  const category = fallbackCategoryFromSlug(slug);
+  return category ? {
+    category: { name: category, slug: fallbackCategoryToSlug(category) },
+    isAlias: false,
+    canonicalSlug: fallbackCategoryToSlug(category),
+  } : null;
+}
+
+function parseTaxonomyType(value) {
+  return TAXONOMY_TYPES.has(value) ? value : null;
+}
+
+function parseTaxonomyInput(body) {
+  return {
+    name: body.name,
+    code: body.code,
+    slug: body.slug,
+    emoji: body.emoji,
+    color: body.color,
+    description: body.description,
+    synonyms: body.synonyms,
+    keywords: body.keywords,
+    classificationRules: body.classification_rules,
+    aliases: body.aliases,
+    regionType: body.region_type,
+    parentCode: body.parent_code,
+    sortOrder: body.sort_order,
+  };
+}
+
+function taxonomyRedirect(status, type = '') {
+  const params = new URLSearchParams({ tab: 'taxonomy', taxonomy: status });
+  if (type) params.set('type', type);
+  return `/admin?${params.toString()}`;
+}
+
 function parseEditorialInput(body) {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const text = typeof body.text === 'string' ? body.text.trim() : '';
@@ -601,14 +684,14 @@ function parseEditorialInput(body) {
     if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
     scheduledPublishAt = date.toISOString();
   }
-  if (!title || !text || !categories.includes(category)
+  if (!title || !text || !managedCategories().includes(category)
     || title.length > ARTICLE_TITLE_MAX_LENGTH || text.length > ARTICLE_BODY_MAX_LENGTH
     || !EDITORIAL_STATUSES.has(editorialStatus)) return null;
   return { title, text, category, editorialStatus, pinnedUntil, scheduledPublishAt };
 }
 
 function parseStatisticsFilters(query = {}) {
-  const category = categories.includes(query.category) ? query.category : '';
+  const category = managedCategories().includes(query.category) ? query.category : '';
   const sourceId = typeof query.source === 'string' && /^[\w:-]{1,100}$/.test(query.source)
     ? query.source
     : '';
@@ -678,7 +761,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
-    if (isQuietTime(subscription)) {
+    if (!retryOnly && !isDeliveryScheduleDue(subscription)) {
       skipped += 1;
       continue;
     }
@@ -692,7 +775,11 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       skipped += 1;
       continue;
     }
-    const eligible = articles.filter((article) => articleMatchesSubscription(article, subscription) && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id }));
+    const eligible = articles.filter((article) => (
+      articleMatchesSubscription(article, subscription)
+      && canDeliverArticleNow(article, subscription)
+      && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })
+    ));
     if (sinceIso) {
       eligible.sort((a, b) => new Date(a.publishedAt || 0) - new Date(b.publishedAt || 0));
     }
@@ -709,10 +796,19 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
         for (const article of batch) {
           if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
             delivered += 1;
+            recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'sent', telegramMessageId });
           }
         }
       } catch (error) {
         console.error('[telegram-digest] ошибка отправки:', error.message);
+        for (const article of batch) {
+          recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'failed', errorCode: error.message });
+          enqueueTask({
+            taskType: 'personal_telegram',
+            payload: { userId: subscription.userId, articleId: article.id },
+            idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
+          });
+        }
         skipped += 1;
       }
       continue;
@@ -726,15 +822,54 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
         if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
           delivered += 1;
           sentToday += 1;
+          recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'instant', status: 'sent', telegramMessageId });
         }
       } catch (error) {
         console.error('[telegram-instant] ошибка отправки:', error.message);
+        recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'instant', status: 'failed', errorCode: error.message });
+        enqueueTask({
+          taskType: 'personal_telegram',
+          payload: { userId: subscription.userId, articleId: article.id },
+          idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
+        });
         skipped += 1;
       }
       if (sentToday >= quota) break;
     }
   }
   return { delivered, skipped };
+}
+
+async function processTelegramRetryQueue() {
+  if (!TELEGRAM_BOT_CONFIGURED) return { completed: 0, failed: 0 };
+  const subscriptions = new Map(getActiveUserSubscriptions().map((subscription) => [subscription.userId, subscription]));
+  const tasks = claimDueTasks('personal_telegram', 10);
+  let completed = 0;
+  let failed = 0;
+  for (const task of tasks) {
+    const subscription = subscriptions.get(task.payload.userId);
+    const article = getArticleById(task.payload.articleId);
+    if (!subscription || !article || hasTelegramUserDelivery({ userId: task.payload.userId, articleId: task.payload.articleId })) {
+      completeTask(task.id);
+      completed += 1;
+      continue;
+    }
+    try {
+      const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
+        siteUrl: SITE_URL,
+        includeOriginal: subscription.includeOriginal !== false,
+      }));
+      recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId });
+      recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'sent', telegramMessageId });
+      completeTask(task.id);
+      completed += 1;
+    } catch (error) {
+      recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'failed', errorCode: error.message });
+      failTask(task.id, error.message);
+      failed += 1;
+    }
+  }
+  return { completed, failed };
 }
 
 function consumeCommentRateLimit(ip) {
@@ -885,9 +1020,12 @@ app.get('/contact', (req, res) => {
 
 app.get('/sitemap.xml', (req, res) => {
   const categorySlugs = getCategories().map(categoryToSlug).filter(Boolean);
+  const taxonomy = getManagedTaxonomy();
   const sitemap = renderSitemap({
     siteUrl: SITE_URL,
     categorySlugs,
+    tagSlugs: taxonomy.tags.filter((item) => item.isVisible !== false).map((item) => item.slug),
+    regionCodes: taxonomy.regions.filter((item) => item.isVisible !== false).map((item) => item.code),
     articles: getSitemapArticles(),
     archivePageCount: Math.max(1, Math.ceil(countArticles() / PAGE_SIZE)),
   });
@@ -975,6 +1113,7 @@ app.get('/search', (req, res) => {
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const searchable = query.length >= 2;
   const total = searchable ? countPublishedSearchResults(query) : 0;
+  if (searchable) recordSearchQuery(query, total);
   const articles = searchable
     ? withReactionTotalsForList(searchPublishedArticles({ query, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }))
     : [];
@@ -1003,6 +1142,20 @@ app.get('/search', (req, res) => {
   }));
 });
 
+app.get('/api/search/suggestions', (req, res) => {
+  const query = (typeof req.query.q === 'string' ? req.query.q : '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  if (query.length < 2) return res.json({ query, suggestions: [] });
+  const suggestions = searchPublishedArticles({ query, limit: 5, offset: 0 })
+    .map((article) => ({
+      title: article.titleRu || article.titleFi,
+      url: `/news/${encodeURIComponent(article.slug)}`,
+    }));
+  return res.json({ query, suggestions });
+});
+
 app.get('/page/:number', (req, res) => {
   const page = Number.parseInt(req.params.number, 10);
   if (!Number.isInteger(page) || page < 1) {
@@ -1013,18 +1166,23 @@ app.get('/page/:number', (req, res) => {
 });
 
 app.get('/category/:slug', (req, res) => {
-  recordPublicView(req);
-  const category = categoryFromSlug(req.params.slug);
-  if (!category) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   const page = Number.parseInt(req.query.page, 10) || 1;
   if (page < 1) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const resolution = categorySlugResolution(req.params.slug);
+  if (!resolution) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  if (resolution.isAlias) {
+    const pageQuery = page > 1 ? `?page=${page}` : '';
+    return res.redirect(301, `/category/${encodeURIComponent(resolution.canonicalSlug)}${pageQuery}`);
+  }
+  recordPublicView(req);
+  const category = resolution.category.name;
   const total = countArticlesByCategory(category);
   const articles = withReactionTotalsForList(getArticlesByCategory(category, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
   if (page > 1 && articles.length === 0) {
     return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   }
   const pageSuffix = page === 1 ? '' : ` — страница ${page}`;
-  const categoryPath = `/category/${encodeURIComponent(req.params.slug)}`;
+  const categoryPath = `/category/${encodeURIComponent(resolution.canonicalSlug)}`;
   return res.type('html').send(renderListPage({
     title: `Новости: ${category}${pageSuffix}`,
     description: `Новости Финляндии в категории «${category}»${pageSuffix.toLowerCase()}.`,
@@ -1034,6 +1192,50 @@ app.get('/category/:slug', (req, res) => {
     page,
     total,
     pagePath: (targetPage) => (targetPage === 1 ? categoryPath : `${categoryPath}?page=${targetPage}`),
+    categoryToSlug,
+  }));
+});
+
+app.get('/tag/:slug', (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const tag = getManagedTaxonomy().tags.find((item) => item.slug === req.params.slug && item.isVisible !== false);
+  if (!tag) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  recordPublicView(req);
+  const total = countArticlesByTagSlug(tag.slug);
+  const articles = withReactionTotalsForList(getArticlesByTagSlug(tag.slug, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
+  if (page > 1 && articles.length === 0) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const basePath = `/tag/${encodeURIComponent(tag.slug)}`;
+  return res.type('html').send(renderListPage({
+    title: `Тема: ${tag.name}${page > 1 ? ` — страница ${page}` : ''}`,
+    description: tag.description || `Все опубликованные материалы по теме «${tag.name}».`,
+    canonicalPath: page === 1 ? basePath : `${basePath}?page=${page}`,
+    siteUrl: SITE_URL,
+    articles,
+    page,
+    total,
+    pagePath: (targetPage) => (targetPage === 1 ? basePath : `${basePath}?page=${targetPage}`),
+    categoryToSlug,
+  }));
+});
+
+app.get('/region/:code', (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const region = getManagedTaxonomy().regions.find((item) => item.code === req.params.code && item.isVisible !== false);
+  if (!region) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  recordPublicView(req);
+  const total = countArticlesByRegionCode(region.code);
+  const articles = withReactionTotalsForList(getArticlesByRegionCode(region.code, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
+  if (page > 1 && articles.length === 0) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const basePath = `/region/${encodeURIComponent(region.code)}`;
+  return res.type('html').send(renderListPage({
+    title: `Регион: ${region.name}${page > 1 ? ` — страница ${page}` : ''}`,
+    description: `Новости по региону «${region.name}».`,
+    canonicalPath: page === 1 ? basePath : `${basePath}?page=${page}`,
+    siteUrl: SITE_URL,
+    articles,
+    page,
+    total,
+    pagePath: (targetPage) => (targetPage === 1 ? basePath : `${basePath}?page=${targetPage}`),
     categoryToSlug,
   }));
 });
@@ -1049,6 +1251,8 @@ app.get('/news/:slug', (req, res) => {
     comments: getApprovedComments(article.id),
     commentMessage: commentMessage(req.query.comment),
     reactionMessage: req.query.reaction === 'submitted' ? 'Реакция учтена.' : '',
+    relatedArticles: getRelatedArticles(article.id, 4),
+    adjacent: getAdjacentArticles(article.id),
   }));
 });
 
@@ -1223,7 +1427,18 @@ app.post('/account/subscription', async (req, res) => {
   if (!user) return res.redirect(303, '/account/login');
   const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []);
   const requestedSources = Array.isArray(req.body.source_ids) ? req.body.source_ids : (req.body.source_ids ? [req.body.source_ids] : []);
+  const requestedExcludedCategories = Array.isArray(req.body.excluded_categories) ? req.body.excluded_categories : (req.body.excluded_categories ? [req.body.excluded_categories] : []);
+  const requestedTags = Array.isArray(req.body.tag_ids) ? req.body.tag_ids : (req.body.tag_ids ? [req.body.tag_ids] : []);
+  const requestedRegions = Array.isArray(req.body.region_codes) ? req.body.region_codes : (req.body.region_codes ? [req.body.region_codes] : []);
+  const requestedAudiences = Array.isArray(req.body.audience_codes) ? req.body.audience_codes : (req.body.audience_codes ? [req.body.audience_codes] : []);
+  const requestedDeliveryWeekdays = Array.isArray(req.body.delivery_weekdays) ? req.body.delivery_weekdays : (req.body.delivery_weekdays ? [req.body.delivery_weekdays] : []);
+  const requestedQuietWeekdays = Array.isArray(req.body.quiet_weekdays) ? req.body.quiet_weekdays : (req.body.quiet_weekdays ? [req.body.quiet_weekdays] : []);
+  const taxonomy = getManagedTaxonomy();
   const allowedSourceIds = new Set(getAdminSources().map((source) => source.sourceId));
+  const allowedTagIds = new Set(taxonomy.tags.filter((tag) => tag.isVisible).map((tag) => String(tag.id)));
+  const allowedRegionCodes = new Set(taxonomy.regions.filter((region) => region.isVisible).map((region) => region.code));
+  const allowedAudienceCodes = new Set(taxonomy.audiences.filter((audience) => audience.isVisible).map((audience) => audience.code));
+  const allowedWeekdays = new Set(['0', '1', '2', '3', '4', '5', '6']);
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   const quietStart = timePattern.test(req.body.quiet_start || '') ? req.body.quiet_start : '22:00';
   const quietEnd = timePattern.test(req.body.quiet_end || '') ? req.body.quiet_end : '07:00';
@@ -1231,7 +1446,7 @@ app.post('/account/subscription', async (req, res) => {
     userId: user.googleSub,
     enabled: req.body.enabled === 'on',
     frequency: req.body.frequency === 'instant' ? 'instant' : 'daily',
-    categories: cats.filter((category) => categories.includes(category)),
+    categories: cats.filter((category) => managedCategories().includes(category)),
     scope: req.body.scope === 'all' ? 'all' : 'finland',
     importance: req.body.importance === 'important' ? 'important' : 'all',
     sourceIds: requestedSources.filter((sourceId) => allowedSourceIds.has(sourceId)),
@@ -1242,6 +1457,15 @@ app.post('/account/subscription', async (req, res) => {
     quietEnd,
     timezone: 'Europe/Helsinki',
     contentTypes: normalizeContentTypes(req.body.content_types),
+    excludedCategories: requestedExcludedCategories.filter((category) => managedCategories().includes(category)),
+    tagIds: requestedTags.map(String).filter((id) => allowedTagIds.has(id)),
+    regionCodes: requestedRegions.filter((code) => allowedRegionCodes.has(code)),
+    audienceCodes: requestedAudiences.filter((code) => allowedAudienceCodes.has(code)),
+    minimumImportance: Math.min(5, Math.max(1, Number.parseInt(req.body.minimum_importance, 10) || 1)),
+    deliveryTimes: [req.body.delivery_time].filter((value) => timePattern.test(value || '')),
+    deliveryWeekdays: requestedDeliveryWeekdays.filter((day) => allowedWeekdays.has(day)),
+    quietWeekdays: requestedQuietWeekdays.filter((day) => allowedWeekdays.has(day)),
+    allowCriticalDuringQuiet: req.body.allow_critical_during_quiet === 'on',
   });
   if (req.body.enabled === 'on') {
     runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message));
@@ -1330,18 +1554,30 @@ app.post('/admin/logout', requireAdminOrigin, (req, res) => {
 app.get('/admin', (req, res) => {
   const statisticsFilters = parseStatisticsFilters(req.query);
   const articles = withReactionTotalsForList(searchArticles({ query: req.query.q, limit: 50 }))
-    .map((article) => ({ ...article, telegramPublication: getTelegramPublication(article.id), editorialDiscussions: getEditorialDiscussions(article.id) }));
+    .map((article) => ({
+      ...article,
+      classification: getArticleClassification(article.id),
+      telegramPublication: getTelegramPublication(article.id),
+      editorialDiscussions: getEditorialDiscussions(article.id),
+    }));
   res.set('Cache-Control', 'no-store');
   res.type('html').send(renderAdminPage({
     comments: getAdminComments(100),
     articles,
     query: typeof req.query.q === 'string' ? req.query.q : '',
-    statistics: getAdminStatistics(statisticsFilters),
+    statistics: { ...getAdminStatistics(statisticsFilters), operational: getOperationalMetrics() },
     statisticsSources: getAdminSources(),
     duplicateArticles: getRecentDuplicateArticles(20),
     auditLog: getAdminAuditLog(100),
     currentAccount: req.adminAccount,
-    categories,
+    categories: managedCategories(),
+    taxonomy: getManagedTaxonomy(),
+    taxonomyStatus: typeof req.query.taxonomy === 'string' ? req.query.taxonomy : '',
+    classificationStatus: typeof req.query.classification === 'string' ? req.query.classification : '',
+    classificationCount: Number.parseInt(req.query.count, 10) || 0,
+    qualityQueue: getQualityReviewQueue(100),
+    qualityQueueCount: countQualityReviewQueue(),
+    qualityStatus: typeof req.query.quality === 'string' ? req.query.quality : '',
     telegramConfigured: TELEGRAM_CONFIGURED,
     telegramStatus: typeof req.query.telegram === 'string' ? req.query.telegram : '',
     importProviderConfigured: IMPORT_PROVIDER_CONFIGURED,
@@ -1354,6 +1590,126 @@ app.get('/admin', (req, res) => {
     unreadContactMessages: getUnreadContactMessageCount(),
     untranslatedArticleCount: countUntranslatedArticles(),
   }));
+});
+
+app.post('/admin/taxonomy/:type', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  if (!type) return res.status(404).type('text').send('Справочник не найден.');
+  try {
+    const id = createManagedTaxonomyItem(type, parseTaxonomyInput(req.body));
+    auditAdminAction(req, 'taxonomy.create', type, id, { name: req.body.name });
+    return res.redirect(303, taxonomyRedirect('created', type));
+  } catch (error) {
+    const status = String(error.code || '').startsWith('SQLITE_CONSTRAINT') ? 'duplicate' : 'invalid';
+    return res.redirect(303, taxonomyRedirect(status, type));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  try {
+    if (!updateManagedTaxonomyItem(type, id, parseTaxonomyInput(req.body))) {
+      return res.status(404).type('text').send('Запись справочника не найдена.');
+    }
+    auditAdminAction(req, 'taxonomy.update', type, id, { name: req.body.name });
+    return res.redirect(303, taxonomyRedirect('updated', type));
+  } catch (error) {
+    const status = String(error.code || '').startsWith('SQLITE_CONSTRAINT') ? 'duplicate' : 'invalid';
+    return res.redirect(303, taxonomyRedirect(status, type));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id/visibility', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  const visible = req.body.visible === '1';
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  try {
+    if (!setManagedTaxonomyVisibility(type, id, visible)) {
+      return res.status(404).type('text').send('Запись справочника не найдена.');
+    }
+    auditAdminAction(req, 'taxonomy.visibility', type, id, { visible });
+    return res.redirect(303, taxonomyRedirect(visible ? 'shown' : 'hidden', type));
+  } catch (error) {
+    auditAdminAction(req, 'taxonomy.visibility_failed', type, id, {
+      visible,
+      reason: error.code || 'unknown',
+    });
+    return res.redirect(303, taxonomyRedirect(
+      error.code === 'CATEGORY_MERGED' ? 'merged-hidden' : 'invalid',
+      type,
+    ));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id/delete', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  const result = deleteManagedTaxonomyItem(type, id);
+  auditAdminAction(req, result.deleted ? 'taxonomy.delete' : 'taxonomy.delete_blocked', type, id, result);
+  const status = result.deleted ? 'deleted' : result.reason === 'not_found' ? 'not-found' : result.reason;
+  return res.redirect(303, taxonomyRedirect(status, type));
+});
+
+app.post('/admin/taxonomy/categories/:id/merge', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const sourceId = parseArticleId(req.params.id);
+  const targetId = parseArticleId(req.body.target_id);
+  if (!sourceId || !targetId || req.body.confirm !== 'MERGE') {
+    return res.redirect(303, taxonomyRedirect('merge-invalid', 'categories'));
+  }
+  try {
+    const result = mergeManagedCategories(sourceId, targetId, req.adminAccount.username);
+    auditAdminAction(req, 'taxonomy.merge', 'categories', sourceId, result);
+    return res.redirect(303, taxonomyRedirect('merged', 'categories'));
+  } catch (error) {
+    auditAdminAction(req, 'taxonomy.merge_failed', 'categories', sourceId, {
+      targetId,
+      reason: error.message,
+    });
+    return res.redirect(303, taxonomyRedirect('merge-invalid', 'categories'));
+  }
+});
+
+app.post('/admin/articles/reclassify', requireAdminOrigin, (req, res) => {
+  const includeClassified = req.body.scope === 'all';
+  const classified = classifyUnclassifiedArticles(500, { includeClassified });
+  auditAdminAction(req, 'classification.batch', 'articles', includeClassified ? 'all' : 'unclassified', { classified });
+  const status = classified > 0 ? 'completed' : 'empty';
+  return res.redirect(303, `/admin?tab=taxonomy&classification=${status}&count=${classified}`);
+});
+
+app.post('/admin/quality/:id', requireAdminOrigin, (req, res) => {
+  const id = parseArticleId(req.params.id);
+  const decision = req.body.decision === 'reject' ? 'reject' : 'approve';
+  const category = typeof req.body.category === 'string' ? req.body.category.trim() : '';
+  const importanceLevel = Number.parseInt(req.body.importance_level, 10);
+  const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
+  if (!id || !managedCategories().includes(category)
+    || !Number.isInteger(importanceLevel) || importanceLevel < 1 || importanceLevel > 5) {
+    return res.status(400).type('text').send('Проверьте категорию и важность статьи.');
+  }
+  const reviewed = reviewArticleQuality({
+    id,
+    decision,
+    category,
+    importanceLevel,
+    reviewedBy: req.adminAccount.username,
+    note,
+  });
+  if (!reviewed) return res.status(404).type('text').send('Статья для проверки не найдена.');
+  auditAdminAction(req, `quality.${decision}`, 'article', id, {
+    category,
+    importanceLevel,
+    note,
+    published: reviewed.published,
+  });
+  const status = decision === 'reject'
+    ? 'rejected'
+    : reviewed.published ? 'approved' : 'approved-draft';
+  return res.redirect(303, `/admin?tab=quality&quality=${status}`);
 });
 
 app.post('/admin/contact-messages/:id/read', requireAdminOrigin, (req, res) => {
@@ -1535,6 +1891,19 @@ app.post('/admin/duplicates/:id/publish', requireAdminOrigin, async (req, res) =
   }
 });
 
+app.post('/admin/articles/:id/classify', requireAdminOrigin, (req, res) => {
+  const id = parseArticleId(req.params.id);
+  const article = id ? getArticleById(id) : null;
+  if (!article) return res.status(404).type('text').send('Статья не найдена.');
+  const classification = classifyAndStoreArticle(id);
+  auditAdminAction(req, 'article.classify', 'article', id, {
+    category: classification.category,
+    regionCode: classification.regionCode,
+    confidence: classification.confidence,
+  });
+  return res.redirect(303, `/admin?tab=articles&q=${encodeURIComponent(article.titleRu || article.titleFi || '')}&classification=article-updated`);
+});
+
 app.post('/admin/articles/:id', requireAdminOrigin, (req, res) => {
   const id = parseArticleId(req.params.id);
   const input = parseEditorialInput(req.body);
@@ -1560,7 +1929,7 @@ app.post('/admin/articles/:id', requireAdminOrigin, (req, res) => {
 app.post('/admin/articles/:id/publish', requireAdminOrigin, (req, res) => {
   const id = parseArticleId(req.params.id);
   const article = id ? getArticleById(id) : null;
-  if (!article || !categories.includes(article.category) || !publishArticle(id)) {
+  if (!article || !managedCategories().includes(article.category) || !publishArticle(id)) {
     return res.status(400).type('text').send('Заполните категорию и сохраните черновик перед публикацией.');
   }
   auditAdminAction(req, 'article.publish', 'article', id, { slug: article.slug, title: article.titleRu || article.titleFi });
@@ -1691,7 +2060,11 @@ cron.schedule('*/5 * * * *', () => runInstantTelegramCatchup().catch((error) => 
   name: 'telegram-instant-catchup',
   noOverlap: true,
 });
-cron.schedule('0 8 * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
+cron.schedule('* * * * *', () => processTelegramRetryQueue().catch((error) => console.error('[telegram-retry-queue] ошибка:', error.message)), {
+  name: 'telegram-retry-queue',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
   name: 'telegram-digest',
   noOverlap: true,
   timezone: 'Europe/Helsinki',

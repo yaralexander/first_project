@@ -4,6 +4,8 @@ const {
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
+  canDeliverArticleNow,
+  isDeliveryScheduleDue,
   isQuietTime,
   normalizeContentTypes,
 } = require('../src/telegramDelivery');
@@ -37,6 +39,37 @@ test('filters news by selected source and content type', () => {
   assert.equal(articleMatchesSubscription(article, { ...subscription, contentTypes: ['holidays'] }), false);
 });
 
+test('filters by importance, exclusions, regions, tags and audiences', () => {
+  const classifiedArticle = {
+    ...article,
+    importanceLevel: 4,
+    regionCode: 'uusimaa',
+    classification: {
+      tags: [{ id: 12, slug: 'education' }],
+      audiences: [{ code: 'families' }],
+    },
+  };
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    minimumImportance: 4,
+    regionCodes: ['uusimaa'],
+    tagIds: ['12'],
+    audienceCodes: ['families'],
+  }), true);
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    minimumImportance: 5,
+  }), false);
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    excludedCategories: ['Общество'],
+  }), false);
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    tagIds: ['99'],
+  }), false);
+});
+
 test('quiet hours work both across midnight and within one day', () => {
   const overnight = {
     quietHoursEnabled: true,
@@ -50,12 +83,45 @@ test('quiet hours work both across midnight and within one day', () => {
   assert.equal(isQuietTime({ ...overnight, quietHoursEnabled: false }, new Date('2026-01-10T23:00:00Z')), false);
 });
 
+test('delivery schedule respects selected days, digest time and critical quiet-hour override', () => {
+  const mondayMorning = new Date('2026-01-12T06:00:00Z');
+  const timed = {
+    frequency: 'daily',
+    timezone: 'Europe/Helsinki',
+    deliveryTimes: ['08:00'],
+    deliveryWeekdays: ['1'],
+    quietHoursEnabled: false,
+  };
+  assert.equal(isDeliveryScheduleDue(timed, mondayMorning), true);
+  assert.equal(isDeliveryScheduleDue({ ...timed, deliveryTimes: ['09:00'] }, mondayMorning), false);
+  assert.equal(canDeliverArticleNow(article, timed, mondayMorning), true);
+  assert.equal(canDeliverArticleNow(article, { ...timed, deliveryWeekdays: ['2'] }, mondayMorning), false);
+
+  const quiet = {
+    ...timed,
+    quietHoursEnabled: true,
+    quietStart: '07:00',
+    quietEnd: '09:00',
+    quietWeekdays: ['1'],
+  };
+  assert.equal(canDeliverArticleNow(article, quiet, mondayMorning), false);
+  assert.equal(canDeliverArticleNow(
+    { ...article, importanceLevel: 5, editorialStatus: 'urgent' },
+    { ...quiet, allowCriticalDuringQuiet: true },
+    mondayMorning,
+  ), true);
+});
+
 test('instant and digest messages contain title, excerpt and read-more link', () => {
   const instant = buildTelegramMessage(article, { siteUrl: 'https://finskienovosti.fi/' });
   assert.match(instant, /Важная новость из Финляндии/);
   assert.match(instant, /Краткое описание новости/);
   assert.match(instant, /Читать далее: https:\/\/finskienovosti\.fi\/news\/test-news/);
   assert.match(instant, /Первоисточник: https:\/\/yle\.fi\/example/);
+  assert.match(buildTelegramMessage({
+    ...article,
+    classification: { tags: [{ slug: 'finland-life' }] },
+  }, { siteUrl: 'https://finskienovosti.fi' }), /#finland_life/);
 
   const digest = buildTelegramDigestMessage([article], subscription, { siteUrl: 'https://finskienovosti.fi' });
   assert.match(digest, /Ежедневная подборка/);

@@ -11,9 +11,17 @@ function articleMatchesSubscription(article, subscription) {
   const contentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
   if (!contentTypes.includes('news')) return false;
   if (subscription.importance === 'important' && !['important', 'urgent'].includes(article.editorialStatus || 'normal')) return false;
+  if ((Number(article.importanceLevel) || 1) < (Number(subscription.minimumImportance) || 1)) return false;
   if (subscription.scope === 'finland' && (article.category || '') === 'Мир') return false;
   if (subscription.categories.length && !subscription.categories.includes(article.category || '')) return false;
+  if ((subscription.excludedCategories || []).includes(article.category || '')) return false;
   if (subscription.sourceIds.length && !subscription.sourceIds.includes(article.sourceId || '')) return false;
+  if ((subscription.regionCodes || []).length && !subscription.regionCodes.includes(article.regionCode || 'finland')) return false;
+  const articleTagIds = new Set((article.classification?.tags || []).map((tag) => String(tag.id)));
+  if ((subscription.tagIds || []).length && !subscription.tagIds.some((id) => articleTagIds.has(String(id)))) return false;
+  const articleAudienceCodes = new Set((article.classification?.audiences || []).map((audience) => audience.code));
+  if ((subscription.audienceCodes || []).length
+    && !subscription.audienceCodes.some((code) => articleAudienceCodes.has(code))) return false;
   return true;
 }
 
@@ -39,8 +47,24 @@ function localMinutes(now, timezone = 'Europe/Helsinki') {
   }
 }
 
+function localWeekday(now, timezone = 'Europe/Helsinki') {
+  try {
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+    }).format(now);
+    return String(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday));
+  } catch {
+    return String(now.getUTCDay());
+  }
+}
+
 function isQuietTime(subscription, now = new Date()) {
   if (!subscription.quietHoursEnabled) return false;
+  const quietWeekdays = Array.isArray(subscription.quietWeekdays)
+    ? subscription.quietWeekdays.map(String)
+    : ['1', '2', '3', '4', '5', '6', '0'];
+  if (!quietWeekdays.includes(localWeekday(now, subscription.timezone))) return false;
   const start = minutesFromTime(subscription.quietStart);
   const end = minutesFromTime(subscription.quietEnd);
   if (start === null || end === null || start === end) return false;
@@ -48,6 +72,25 @@ function isQuietTime(subscription, now = new Date()) {
   return start < end
     ? current >= start && current < end
     : current >= start || current < end;
+}
+
+function canDeliverArticleNow(article, subscription, now = new Date()) {
+  const deliveryWeekdays = Array.isArray(subscription.deliveryWeekdays)
+    ? subscription.deliveryWeekdays.map(String)
+    : ['1', '2', '3', '4', '5', '6', '0'];
+  if (!deliveryWeekdays.includes(localWeekday(now, subscription.timezone))) return false;
+  if (!isQuietTime(subscription, now)) return true;
+  return Boolean(subscription.allowCriticalDuringQuiet)
+    && ((Number(article?.importanceLevel) || 1) >= 5 || article?.editorialStatus === 'urgent');
+}
+
+function isDeliveryScheduleDue(subscription, now = new Date()) {
+  if (subscription.frequency !== 'daily') return true;
+  const deliveryTimes = Array.isArray(subscription.deliveryTimes) && subscription.deliveryTimes.length
+    ? subscription.deliveryTimes
+    : ['08:00'];
+  const current = localMinutes(now, subscription.timezone);
+  return deliveryTimes.some((value) => minutesFromTime(value) === current);
 }
 
 function buildTelegramMessage(article, {
@@ -60,6 +103,11 @@ function buildTelegramMessage(article, {
     : article.editorialStatus === 'important'
       ? '🟠 Важно'
       : '';
+  const classification = article.classification || {};
+  const tags = (classification.tags || []).slice(0, 3)
+    .map((tag) => `#${String(tag.slug || tag.name || '').replace(/[^\p{L}\p{N}_]+/gu, '_')}`)
+    .filter((tag) => tag.length > 1);
+  const category = article.category ? `📌 ${article.category}` : '';
   const title = article.titleRu || article.titleFi || '';
   const excerpt = trimExcerpt(article.summaryRu || article.summaryFi || '', excerptLength);
   const articleUrl = article.slug ? `${String(siteUrl || '').replace(/\/+$/, '')}/news/${encodeURIComponent(article.slug)}` : '';
@@ -68,10 +116,12 @@ function buildTelegramMessage(article, {
     : '';
   return [
     editorialLabel,
+    category,
     title,
     excerpt,
     articleUrl ? `Читать далее: ${articleUrl}` : '',
     originalUrl ? `Первоисточник: ${originalUrl}` : '',
+    tags.join(' '),
   ].filter(Boolean).join('\n\n');
 }
 
@@ -100,7 +150,10 @@ module.exports = {
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
+  canDeliverArticleNow,
+  isDeliveryScheduleDue,
   isQuietTime,
+  localWeekday,
   normalizeContentTypes,
   trimExcerpt,
 };

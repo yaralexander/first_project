@@ -39,6 +39,78 @@ test('publishes a scheduled draft only when it becomes due', () => {
   assert.equal(db.getArticleBySlug('scheduled-story').id, articleId);
 });
 
+test('keeps a doubtful RSS article hidden until an editor approves publication', () => {
+  const articleId = db.insertArticle({
+    sourceId: 'yle',
+    sourceName: 'YLE',
+    originalUrl: 'https://example.test/quality-rss',
+    externalGuid: 'quality-rss',
+    slug: 'quality-rss',
+    category: 'Общество',
+    titleFi: 'Testiuutinen',
+    summaryFi: 'Testiuutisen riittävän pitkä kuvaus laadunvalvonnan tarkistamista varten.',
+    titleRu: '[RU] Тестовая новость',
+    summaryRu: '[RU] Тестовый текст специально должен попасть в очередь ручной проверки качества.',
+    translationMethod: 'mock',
+    promptVersion: 1,
+    publishedAt: '2030-01-15T12:00:00.000Z',
+  });
+
+  const pending = db.getArticleById(articleId);
+  assert.equal(pending.qualityStatus, 'manual_review');
+  assert.equal(pending.qualityPublishOnApproval, true);
+  assert.equal(pending.publicationStatus, 'draft');
+  assert.equal(db.getArticleBySlug('quality-rss'), null);
+
+  const reviewed = db.reviewArticleQuality({
+    id: articleId,
+    decision: 'approve',
+    category: 'Общество',
+    importanceLevel: 3,
+    reviewedBy: 'editor',
+    note: 'Перевод проверен.',
+  });
+  assert.equal(reviewed.published, true);
+  assert.equal(db.getArticleBySlug('quality-rss').qualityStatus, 'passed');
+  assert.equal(db.reviewArticleQuality({
+    id: articleId,
+    decision: 'approve',
+    category: 'Общество',
+    importanceLevel: 3,
+    reviewedBy: 'editor',
+  }), false);
+});
+
+test('quality approval does not accidentally publish an imported editorial draft', () => {
+  const articleId = db.createImportedDraft({
+    sourceName: 'Example',
+    originalUrl: 'https://example.test/quality-import',
+    slug: 'quality-import',
+    titleFi: 'Tuotu testiuutinen',
+    summaryFi: 'Tuodun testiuutisen kuvaus.',
+    titleRu: '[RU] Импортированный черновик',
+    summaryRu: '[RU] Этот импортированный материал должен остаться черновиком после проверки качества.',
+    translationMethod: 'mock',
+    promptVersion: 1,
+    importedAt: '2030-01-15T13:00:00.000Z',
+  });
+
+  const pending = db.getArticleById(articleId);
+  assert.equal(pending.qualityStatus, 'manual_review');
+  assert.equal(pending.qualityPublishOnApproval, false);
+
+  const reviewed = db.reviewArticleQuality({
+    id: articleId,
+    decision: 'approve',
+    category: 'Общество',
+    importanceLevel: 2,
+    reviewedBy: 'editor',
+  });
+  assert.equal(reviewed.published, false);
+  assert.equal(db.getArticleById(articleId).publicationStatus, 'draft');
+  assert.equal(db.getArticleBySlug('quality-import'), null);
+});
+
 test('stores duplicate decisions, audit entries and filtered statistics', () => {
   const matched = db.getArticleBySlug('scheduled-story');
   db.recordDuplicateArticle({
@@ -77,7 +149,7 @@ test('stores duplicate decisions, audit entries and filtered statistics', () => 
   });
   assert.equal(statistics.report.articles, 1);
   assert.equal(statistics.filters.sourceId, 'editorial');
-  assert.equal(db.getAdminSources()[0].sourceId, 'editorial');
+  assert.ok(db.getAdminSources().some((source) => source.sourceId === 'editorial'));
 });
 
 test('consumes OAuth state once and stores only a hashed session token', () => {
