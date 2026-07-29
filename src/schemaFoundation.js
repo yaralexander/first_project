@@ -227,6 +227,28 @@ function applyFoundationSchema(db) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS admin_notifications (
+      id INTEGER PRIMARY KEY,
+      notification_key TEXT NOT NULL UNIQUE,
+      level TEXT NOT NULL CHECK (level IN ('info', 'warning', 'error')) DEFAULT 'info',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('new', 'read')) DEFAULT 'new',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_notifications_status_updated
+      ON admin_notifications (status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS telegram_channel_publications (
+      article_id INTEGER PRIMARY KEY,
+      channel_chat_id TEXT NOT NULL,
+      telegram_message_id TEXT NOT NULL,
+      delivery_type TEXT NOT NULL CHECK (delivery_type IN ('manual', 'auto', 'test')),
+      sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS telegram_templates (
       template_key TEXT PRIMARY KEY,
       template_body TEXT NOT NULL,

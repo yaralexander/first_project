@@ -42,6 +42,8 @@ const {
   countPublishedSearchResults,
   createComment,
   createContactMessage,
+  countTelegramChannelPublicationsToday,
+  countUnreadAdminNotifications,
   createManualArticle,
   createImportedDraft,
   enqueueTask,
@@ -53,6 +55,7 @@ const {
   getAdminAuditLog,
   getAdminComments,
   getContactMessages,
+  getAdminNotifications,
   getUnreadContactMessageCount,
   getManagedTaxonomy,
   getVisibleManagedCategories,
@@ -112,6 +115,8 @@ const {
   getSourceCounts,
   getSitemapArticles,
   getTelegramPublication,
+  getTelegramChannelPublication,
+  getTelegramChannelSettings,
   insertArticle,
   classifyAndStoreArticle,
   classifyUnclassifiedArticles,
@@ -120,6 +125,7 @@ const {
   recordArticleReaction,
   recordAdminAction,
   recordTelegramPublication,
+  recordTelegramChannelPublication,
   recordTelegramDeliveryAttempt,
   recordSearchQuery,
   countTelegramUserDeliveries,
@@ -131,6 +137,8 @@ const {
   updateCommentStatus,
   updateComment,
   updateContactMessageStatus,
+  markAdminNotificationRead,
+  saveTelegramChannelSettings,
   updateArticleEditorial,
   createEditorialDiscussion,
   getEditorialDiscussions,
@@ -385,6 +393,7 @@ async function configureTelegramBotInterface() {
 
 function isImportProviderConfigured() {
   if (RUSSIAN_PROVIDER === 'mock') return true;
+  if (RUSSIAN_PROVIDER === 'openai') return Boolean(process.env.OPENAI_API_KEY);
   if (RUSSIAN_PROVIDER === 'claude') return Boolean(process.env.ANTHROPIC_API_KEY);
   if (RUSSIAN_PROVIDER === 'deepl') return Boolean(process.env.DEEPL_API_KEY);
   if (RUSSIAN_PROVIDER === 'libretranslate') return Boolean(process.env.LIBRETRANSLATE_URL);
@@ -740,6 +749,100 @@ async function sendTelegramMessage(article) {
   return sendTelegramMessageToChat(TELEGRAM_CHAT_ID, buildTelegramMessage(article, { siteUrl: SITE_URL, includeOriginal: true }));
 }
 
+function normalizeTelegramChannelSettings(input = {}) {
+  const chatId = String(input.chatId || '@finskienovosti').trim();
+  const importance = new Set(['all', 'important', 'urgent']).has(input.importance)
+    ? input.importance
+    : 'all';
+  const categories = Array.isArray(input.categories)
+    ? input.categories
+    : String(input.categories || '').split(',');
+  return {
+    enabled: input.enabled === true || input.enabled === '1' || input.enabled === 'on',
+    chatId: /^@[A-Za-z0-9_]{5,32}$/.test(chatId) ? chatId : '@finskienovosti',
+    categories: categories.map((value) => String(value).trim()).filter((value) => managedCategories().includes(value)),
+    importance,
+    maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
+    includeOriginal: input.includeOriginal === true || input.includeOriginal === '1' || input.includeOriginal === 'on',
+    template: String(input.template || '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}')
+      .trim()
+      .slice(0, 3000),
+  };
+}
+
+function articleMatchesTelegramChannel(article, settings) {
+  if (!article || article.publicationStatus !== 'published') return false;
+  if (settings.categories.length && !settings.categories.includes(article.category)) return false;
+  const importanceLevel = Number(article.importanceLevel || 1);
+  if (settings.importance === 'urgent') {
+    return article.editorialStatus === 'urgent' || importanceLevel >= 5;
+  }
+  if (settings.importance === 'important') {
+    return ['important', 'urgent'].includes(article.editorialStatus) || importanceLevel >= 4;
+  }
+  return true;
+}
+
+function renderTelegramChannelTemplate(article, settings) {
+  const label = article.editorialStatus === 'urgent'
+    ? '🔴 СРОЧНО'
+    : article.editorialStatus === 'important' ? '🟠 ВАЖНО' : '📰 Финские Новости';
+  const articleUrl = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
+  const originalUrl = settings.includeOriginal && article.originalUrl ? article.originalUrl : '';
+  const values = {
+    label,
+    category: article.category || '',
+    title: article.titleRu || article.titleFi || '',
+    excerpt: article.summaryRu || article.summaryFi || '',
+    article_url: articleUrl,
+    original_url: originalUrl,
+  };
+  let text = settings.template.replace(/\\n/g, '\n');
+  for (const [key, value] of Object.entries(values)) {
+    text = text.replaceAll(`{${key}}`, String(value));
+  }
+  if (!text.includes(articleUrl)) text += `\n\nЧитать далее: ${articleUrl}`;
+  if (originalUrl && !text.includes(originalUrl)) text += `\nОригинал: ${originalUrl}`;
+  return text.trim().slice(0, 4096);
+}
+
+async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ignoreEnabled = false } = {}) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { sent: false, reason: 'not_configured' };
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  if (!ignoreEnabled && !settings.enabled) return { sent: false, reason: 'disabled' };
+  if (!articleMatchesTelegramChannel(article, settings)) return { sent: false, reason: 'filtered' };
+  if (getTelegramChannelPublication(article.id)) return { sent: false, reason: 'already_sent' };
+  if (countTelegramChannelPublicationsToday(settings.chatId) >= settings.maxPostsPerDay) {
+    return { sent: false, reason: 'daily_limit' };
+  }
+  const telegramMessageId = await sendTelegramMessageToChat(
+    settings.chatId,
+    renderTelegramChannelTemplate(article, settings),
+  );
+  recordTelegramChannelPublication({
+    articleId: article.id,
+    channelChatId: settings.chatId,
+    telegramMessageId,
+    deliveryType,
+  });
+  return { sent: true, telegramMessageId };
+}
+
+async function publishArticlesToTelegramChannel(articles) {
+  const results = { sent: 0, skipped: 0 };
+  for (const article of Array.isArray(articles) ? articles : []) {
+    try {
+      const result = await sendArticleToTelegramChannel(article);
+      if (result.sent) results.sent += 1;
+      else results.skipped += 1;
+    } catch (error) {
+      results.skipped += 1;
+      console.error('[telegram-channel] ошибка отправки:', error.message);
+    }
+  }
+  return results;
+}
+
 function getTelegramTodayKey(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
@@ -938,7 +1041,10 @@ async function safeRefresh() {
   try {
     const insertedArticles = await fetchAllNews();
     if (insertedArticles.length) {
-      await notifyTelegramSubscribersForArticles(insertedArticles, { frequency: 'instant' });
+      await Promise.all([
+        notifyTelegramSubscribersForArticles(insertedArticles, { frequency: 'instant' }),
+        publishArticlesToTelegramChannel(insertedArticles),
+      ]);
     }
   } catch (err) {
     console.error('[safeRefresh] ошибка обновления:', err);
@@ -960,7 +1066,10 @@ async function runScheduledPublishing() {
     });
   }
   if (published.length) {
-    await notifyTelegramSubscribersForArticles(published, { frequency: 'instant' });
+    await Promise.all([
+      notifyTelegramSubscribersForArticles(published, { frequency: 'instant' }),
+      publishArticlesToTelegramChannel(published),
+    ]);
   }
   return published;
 }
@@ -1580,16 +1689,82 @@ app.get('/admin', (req, res) => {
     qualityStatus: typeof req.query.quality === 'string' ? req.query.quality : '',
     telegramConfigured: TELEGRAM_CONFIGURED,
     telegramStatus: typeof req.query.telegram === 'string' ? req.query.telegram : '',
+    telegramChannelConfigured: TELEGRAM_BOT_CONFIGURED,
+    telegramChannelSettings: normalizeTelegramChannelSettings(getTelegramChannelSettings()),
+    telegramChannelStatus: typeof req.query.telegramChannel === 'string' ? req.query.telegramChannel : '',
     importProviderConfigured: IMPORT_PROVIDER_CONFIGURED,
     importStatus: typeof req.query.import === 'string' ? req.query.import : '',
+    rssStatus: typeof req.query.rss === 'string' ? req.query.rss : '',
     articleStatus: typeof req.query.article === 'string' ? req.query.article : '',
     duplicateStatus: typeof req.query.duplicate === 'string' ? req.query.duplicate : '',
     siteUrl: SITE_URL,
     tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
     contactMessages: getContactMessages(100),
     unreadContactMessages: getUnreadContactMessageCount(),
+    adminNotifications: getAdminNotifications(50),
+    unreadAdminNotifications: countUnreadAdminNotifications(),
     untranslatedArticleCount: countUntranslatedArticles(),
   }));
+});
+
+app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
+  if (isRefreshing) {
+    return res.redirect(303, '/admin?tab=articles&rss=already-running');
+  }
+  auditAdminAction(req, 'rss.refresh', 'rss', 'manual');
+  safeRefresh().catch((error) => {
+    console.error('[admin-rss-refresh] ошибка обновления:', error.message);
+  });
+  return res.redirect(303, '/admin?tab=articles&rss=started');
+});
+
+app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
+  const settings = normalizeTelegramChannelSettings({
+    enabled: req.body.enabled,
+    chatId: req.body.chat_id,
+    categories: req.body.categories,
+    importance: req.body.importance,
+    maxPostsPerDay: req.body.max_posts_per_day,
+    includeOriginal: req.body.include_original,
+    template: req.body.template,
+  });
+  saveTelegramChannelSettings({
+    ...settings,
+    categories: settings.categories.join(','),
+  });
+  auditAdminAction(req, 'telegram_channel.settings', 'telegram_channel', settings.chatId, {
+    enabled: settings.enabled,
+    categories: settings.categories,
+    importance: settings.importance,
+    maxPostsPerDay: settings.maxPostsPerDay,
+  });
+  return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=saved');
+});
+
+app.post('/admin/telegram-channel/test', requireAdminOrigin, async (req, res) => {
+  if (!TELEGRAM_BOT_CONFIGURED) {
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=not-configured');
+  }
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  try {
+    await sendTelegramMessageToChat(settings.chatId, [
+      '✅ Тест общего канала «Финские Новости»',
+      '',
+      'Связь с сайтом настроена. Новые публикации будут отправляться сюда по правилам из админ-панели.',
+      SITE_URL,
+    ].join('\n'));
+    auditAdminAction(req, 'telegram_channel.test', 'telegram_channel', settings.chatId);
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-sent');
+  } catch (error) {
+    console.error('[telegram-channel-test] ошибка:', error.message);
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-error');
+  }
+});
+
+app.post('/admin/notifications/:id/read', requireAdminOrigin, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isInteger(id) && id > 0) markAdminNotificationRead(id);
+  return res.redirect(303, '/admin?tab=messages');
 });
 
 app.post('/admin/taxonomy/:type', requireAdminOrigin, (req, res) => {

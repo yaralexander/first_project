@@ -6,6 +6,7 @@ const {
   renderAccountPage,
   renderAboutPage,
   renderContactPage,
+  renderAdminPage,
 } = require('../src/render');
 
 const siteUrl = 'https://finskienovosti.fi';
@@ -97,4 +98,43 @@ test('contact and login states retain accessible feedback', () => {
   assert.match(contact, /action="\/contact"/);
   assert.match(login, /role="alert"/);
   assert.match(login, /href="\/account\/login\/start"/);
+});
+
+test('articles admin tab exposes the protected manual RSS refresh control', () => {
+  const html = renderAdminPage({
+    comments: [],
+    articles: [],
+    query: '',
+    statistics: {
+      articleCount: 0,
+      pendingComments: 0,
+      report: {
+        articles: 0,
+        visitors: 0,
+        articleViews: 0,
+        comments: 0,
+        reactions: 0,
+        duplicates: 0,
+      },
+      daily: [],
+      topRead: [],
+      topCommented: [],
+      filters: { from: '', to: '', category: '', sourceId: '' },
+      operational: { queue: {}, delivery: {}, searches: [] },
+    },
+    duplicateArticles: [],
+    auditLog: [],
+    currentAccount: { username: 'editor', role: 'editor' },
+    categories: [],
+    telegramConfigured: false,
+    telegramStatus: '',
+    importProviderConfigured: false,
+    importStatus: '',
+    siteUrl,
+    tab: 'articles',
+  });
+
+  assert.match(html, /action="\/admin\/rss\/refresh" method="post"/);
+  assert.match(html, /Обновить RSS сейчас/);
+  assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
 });

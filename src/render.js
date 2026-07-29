@@ -432,14 +432,28 @@ function renderAdminPage({
   categories,
   telegramConfigured,
   telegramStatus,
+  telegramChannelConfigured = false,
+  telegramChannelSettings = {
+    enabled: false,
+    chatId: '@finskienovosti',
+    categories: [],
+    importance: 'all',
+    maxPostsPerDay: 20,
+    includeOriginal: false,
+    template: '',
+  },
+  telegramChannelStatus = '',
   importProviderConfigured,
   importStatus,
+  rssStatus = '',
   articleStatus = '',
   duplicateStatus = '',
   siteUrl,
   tab = 'stats',
   contactMessages = [],
   unreadContactMessages = 0,
+  adminNotifications = [],
+  unreadAdminNotifications = 0,
   untranslatedArticleCount = 0,
   taxonomy = { categories: [], tags: [], regions: [], audiences: [] },
   taxonomyStatus = '',
@@ -462,7 +476,27 @@ function renderAdminPage({
   const articleForms = articles.length ? articles.map((article) => `<details class="admin-article-row"><summary><span class="admin-article-title">${escapeHtml(article.titleRu || article.titleFi)}</span><span class="admin-article-meta">${escapeHtml(article.category || 'Без категории')} · ${escapeHtml(formatDate(article.publishedAt))}</span><span class="admin-article-edit">Редактировать →</span></summary>${renderAdminArticleForm(article, categories, telegramConfigured, canDelete)}</details>`).join('') : '<div class="empty-state">Статьи не найдены.</div>';
   const top = (list, empty) => list.length ? `<ol>${list.map((item) => `<li><a href="/news/${encodeURIComponent(item.slug)}">${escapeHtml(item.title)}</a> <span class="admin-count">${item.count}</span></li>`).join('')}</ol>` : `<p class="summary">${empty}</p>`;
   const categoryOptions = categories.map((category) => optionMarkup(category, category, '')).join('');
-  const notices = [statusMessage('telegram', telegramStatus), statusMessage('import', importStatus), statusMessage('article', articleStatus), statusMessage('duplicate', duplicateStatus), statusMessage('taxonomy', taxonomyStatus), statusMessage('classification', classificationStatus), statusMessage('quality', qualityStatus)].filter(Boolean).map((message) => `<p class="form-message" role="status">${escapeHtml(message)}</p>`).join('');
+  const channelStatusLabels = {
+    saved: 'Настройки общего Telegram-канала сохранены.',
+    'test-sent': 'Тестовое сообщение отправлено в общий Telegram-канал.',
+    'test-error': 'Telegram не принял тестовое сообщение. Проверьте имя канала и права бота.',
+    'not-configured': 'Сначала добавьте TELEGRAM_BOT_TOKEN на сервере.',
+  };
+  const rssStatusLabels = {
+    started: 'Обновление RSS запущено. Новые статьи появятся через несколько минут.',
+    'already-running': 'Обновление RSS уже выполняется. Дождитесь его завершения.',
+  };
+  const notices = [
+    statusMessage('telegram', telegramStatus),
+    channelStatusLabels[telegramChannelStatus] || '',
+    statusMessage('import', importStatus),
+    rssStatusLabels[rssStatus] || '',
+    statusMessage('article', articleStatus),
+    statusMessage('duplicate', duplicateStatus),
+    statusMessage('taxonomy', taxonomyStatus),
+    statusMessage('classification', classificationStatus),
+    statusMessage('quality', qualityStatus),
+  ].filter(Boolean).map((message) => `<p class="form-message" role="status">${escapeHtml(message)}</p>`).join('');
   const dailyRows = statistics.daily.map((day) => `<tr><th scope="row">${escapeHtml(day.day)}</th><td>${day.articles}</td><td>${day.visitors}</td><td>${day.articleViews}</td><td>${day.comments}</td><td>${day.reactions}</td><td>${day.duplicates}</td></tr>`).join('');
   const maxVisitors = Math.max(1, ...statistics.daily.map((day) => day.visitors));
   const visitorChart = `<div class="visitor-chart" aria-label="Посетители по дням">${statistics.daily.slice(-14).map((day) => `<div class="visitor-bar-wrap" title="${escapeHtml(day.day)}: ${day.visitors} посетителей"><div class="visitor-bar" style="height:${Math.max(8, Math.round((day.visitors / maxVisitors) * 100))}%"></div><span>${escapeHtml(day.day.slice(5))}</span></div>`).join('')}</div>`;
@@ -482,6 +516,7 @@ function renderAdminPage({
     'article.create': 'Создана статья', 'article.update': 'Изменена статья', 'article.schedule': 'Запланирована статья',
     'article.publish': 'Опубликован черновик', 'article.scheduled_publish': 'Опубликовано по расписанию',
     'article.delete': 'Удалена статья', 'article.import_draft': 'Импортирован черновик',
+    'rss.refresh': 'Вручную запущено обновление RSS',
     'article.telegram_send': 'Отправлено в Telegram', 'duplicate.publish_anyway': 'Повтор опубликован вручную',
     'comment.update': 'Изменён комментарий', 'comment.approve': 'Одобрен комментарий',
     'comment.reject': 'Отклонён комментарий', 'comment.delete': 'Удалён комментарий',
@@ -501,11 +536,47 @@ function renderAdminPage({
     const details = entry.details ? Object.entries(entry.details).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join(' · ') : '';
     return `<tr><td>${escapeHtml(formatDate(entry.createdAt))}</td><td>${escapeHtml(entry.actorUsername)} <span class="summary">${escapeHtml(entry.actorRole)}</span></td><td>${escapeHtml(actionLabels[entry.action] || entry.action)}</td><td>${escapeHtml(entry.targetType)}${entry.targetId ? ` #${escapeHtml(entry.targetId)}` : ''}</td><td>${escapeHtml(details)}</td></tr>`;
   }).join('')}</tbody></table></div>` : '<p class="summary">Журнал пока пуст.</p>';
-  const activeTab = new Set(['stats', 'articles', 'comments', 'quality', 'duplicates', 'audit', 'messages', 'taxonomy']).has(tab) ? tab : 'stats';
+  const selectedChannelCategories = new Set(telegramChannelSettings.categories || []);
+  const telegramChannelMarkup = `<div class="admin-grid">
+    <section class="admin-panel">
+      <p class="eyebrow">Публичный канал</p>
+      <h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2>
+      <p class="summary">Это общая лента для всех читателей. Она не связана с персональными настройками пользователей в боте.</p>
+      <ol>
+        <li>Добавьте бота администратором канала с правом публикации.</li>
+        <li>Сохраните настройки справа.</li>
+        <li>Нажмите тест — сообщение должно появиться в канале.</li>
+      </ol>
+      <form action="/admin/telegram-channel/test" method="post">
+        <button type="submit" ${telegramChannelConfigured ? '' : 'disabled'}>✈ Отправить тест в канал</button>
+      </form>
+      ${telegramChannelConfigured ? '' : '<p class="form-message">На сервере не задан TELEGRAM_BOT_TOKEN.</p>'}
+    </section>
+    <section class="admin-panel">
+      <h2>Правила публикации</h2>
+      <form class="admin-form" action="/admin/telegram-channel/settings" method="post">
+        <label><input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}> Включить автоматическую отправку новых статей</label>
+        <label for="channel-chat-id">Канал<input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
+        <label for="channel-importance">Какие статьи<select id="channel-importance" name="importance">${optionMarkup('all', 'Все новые статьи', telegramChannelSettings.importance)}${optionMarkup('important', 'Только важные и срочные', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Только срочные', telegramChannelSettings.importance)}</select></label>
+        <label for="channel-limit">Максимум постов в день<input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
+        <fieldset><legend>Категории</legend>${categories.map((category) => `<label><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}> ${escapeHtml(category)}</label>`).join('')}</fieldset>
+        <label><input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинальный источник</label>
+        <label for="channel-template">Шаблон сообщения<textarea id="channel-template" name="template" maxlength="3000">${escapeHtml(telegramChannelSettings.template)}</textarea></label>
+        <p class="field-hint">Доступные поля: {label}, {category}, {title}, {excerpt}, {article_url}, {original_url}.</p>
+        <button type="submit">Сохранить настройки канала</button>
+      </form>
+    </section>
+  </div>`;
+  const notificationMarkup = adminNotifications.length
+    ? `<div class="admin-list">${adminNotifications.map((notification) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(notification.title)}</h2><span class="admin-status admin-status--${notification.status === 'new' ? 'pending' : 'approved'}">${notification.status === 'new' ? 'Новое' : 'Прочитано'}</span></div><time class="comment-date">${escapeHtml(formatDate(notification.updatedAt))}</time><p class="comment-body">${escapeHtml(notification.body)}</p>${notification.status === 'new' ? `<form action="/admin/notifications/${notification.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>`
+    : '<p class="summary">Системных уведомлений пока нет.</p>';
+  const activeTab = new Set(['stats', 'articles', 'comments', 'quality', 'duplicates', 'audit', 'messages', 'taxonomy', 'telegram-channel']).has(tab) ? tab : 'stats';
   const tabPanel = (name, label, html) => `<section class="admin-tab-panel${activeTab === name ? ' is-active' : ''}" id="admin-tab-${name}" data-admin-tab="${name}"><h2 class="sr-only">${label}</h2>${html}</section>`;
   const cleanupPanel = untranslatedArticleCount > 0 ? `<section class="admin-panel admin-panel--danger"><h2>Проверка перевода</h2><p class="summary">Найдено статей без русского перевода: <strong>${untranslatedArticleCount}</strong>.</p><form action="/admin/articles/cleanup-untranslated" method="post" onsubmit="return confirm('Удалить все статьи без русского перевода и связанные данные?')"><input type="hidden" name="confirm" value="DELETE_UNTRANSLATED"><button class="delete" type="submit">Удалить все непереведённые статьи</button></form></section>` : '<section class="admin-panel"><h2>Проверка перевода</h2><p class="summary">Статей без русского перевода не найдено.</p></section>';
+  const rssRefreshPanel = `<section class="admin-panel admin-panel--wide"><div class="admin-panel-heading"><div><p class="eyebrow">RSS и перевод</p><h2>Получить свежие новости</h2><p class="summary">Будут загружены только новые статьи. Уже сохранённые материалы повторно не переводятся и не расходуют баланс API.</p></div><form action="/admin/rss/refresh" method="post"><button type="submit">↻ Обновить RSS сейчас</button></form></div></section>`;
   const contactMarkup = contactMessages.length ? `<div class="admin-list">${contactMessages.map((message) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(message.name)} · <a href="mailto:${escapeHtml(message.email)}">${escapeHtml(message.email)}</a></h2><span class="admin-status admin-status--${escapeHtml(message.status)}">${escapeHtml(message.status === 'new' ? 'Новое' : message.status === 'read' ? 'Прочитано' : 'Архив')}</span></div><time class="comment-date">${escapeHtml(formatDate(message.createdAt))}</time><p class="comment-body">${escapeHtml(message.body)}</p>${message.status === 'new' ? `<form action="/admin/contact-messages/${message.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>` : '<p class="summary">Сообщений пока нет.</p>';
-  const messageBadge = unreadContactMessages > 0 ? ` <span class="admin-tab-badge" aria-label="Непрочитанных: ${unreadContactMessages}">${unreadContactMessages > 99 ? '99+' : unreadContactMessages}</span>` : '';
+  const totalUnreadMessages = unreadContactMessages + unreadAdminNotifications;
+  const messageBadge = totalUnreadMessages > 0 ? ` <span class="admin-tab-badge" aria-label="Непрочитанных: ${totalUnreadMessages}">${totalUnreadMessages > 99 ? '99+' : totalUnreadMessages}</span>` : '';
   const qualityBadge = qualityQueueCount > 0 ? ` <span class="admin-tab-badge" aria-label="Ожидают проверки: ${qualityQueueCount}">${qualityQueueCount > 99 ? '99+' : qualityQueueCount}</span>` : '';
   const qualityMarkup = qualityQueue.length ? `<div class="quality-queue">${qualityQueue.map((article) => {
     const classification = article.classification || {};
@@ -527,16 +598,17 @@ function renderAdminPage({
       </form>
     </article>`;
   }).join('')}</div>` : '<div class="empty-state">Очередь пуста: сомнительных статей нет.</div>';
-  const tabNav = `<nav class="admin-tabs" aria-label="Разделы админ-панели">${[['stats', '📊 Статистика'], ['articles', '📰 Статьи'], ['comments', '💬 Комментарии'], ['quality', `✅ Качество${qualityBadge}`], ['taxonomy', '🗂 Справочники'], ['messages', `✉️ Сообщения${messageBadge}`], ['duplicates', '🔎 Повторы'], ['audit', '🛡 Журнал']].map(([name, label]) => `<a class="${activeTab === name ? 'active' : ''}" href="/admin?tab=${name}">${label}</a>`).join('')}</nav>`;
+  const tabNav = `<nav class="admin-tabs" aria-label="Разделы админ-панели">${[['stats', '📊 Статистика'], ['articles', '📰 Статьи'], ['comments', '💬 Комментарии'], ['quality', `✅ Качество${qualityBadge}`], ['taxonomy', '🗂 Справочники'], ['telegram-channel', '📣 Общий Telegram'], ['messages', `✉️ Сообщения${messageBadge}`], ['duplicates', '🔎 Повторы'], ['audit', '🛡 Журнал']].map(([name, label]) => `<a class="${activeTab === name ? 'active' : ''}" href="/admin?tab=${name}">${label}</a>`).join('')}</nav>`;
   const content = `<div class="admin-wrap">
     <header class="admin-hero"><div><p class="eyebrow">Закрытая зона</p><h1 class="page-heading">Редакция и модерация</h1></div><div class="admin-account"><p>Вошли как <strong>${escapeHtml(currentAccount.displayName || currentAccount.username)}</strong> · ${escapeHtml(currentAccount.role)} · ${escapeHtml(currentAccount.authMethod || 'basic')}</p><form action="/admin/logout" method="post"><button type="submit">Выйти</button></form></div></header>
-    ${notices}${activeTab === 'stats' ? visitorChart : ''}${tabNav}${activeTab === 'articles' ? cleanupPanel : ''}
+    ${notices}${activeTab === 'stats' ? visitorChart : ''}${tabNav}${activeTab === 'articles' ? `${rssRefreshPanel}${cleanupPanel}` : ''}
     ${tabPanel('stats', 'Статистика', `<section class="admin-panel admin-panel--wide"><h2>Статистика</h2>${statisticsFilter}<dl class="admin-stats"><div class="stat-card"><dt>Всего статей</dt><dd>${statistics.articleCount}</dd></div><div class="stat-card"><dt>Статей за период</dt><dd>${statistics.report.articles}</dd></div><div class="stat-card"><dt>Читатели за период</dt><dd>${statistics.report.visitors}</dd></div><div class="stat-card"><dt>Чтения за период</dt><dd>${statistics.report.articleViews}</dd></div><div class="stat-card"><dt>Комментарии</dt><dd>${statistics.report.comments}</dd></div><div class="stat-card"><dt>Реакции</dt><dd>${statistics.report.reactions}</dd></div><div class="stat-card"><dt>Повторы</dt><dd>${statistics.report.duplicates}</dd></div><div class="stat-card"><dt>На модерации</dt><dd>${statistics.pendingComments}</dd></div></dl><div class="admin-table-scroll"><table class="admin-table"><thead><tr><th>Дата</th><th>Статьи</th><th>Читатели</th><th>Чтения</th><th>Комментарии</th><th>Реакции</th><th>Повторы</th></tr></thead><tbody>${dailyRows}</tbody></table></div></section><div class="admin-grid"><section class="admin-panel"><h2>Топ читаемых за период</h2>${top(statistics.topRead, 'Просмотров за период пока нет.')}</section><section class="admin-panel"><h2>Топ комментируемых за период</h2>${top(statistics.topCommented, 'Одобренных комментариев за период пока нет.')}</section></div>${operationalMarkup}`)}
     ${tabPanel('articles', 'Статьи', `<div class="admin-grid"><section class="admin-panel"><h2>Импортировать по ссылке</h2>${importProviderConfigured ? '<p class="summary">Страница будет безопасно загружена, проверена на повтор, переведена и сохранена как черновик.</p><form class="admin-form" action="/admin/import" method="post"><label for="import-url">Внешний HTTPS-адрес</label><input id="import-url" name="url" type="url" inputmode="url" placeholder="https://example.com/news" required><button type="submit">Создать черновик</button></form>' : '<p class="summary">Импорт недоступен: настройте провайдер пересказа.</p>'}</section><section class="admin-panel"><h2>Новая ручная новость</h2><form class="admin-form" action="/admin/articles" method="post"><label for="new-title">Заголовок</label><input id="new-title" name="title" maxlength="300" required><label for="new-text">Текст</label><textarea id="new-text" name="text" maxlength="20000" required></textarea><label for="new-category">Категория</label><select id="new-category" name="category" required><option value="">Выберите категорию</option>${categoryOptions}</select><label for="new-status">Редакционная метка</label><select id="new-status" name="editorial_status">${optionMarkup('normal', 'Обычная', 'normal')}${optionMarkup('important', 'Важная', 'normal')}${optionMarkup('urgent', 'Срочная', 'normal')}</select><label for="new-pinned">Показывать в главных до</label><input id="new-pinned" name="pinned_until" type="datetime-local"><label for="new-scheduled">Опубликовать позже</label><input id="new-scheduled" name="scheduled_publish_at" type="datetime-local"><p class="field-hint">Если дата не указана, новость появится сразу.</p><button type="submit">Опубликовать или запланировать</button></form></section></div><h2 class="section-heading">Редактирование статей</h2><form class="admin-search" action="/admin" method="get"><input type="hidden" name="tab" value="articles"><label for="article-search">Поиск по заголовку</label><input id="article-search" name="q" type="search" value="${escapeHtml(query)}"><button type="submit">Найти</button></form><section class="admin-list">${articleForms}</section>`)}
     ${tabPanel('comments', 'Комментарии', `<h2 class="section-heading">Модерация и редактирование комментариев</h2><section class="admin-list">${commentMarkup}</section>`)}
     ${tabPanel('quality', 'Контроль качества', `<section class="admin-panel admin-panel--wide"><div class="admin-panel-heading"><div><h2>Очередь контроля качества</h2><p class="summary">Автоматическая оценка объясняет причину сомнения. Только редактор может одобрить материал или скрыть его.</p></div><span class="quality-total">${qualityQueueCount} на проверке</span></div>${qualityMarkup}</section>`)}
     ${tabPanel('taxonomy', 'Справочники', renderTaxonomyManagement(taxonomy, canDelete, classificationCount))}
-    ${tabPanel('messages', 'Сообщения', `<section class="admin-panel admin-panel--wide"><h2>Сообщения от посетителей</h2><p class="summary">Сообщения сохраняются в SQLite и доступны редакции. Ответ можно отправить на e-mail через почтовый клиент.</p>${contactMarkup}</section>`)}
+    ${tabPanel('telegram-channel', 'Общий Telegram', telegramChannelMarkup)}
+    ${tabPanel('messages', 'Сообщения', `<section class="admin-panel admin-panel--wide"><h2>Системные уведомления</h2><p class="summary">Здесь появится предупреждение, если закончится баланс API или возникнет другая важная проблема.</p>${notificationMarkup}</section><section class="admin-panel admin-panel--wide"><h2>Сообщения от посетителей</h2><p class="summary">Сообщения сохраняются в SQLite и доступны редакции. Ответ можно отправить на e-mail через почтовый клиент.</p>${contactMarkup}</section>`)}
     ${tabPanel('duplicates', 'Повторы', `<section class="admin-panel admin-panel--wide"><h2>Журнал похожих новостей</h2><p class="summary">Автоматически пропущенный материал можно проверить и опубликовать вручную.</p>${duplicateMarkup}</section>`)}
     ${tabPanel('audit', 'Журнал', `<section class="admin-panel admin-panel--wide"><h2>Журнал действий редакторов</h2><p class="summary">Хранятся имя учётной записи, действие, объект и время.</p>${auditMarkup}</section>`)}
   </div>`;

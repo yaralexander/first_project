@@ -7,6 +7,7 @@ const { PROMPT_VERSION } = require('./aiRetell');
 const {
   articleExists,
   findSimilarArticle,
+  getArticleById,
   getNews,
   insertArticle,
   recordDuplicateArticle,
@@ -115,9 +116,11 @@ async function fetchSource(source) {
         editorialStatus: 'normal',
       };
 
-      if (insertArticle(article)) {
+      const articleId = insertArticle(article);
+      if (articleId) {
         inserted += 1;
-        insertedArticles.push(article);
+        const storedArticle = getArticleById(articleId);
+        if (storedArticle) insertedArticles.push(storedArticle);
       } else {
         skipped += 1;
       }

@@ -1918,6 +1918,109 @@ function createContactMessage({ name, email, body }) {
   return db.prepare('INSERT INTO contact_messages (name, email, body) VALUES (?, ?, ?)').run(name, email, body).lastInsertRowid;
 }
 
+function createAdminNotification({ notificationKey, level = 'info', title, body }) {
+  return db.prepare(`
+    INSERT INTO admin_notifications (
+      notification_key, level, title, body, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'new', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(notification_key) DO UPDATE SET
+      level = excluded.level,
+      title = excluded.title,
+      body = excluded.body,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(notificationKey, level, title, body).changes > 0;
+}
+
+function getAdminNotifications(limit = 50) {
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+  return db.prepare(`
+    SELECT id, notification_key, level, title, body, status, created_at, updated_at
+    FROM admin_notifications
+    ORDER BY CASE status WHEN 'new' THEN 0 ELSE 1 END, updated_at DESC
+    LIMIT ?
+  `).all(safeLimit).map((row) => ({
+    id: row.id,
+    notificationKey: row.notification_key,
+    level: row.level,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+function markAdminNotificationRead(id) {
+  return db.prepare("UPDATE admin_notifications SET status = 'read' WHERE id = ?").run(id).changes === 1;
+}
+
+function countUnreadAdminNotifications() {
+  return db.prepare("SELECT COUNT(*) AS count FROM admin_notifications WHERE status = 'new'").get().count;
+}
+
+function getSystemSetting(key, fallback = '') {
+  const row = db.prepare('SELECT setting_value FROM system_settings WHERE setting_key = ?').get(key);
+  return row ? row.setting_value : fallback;
+}
+
+function setSystemSettings(entries) {
+  const statement = db.prepare(`
+    INSERT INTO system_settings (setting_key, setting_value, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      setting_value = excluded.setting_value,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  const save = db.transaction((pairs) => {
+    for (const [key, value] of pairs) statement.run(key, String(value));
+  });
+  save(Object.entries(entries));
+}
+
+function getTelegramChannelSettings() {
+  return {
+    enabled: getSystemSetting('telegram_channel_enabled', '0') === '1',
+    chatId: getSystemSetting('telegram_channel_chat_id', '@finskienovosti'),
+    categories: getSystemSetting('telegram_channel_categories', ''),
+    importance: getSystemSetting('telegram_channel_importance', 'all'),
+    maxPostsPerDay: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_max_posts_per_day', '20'), 10) || 20, 1), 100),
+    includeOriginal: getSystemSetting('telegram_channel_include_original', '0') === '1',
+    template: getSystemSetting('telegram_channel_template', '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}'),
+  };
+}
+
+function saveTelegramChannelSettings(settings) {
+  setSystemSettings({
+    telegram_channel_enabled: settings.enabled ? '1' : '0',
+    telegram_channel_chat_id: settings.chatId,
+    telegram_channel_categories: settings.categories,
+    telegram_channel_importance: settings.importance,
+    telegram_channel_max_posts_per_day: settings.maxPostsPerDay,
+    telegram_channel_include_original: settings.includeOriginal ? '1' : '0',
+    telegram_channel_template: settings.template,
+  });
+}
+
+function getTelegramChannelPublication(articleId) {
+  return db.prepare('SELECT * FROM telegram_channel_publications WHERE article_id = ?').get(articleId) || null;
+}
+
+function recordTelegramChannelPublication({ articleId, channelChatId, telegramMessageId, deliveryType }) {
+  return db.prepare(`
+    INSERT INTO telegram_channel_publications (
+      article_id, channel_chat_id, telegram_message_id, delivery_type
+    ) VALUES (?, ?, ?, ?)
+    ON CONFLICT(article_id) DO NOTHING
+  `).run(articleId, channelChatId, String(telegramMessageId), deliveryType).changes === 1;
+}
+
+function countTelegramChannelPublicationsToday(channelChatId) {
+  return db.prepare(`
+    SELECT COUNT(*) AS count FROM telegram_channel_publications
+    WHERE channel_chat_id = ? AND date(sent_at) = date('now')
+  `).get(channelChatId).count;
+}
+
 function getContactMessages(limit = 100) {
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 300);
   return db.prepare('SELECT id, name, email, body, status, created_at FROM contact_messages ORDER BY CASE status WHEN \'new\' THEN 0 WHEN \'read\' THEN 1 ELSE 2 END, created_at DESC, id DESC LIMIT ?').all(safeLimit).map((row) => ({ id: row.id, name: row.name, email: row.email, body: row.body, status: row.status, createdAt: row.created_at }));
@@ -2089,6 +2192,17 @@ module.exports = {
   updateComment,
   updateCommentStatus,
   createContactMessage,
+  createAdminNotification,
+  getAdminNotifications,
+  markAdminNotificationRead,
+  countUnreadAdminNotifications,
+  getSystemSetting,
+  setSystemSettings,
+  getTelegramChannelSettings,
+  saveTelegramChannelSettings,
+  getTelegramChannelPublication,
+  recordTelegramChannelPublication,
+  countTelegramChannelPublicationsToday,
   getContactMessages,
   getUnreadContactMessageCount,
   getManagedTaxonomy,

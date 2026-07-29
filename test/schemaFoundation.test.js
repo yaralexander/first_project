@@ -77,6 +77,8 @@ test('foundation migration is idempotent and preserves existing data', () => {
       'search_analytics',
       'system_settings',
       'telegram_templates',
+      'admin_notifications',
+      'telegram_channel_publications',
     ]) {
       assert.ok(db.prepare(`
         SELECT 1 FROM sqlite_master
