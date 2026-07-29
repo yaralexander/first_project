@@ -15,12 +15,15 @@ const {
   getRussianTelegramReply,
 } = require('./telegramBot');
 const {
+  DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
   canDeliverArticleNow,
   isDeliveryScheduleDue,
+  isTelegramChannelIntervalDue,
   normalizeContentTypes,
+  renderTelegramChannelTemplate,
 } = require('./telegramDelivery');
 const {
   createGoogleAuthProvider,
@@ -116,6 +119,7 @@ const {
   getSitemapArticles,
   getTelegramPublication,
   getTelegramChannelPublication,
+  getLastTelegramChannelPublication,
   getTelegramChannelSettings,
   insertArticle,
   classifyAndStoreArticle,
@@ -162,6 +166,8 @@ const {
   renderNotFound,
   renderAboutPage,
   renderContactPage,
+  renderTelegramInfoPage,
+  renderRssFeed,
   renderRobots,
   renderSitemap,
 } = require('./render');
@@ -739,8 +745,8 @@ function getAnonymousVisitorHash(req, day) {
     .digest('hex');
 }
 
-async function sendTelegramMessageToChat(chatId, text) {
-  const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text });
+async function sendTelegramMessageToChat(chatId, text, options = {}) {
+  const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
   if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
   return result.message_id;
 }
@@ -750,6 +756,7 @@ async function sendTelegramMessage(article) {
 }
 
 function normalizeTelegramChannelSettings(input = {}) {
+  const legacyTemplate = '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}';
   const chatId = String(input.chatId || '@finskienovosti').trim();
   const importance = new Set(['all', 'important', 'urgent']).has(input.importance)
     ? input.importance
@@ -759,12 +766,16 @@ function normalizeTelegramChannelSettings(input = {}) {
     : String(input.categories || '').split(',');
   return {
     enabled: input.enabled === true || input.enabled === '1' || input.enabled === 'on',
+    enabledSince: String(input.enabledSince || '').trim(),
     chatId: /^@[A-Za-z0-9_]{5,32}$/.test(chatId) ? chatId : '@finskienovosti',
     categories: categories.map((value) => String(value).trim()).filter((value) => managedCategories().includes(value)),
     importance,
+    intervalMinutes: Math.min(Math.max(Number.parseInt(input.intervalMinutes, 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
     includeOriginal: input.includeOriginal === true || input.includeOriginal === '1' || input.includeOriginal === 'on',
-    template: String(input.template || '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}')
+    template: String(!input.template || input.template === legacyTemplate
+      ? DEFAULT_TELEGRAM_CHANNEL_TEMPLATE
+      : input.template)
       .trim()
       .slice(0, 3000),
   };
@@ -783,29 +794,6 @@ function articleMatchesTelegramChannel(article, settings) {
   return true;
 }
 
-function renderTelegramChannelTemplate(article, settings) {
-  const label = article.editorialStatus === 'urgent'
-    ? '🔴 СРОЧНО'
-    : article.editorialStatus === 'important' ? '🟠 ВАЖНО' : '📰 Финские Новости';
-  const articleUrl = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
-  const originalUrl = settings.includeOriginal && article.originalUrl ? article.originalUrl : '';
-  const values = {
-    label,
-    category: article.category || '',
-    title: article.titleRu || article.titleFi || '',
-    excerpt: article.summaryRu || article.summaryFi || '',
-    article_url: articleUrl,
-    original_url: originalUrl,
-  };
-  let text = settings.template.replace(/\\n/g, '\n');
-  for (const [key, value] of Object.entries(values)) {
-    text = text.replaceAll(`{${key}}`, String(value));
-  }
-  if (!text.includes(articleUrl)) text += `\n\nЧитать далее: ${articleUrl}`;
-  if (originalUrl && !text.includes(originalUrl)) text += `\nОригинал: ${originalUrl}`;
-  return text.trim().slice(0, 4096);
-}
-
 async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ignoreEnabled = false } = {}) {
   if (!TELEGRAM_BOT_CONFIGURED) return { sent: false, reason: 'not_configured' };
   const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
@@ -815,9 +803,17 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
   if (countTelegramChannelPublicationsToday(settings.chatId) >= settings.maxPostsPerDay) {
     return { sent: false, reason: 'daily_limit' };
   }
+  const lastPublication = getLastTelegramChannelPublication(settings.chatId);
+  if (!isTelegramChannelIntervalDue(lastPublication?.sent_at, settings.intervalMinutes)) {
+    return { sent: false, reason: 'interval' };
+  }
   const telegramMessageId = await sendTelegramMessageToChat(
     settings.chatId,
-    renderTelegramChannelTemplate(article, settings),
+    renderTelegramChannelTemplate(article, settings, { siteUrl: SITE_URL }),
+    {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: false },
+    },
   );
   recordTelegramChannelPublication({
     articleId: article.id,
@@ -841,6 +837,16 @@ async function publishArticlesToTelegramChannel(articles) {
     }
   }
   return results;
+}
+
+async function runTelegramChannelCatchup() {
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  if (!settings.enabled || !TELEGRAM_BOT_CONFIGURED) return { sent: 0, skipped: 0 };
+  const sinceIso = settings.enabledSince
+    || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { sent: 0, skipped: 0 };
+  return publishArticlesToTelegramChannel(articles);
 }
 
 function getTelegramTodayKey(now = new Date()) {
@@ -1125,6 +1131,21 @@ app.get('/about', (req, res) => {
 
 app.get('/contact', (req, res) => {
   res.type('html').send(renderContactPage({ siteUrl: SITE_URL, status: typeof req.query.contact === 'string' ? req.query.contact : '' }));
+});
+
+app.get('/telegram', (req, res) => {
+  res.type('html').send(renderTelegramInfoPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/rss.xml', (req, res) => {
+  res.type('application/rss+xml').send(renderRssFeed({
+    siteUrl: SITE_URL,
+    articles: getArticles({ limit: 50, offset: 0 }),
+  }));
+});
+
+app.get('/feed.xml', (req, res) => {
+  res.redirect(301, '/rss.xml');
 });
 
 app.get('/sitemap.xml', (req, res) => {
@@ -1724,6 +1745,7 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     chatId: req.body.chat_id,
     categories: req.body.categories,
     importance: req.body.importance,
+    intervalMinutes: req.body.interval_minutes,
     maxPostsPerDay: req.body.max_posts_per_day,
     includeOriginal: req.body.include_original,
     template: req.body.template,
@@ -1736,6 +1758,7 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     enabled: settings.enabled,
     categories: settings.categories,
     importance: settings.importance,
+    intervalMinutes: settings.intervalMinutes,
     maxPostsPerDay: settings.maxPostsPerDay,
   });
   return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=saved');
@@ -1747,12 +1770,11 @@ app.post('/admin/telegram-channel/test', requireAdminOrigin, async (req, res) =>
   }
   const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
   try {
-    await sendTelegramMessageToChat(settings.chatId, [
-      '✅ Тест общего канала «Финские Новости»',
-      '',
-      'Связь с сайтом настроена. Новые публикации будут отправляться сюда по правилам из админ-панели.',
-      SITE_URL,
-    ].join('\n'));
+    await sendTelegramMessageToChat(
+      settings.chatId,
+      '<b>✅ Общий канал «Финские Новости» подключён</b>\n\nСвязь с сайтом настроена. Новые публикации будут отправляться по правилам из админ-панели.',
+      { parse_mode: 'HTML' },
+    );
     auditAdminAction(req, 'telegram_channel.test', 'telegram_channel', settings.chatId);
     return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-sent');
   } catch (error) {
@@ -2229,6 +2251,10 @@ cron.schedule(`*/${REFRESH_MIN} * * * *`, safeRefresh, {
 });
 cron.schedule('* * * * *', () => runScheduledPublishing().catch((error) => console.error('[scheduled-publishing] ошибка:', error.message)), {
   name: 'scheduled-publishing',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => runTelegramChannelCatchup().catch((error) => console.error('[telegram-channel-catchup] ошибка:', error.message)), {
+  name: 'telegram-channel-catchup',
   noOverlap: true,
 });
 cron.schedule('*/5 * * * *', () => runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message)), {

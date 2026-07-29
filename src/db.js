@@ -1980,21 +1980,30 @@ function setSystemSettings(entries) {
 function getTelegramChannelSettings() {
   return {
     enabled: getSystemSetting('telegram_channel_enabled', '0') === '1',
+    enabledSince: getSystemSetting('telegram_channel_enabled_since', ''),
     chatId: getSystemSetting('telegram_channel_chat_id', '@finskienovosti'),
     categories: getSystemSetting('telegram_channel_categories', ''),
     importance: getSystemSetting('telegram_channel_importance', 'all'),
+    intervalMinutes: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_interval_minutes', '0'), 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_max_posts_per_day', '20'), 10) || 20, 1), 100),
     includeOriginal: getSystemSetting('telegram_channel_include_original', '0') === '1',
-    template: getSystemSetting('telegram_channel_template', '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}'),
+    template: getSystemSetting('telegram_channel_template', '<b>🔥 {title}</b>\\n\\n{excerpt}\\n\\n📁 {source} || {category}\\n\\n👉 <a href="{article_url}">Читать далее</a>'),
   };
 }
 
 function saveTelegramChannelSettings(settings) {
+  const wasEnabled = getSystemSetting('telegram_channel_enabled', '0') === '1';
+  const currentEnabledSince = getSystemSetting('telegram_channel_enabled_since', '');
+  const enabledSince = settings.enabled
+    ? (wasEnabled && currentEnabledSince ? currentEnabledSince : new Date().toISOString())
+    : '';
   setSystemSettings({
     telegram_channel_enabled: settings.enabled ? '1' : '0',
+    telegram_channel_enabled_since: enabledSince,
     telegram_channel_chat_id: settings.chatId,
     telegram_channel_categories: settings.categories,
     telegram_channel_importance: settings.importance,
+    telegram_channel_interval_minutes: settings.intervalMinutes,
     telegram_channel_max_posts_per_day: settings.maxPostsPerDay,
     telegram_channel_include_original: settings.includeOriginal ? '1' : '0',
     telegram_channel_template: settings.template,
@@ -2003,6 +2012,15 @@ function saveTelegramChannelSettings(settings) {
 
 function getTelegramChannelPublication(articleId) {
   return db.prepare('SELECT * FROM telegram_channel_publications WHERE article_id = ?').get(articleId) || null;
+}
+
+function getLastTelegramChannelPublication(channelChatId) {
+  return db.prepare(`
+    SELECT * FROM telegram_channel_publications
+    WHERE channel_chat_id = ?
+    ORDER BY datetime(sent_at) DESC, article_id DESC
+    LIMIT 1
+  `).get(channelChatId) || null;
 }
 
 function recordTelegramChannelPublication({ articleId, channelChatId, telegramMessageId, deliveryType }) {
@@ -2201,6 +2219,7 @@ module.exports = {
   getTelegramChannelSettings,
   saveTelegramChannelSettings,
   getTelegramChannelPublication,
+  getLastTelegramChannelPublication,
   recordTelegramChannelPublication,
   countTelegramChannelPublicationsToday,
   getContactMessages,

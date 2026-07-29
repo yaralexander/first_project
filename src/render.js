@@ -63,6 +63,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   <meta property="og:site_name" content="Финские Новости">
   ${robots ? `<meta name="robots" content="${escapeHtml(robots)}">` : ''}
   <link rel="canonical" href="${escapeHtml(canonical)}">
+  <link rel="alternate" type="application/rss+xml" title="Финские Новости — общая лента" href="${escapeHtml(`${siteUrl}/rss.xml`)}">
   ${structuredData ? `<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</script>` : ''}
   <style>${siteStyles}</style>
 </head>
@@ -71,8 +72,9 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   <div class="util-bar"><div class="wrap"><div class="util-left">🇫🇮 → 🇷🇺 AI пересказ в реальном времени</div><div class="util-right"><button class="utility-button" type="button" data-font-step="-0.10" aria-label="Уменьшить текст">A−</button><button class="utility-button utility-button--scale" type="button" data-font-reset aria-label="Обычный размер текста">100%</button><button class="utility-button" type="button" data-font-step="0.10" aria-label="Увеличить текст">A+</button><button class="utility-button" type="button" data-theme-toggle>Тёмная</button></div></div></div>
   ${breaking}
   <header class="masthead"><div class="wrap"><div class="topbar"><a class="brand" href="/"><span class="brand-mark">${brandMark}</span><span><strong class="brand-name">Финские Новости</strong><small class="brand-tagline">Свежие новости Финляндии на русском языке</small></span></a><form class="search-box" action="/search" method="get" role="search"><label class="skip-link" for="site-search">Поиск по новостям</label><span aria-hidden="true">⌕</span><input id="site-search" name="q" type="search" value="${escapeHtml(searchQuery)}" placeholder="Поиск новостей…" minlength="2" maxlength="120" required><button type="submit">Найти</button></form><div class="top-actions">${interestControl}<a class="account-link" href="/account" aria-label="Личный кабинет">👤 Личный кабинет</a><a class="icon-btn" href="/about" aria-label="О проекте">i</a><a class="icon-btn" href="/page/2" aria-label="Архив">☰</a></div></div><nav class="catnav" id="category-nav" aria-label="Категории"><a class="active" href="/">🏠 Главная</a>${nav}</nav></div></header>
+  <aside class="telegram-promo" aria-label="Персональные новости в Telegram"><a class="wrap telegram-promo-inner" href="/telegram"><span class="telegram-promo-icon" aria-hidden="true">✈</span><span class="telegram-promo-copy"><strong>Ваша личная лента новостей в Telegram</strong><small>Выберите темы, источники и удобное время — бот пришлёт только важное для вас.</small></span><span class="telegram-promo-action">Как это работает →</span></a></aside>
   <main class="wrap" id="content">${content}</main>
-  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>Новости Финляндии</strong><p>Свежие новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/account">Личный кабинет</a><a href="/about#privacy">Конфиденциальность</a></div></div><div class="footer-bottom"><span>© 2026 Новости Финляндии</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
+  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>Новости Финляндии</strong><p>Свежие новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/about#privacy">Конфиденциальность</a></div></div><div class="footer-bottom"><span>© 2026 Новости Финляндии</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
   ${interestModal}
   <nav class="mobile-bottom-nav" aria-label="Мобильная навигация"><a href="/"><i>⌂</i><span>Главная</span></a><a href="/search"><i>⌕</i><span>Поиск</span></a><a href="/#feed-heading"><i>♧</i><span>Лента</span></a><a href="#category-nav"><i>⊞</i><span>Разделы</span></a><button type="button" data-theme-toggle><i>◐</i><span>Тема</span></button></nav>
   ${themeScript}
@@ -438,6 +440,7 @@ function renderAdminPage({
     chatId: '@finskienovosti',
     categories: [],
     importance: 'all',
+    intervalMinutes: 0,
     maxPostsPerDay: 20,
     includeOriginal: false,
     template: '',
@@ -542,6 +545,8 @@ function renderAdminPage({
       <p class="eyebrow">Публичный канал</p>
       <h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2>
       <p class="summary">Это общая лента для всех читателей. Она не связана с персональными настройками пользователей в боте.</p>
+      <p><a class="button-link" href="/rss.xml" target="_blank">Открыть общую RSS-ленту ↗</a></p>
+      <p class="field-hint">Постоянный адрес: <code>${escapeHtml(`${siteUrl}/rss.xml`)}</code></p>
       <ol>
         <li>Добавьте бота администратором канала с правом публикации.</li>
         <li>Сохраните настройки справа.</li>
@@ -558,11 +563,13 @@ function renderAdminPage({
         <label><input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}> Включить автоматическую отправку новых статей</label>
         <label for="channel-chat-id">Канал<input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
         <label for="channel-importance">Какие статьи<select id="channel-importance" name="importance">${optionMarkup('all', 'Все новые статьи', telegramChannelSettings.importance)}${optionMarkup('important', 'Только важные и срочные', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Только срочные', telegramChannelSettings.importance)}</select></label>
+        <label for="channel-interval">Пауза между сообщениями (минуты)<input id="channel-interval" name="interval_minutes" type="number" min="0" max="1440" step="1" value="${telegramChannelSettings.intervalMinutes || 0}" required></label>
+        <p class="field-hint">0 — отправлять сразу; 60 — не чаще одного сообщения в час; 1440 — не чаще одного в сутки. Статьи во время паузы остаются в очереди.</p>
         <label for="channel-limit">Максимум постов в день<input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
         <fieldset><legend>Категории</legend>${categories.map((category) => `<label><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}> ${escapeHtml(category)}</label>`).join('')}</fieldset>
         <label><input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинальный источник</label>
         <label for="channel-template">Шаблон сообщения<textarea id="channel-template" name="template" maxlength="3000">${escapeHtml(telegramChannelSettings.template)}</textarea></label>
-        <p class="field-hint">Доступные поля: {label}, {category}, {title}, {excerpt}, {article_url}, {original_url}.</p>
+        <p class="field-hint">Доступные поля: {label}, {category}, {source}, {title}, {excerpt}, {article_url}, {original_url}. Поддерживаются безопасные HTML-теги Telegram: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;.</p>
         <button type="submit">Сохранить настройки канала</button>
       </form>
     </section>
@@ -630,6 +637,55 @@ function renderAboutPage({ siteUrl }) {
     <aside class="info-note"><strong>Главный принцип:</strong> краткий пересказ помогает быстро понять событие, а оригинальный источник остаётся основой материала.</aside>
   </article>`;
   return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content });
+}
+
+function renderTelegramInfoPage({ siteUrl }) {
+  const content = `<article class="telegram-page">
+    <section class="telegram-hero">
+      <div class="telegram-hero-copy">
+        <p class="eyebrow">Персональная рассылка</p>
+        <h1>Только нужные вам новости — прямо в Telegram</h1>
+        <p>Не просматривайте сотни публикаций. Выберите интересующие темы, любимые источники и удобное время, а бот «Финских Новостей» соберёт вашу личную ленту.</p>
+        <div class="telegram-hero-actions"><a class="telegram-primary-button" href="/account">Настроить мою ленту</a><a class="telegram-secondary-button" href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">Открыть общий канал</a></div>
+        <p class="telegram-free-note">✓ Бесплатно &nbsp; ✓ Можно отключить в любой момент &nbsp; ✓ Без установки отдельного приложения</p>
+      </div>
+      <div class="telegram-phone" aria-label="Пример сообщения">
+        <div class="telegram-phone-head"><span>✈</span><strong>Финские Новости</strong></div>
+        <div class="telegram-message-preview"><b>🔥 В Финляндии приняли новое решение</b><p>Кратко объясняем, что произошло и почему это важно для жителей страны…</p><span>📁 Политика · YLE</span><a href="/account">Читать далее →</a></div>
+      </div>
+    </section>
+
+    <section class="telegram-benefits" aria-labelledby="telegram-benefits-title">
+      <div class="section-head"><h2 id="telegram-benefits-title">Почему это удобно</h2></div>
+      <div class="telegram-benefit-grid">
+        <article><span>🎯</span><h3>Только ваши темы</h3><p>Политика, работа, экономика, иммиграция, образование или другие интересующие разделы.</p></article>
+        <article><span>🗞️</span><h3>Выбор источников</h3><p>Получайте материалы только от YLE, Helsingin Sanomat, Iltalehti или других выбранных СМИ.</p></article>
+        <article><span>🕒</span><h3>Удобный ритм</h3><p>Сразу после публикации или одной ежедневной подборкой. Ночью работает режим «Не беспокоить».</p></article>
+        <article><span>🔗</span><h3>Полный контекст</h3><p>В каждом сообщении есть заголовок, краткий пересказ и постоянная ссылка на страницу новости.</p></article>
+      </div>
+    </section>
+
+    <section class="telegram-how" aria-labelledby="telegram-how-title">
+      <div><p class="eyebrow">Три простых шага</p><h2 id="telegram-how-title">Настройка занимает пару минут</h2><p><strong>Имя канала вводить не нужно.</strong> Технические коды тоже не понадобятся — сайт сам откроет правильного бота.</p></div>
+      <ol>
+        <li><span>1</span><div><strong>Войдите через Google</strong><p>Откройте личный кабинет и войдите своим Google-аккаунтом.</p></div></li>
+        <li><span>2</span><div><strong>Подключите Telegram</strong><p>Нажмите «Подключить Telegram». Откроется бот проекта — в Telegram останется нажать «Запустить».</p></div></li>
+        <li><span>3</span><div><strong>Выберите новости</strong><p>Отметьте темы, источники, частоту и тихие часы, затем включите рассылку.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="telegram-controls">
+      <div><p class="eyebrow">Всё под вашим контролем</p><h2>Настройки можно менять когда угодно</h2><p>Сервис хранит только данные, необходимые для входа и доставки в ваш Telegram-чат. Рассылку можно приостановить или отключить в личном кабинете.</p></div>
+      <a class="telegram-primary-button" href="/account">Перейти в личный кабинет →</a>
+    </section>
+  </article>`;
+  return documentPage({
+    title: 'Персональные новости в Telegram — Финские Новости',
+    description: 'Настройте личную Telegram-ленту новостей Финляндии: темы, источники, частоту и тихие часы.',
+    canonicalPath: '/telegram',
+    siteUrl,
+    content,
+  });
 }
 
 function renderContactPage({ siteUrl, status = '' }) {
@@ -805,12 +861,56 @@ function renderNotFound({ siteUrl }) {
 }
 
 function escapeXml(value = '') {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  return String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 function formatLastmod(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function renderRssFeed({ siteUrl, articles = [] }) {
+  const baseUrl = String(siteUrl || '').replace(/\/+$/, '');
+  const items = articles
+    .filter((article) => article && article.slug && article.titleRu && article.summaryRu)
+    .slice(0, 50)
+    .map((article) => {
+      const link = `${baseUrl}/news/${encodeURIComponent(article.slug)}`;
+      const published = new Date(article.publishedAt);
+      const pubDate = Number.isNaN(published.getTime()) ? '' : published.toUTCString();
+      const sourceUrl = safeExternalUrl(article.originalUrl);
+      const source = sourceUrl === '#'
+        ? ''
+        : `<source url="${escapeXml(sourceUrl)}">${escapeXml(article.sourceName || 'Финские Новости')}</source>`;
+      return `    <item>
+      <title>${escapeXml(article.titleRu)}</title>
+      <link>${escapeXml(link)}</link>
+      <guid isPermaLink="true">${escapeXml(link)}</guid>
+      <description>${escapeXml(article.summaryRu)}</description>
+      ${article.category ? `<category>${escapeXml(article.category)}</category>` : ''}
+      ${source}
+      ${pubDate ? `<pubDate>${escapeXml(pubDate)}</pubDate>` : ''}
+    </item>`;
+    })
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Финские Новости</title>
+    <link>${escapeXml(baseUrl)}</link>
+    <description>Свежие новости Финляндии на русском языке</description>
+    <language>ru</language>
+    <lastBuildDate>${escapeXml(new Date().toUTCString())}</lastBuildDate>
+${items}
+  </channel>
+</rss>
+`;
 }
 
 function renderSitemap({
@@ -824,6 +924,7 @@ function renderSitemap({
   const archivePages = Array.from({ length: Math.max(0, archivePageCount - 1) }, (_, index) => ({ path: `/page/${index + 2}` }));
   const urls = [
     { path: '/' },
+    { path: '/telegram' },
     ...archivePages,
     ...categorySlugs.map((slug) => ({ path: `/category/${encodeURIComponent(slug)}` })),
     ...tagSlugs.map((slug) => ({ path: `/tag/${encodeURIComponent(slug)}` })),
@@ -850,8 +951,10 @@ module.exports = {
   renderAdminArticleDeletePage,
   renderAboutPage,
   renderContactPage,
+  renderTelegramInfoPage,
   renderListPage,
   renderNotFound,
+  renderRssFeed,
   renderRobots,
   renderSitemap,
 };

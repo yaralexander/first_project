@@ -7,6 +7,8 @@ const {
   renderAboutPage,
   renderContactPage,
   renderAdminPage,
+  renderRssFeed,
+  renderTelegramInfoPage,
 } = require('../src/render');
 
 const siteUrl = 'https://finskienovosti.fi';
@@ -18,6 +20,8 @@ function assertSharedSiteShell(html) {
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
   assert.match(html, /data-theme-toggle/);
+  assert.match(html, /class="telegram-promo"/);
+  assert.match(html, /href="\/telegram"/);
 }
 
 test('secondary public pages use the same site shell', () => {
@@ -26,9 +30,22 @@ test('secondary public pages use the same site shell', () => {
     renderContactPage({ siteUrl }),
     renderAccountLoginPage({ siteUrl }),
     renderAccountErrorPage({ siteUrl }),
+    renderTelegramInfoPage({ siteUrl }),
   ];
 
   for (const html of pages) assertSharedSiteShell(html);
+});
+
+test('Telegram information page explains the one-button personalized setup', () => {
+  const html = renderTelegramInfoPage({ siteUrl });
+
+  assertSharedSiteShell(html);
+  assert.match(html, /Только нужные вам новости/);
+  assert.match(html, /Настроить мою ленту/);
+  assert.match(html, /href="\/account"/);
+  assert.match(html, /темы, источники и удобное время/i);
+  assert.match(html, /Имя канала вводить не нужно/);
+  assert.match(html, /rel="canonical" href="https:\/\/finskienovosti\.fi\/telegram"/);
 });
 
 test('account page keeps subscription controls inside the shared design', () => {
@@ -137,4 +154,34 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /action="\/admin\/rss\/refresh" method="post"/);
   assert.match(html, /Обновить RSS сейчас/);
   assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
+  assert.match(html, /href="\/rss\.xml"/);
+  assert.match(html, /name="interval_minutes"/);
+  assert.match(html, /\{source\}/);
+});
+
+test('public RSS contains Russian summaries, permanent URLs and escaped XML', () => {
+  const rss = renderRssFeed({
+    siteUrl,
+    articles: [{
+      slug: 'novost-test',
+      titleRu: 'Новость & проверка',
+      summaryRu: 'Описание <безопасно>',
+      titleFi: 'Uutinen',
+      summaryFi: 'Kuvaus',
+      category: 'Общество',
+      sourceName: 'YLE',
+      originalUrl: 'https://yle.fi/a/1?x=1&y=2',
+      publishedAt: '2026-07-29T10:00:00.000Z',
+    }, {
+      slug: 'only-finnish',
+      titleFi: 'Ei venäjäksi',
+      summaryFi: 'Kuvaus',
+    }],
+  });
+
+  assert.match(rss, /<rss version="2\.0">/);
+  assert.match(rss, /https:\/\/finskienovosti\.fi\/news\/novost-test/);
+  assert.match(rss, /Новость &amp; проверка/);
+  assert.match(rss, /Описание &lt;безопасно&gt;/);
+  assert.doesNotMatch(rss, /only-finnish/);
 });

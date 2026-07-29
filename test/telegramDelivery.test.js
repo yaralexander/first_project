@@ -7,7 +7,9 @@ const {
   canDeliverArticleNow,
   isDeliveryScheduleDue,
   isQuietTime,
+  isTelegramChannelIntervalDue,
   normalizeContentTypes,
+  renderTelegramChannelTemplate,
 } = require('../src/telegramDelivery');
 
 const article = {
@@ -132,4 +134,28 @@ test('instant and digest messages contain title, excerpt and read-more link', ()
 test('normalizes future content types safely', () => {
   assert.deepEqual(normalizeContentTypes(['news', 'holidays', 'invalid', 'news']), ['news', 'holidays']);
   assert.deepEqual(normalizeContentTypes([]), ['news']);
+});
+
+test('general channel template is safe HTML and links to the permanent article page', () => {
+  const text = renderTelegramChannelTemplate({
+    ...article,
+    titleRu: 'Новость <важная>',
+    summaryRu: `${'Очень длинное описание & подробности. '.repeat(20)}конец`,
+  }, {}, { siteUrl: 'https://finskienovosti.fi/' });
+
+  assert.match(text, /<b>🔥 Новость &lt;важная&gt;<\/b>/);
+  assert.match(text, /📁 YLE \|\| Общество/);
+  assert.match(text, /href="https:\/\/finskienovosti\.fi\/news\/test-news"/);
+  assert.doesNotMatch(text, /<важная>/);
+  const excerpt = text.split('\n\n')[1];
+  assert.ok(excerpt.replaceAll('&amp;', '&').length <= 280);
+  assert.match(excerpt, /\.\.\.$/);
+});
+
+test('general channel interval becomes due only after the configured pause', () => {
+  const lastSentAt = '2026-07-29T10:00:00.000Z';
+  assert.equal(isTelegramChannelIntervalDue(lastSentAt, 0, new Date('2026-07-29T10:00:01.000Z')), true);
+  assert.equal(isTelegramChannelIntervalDue(lastSentAt, 60, new Date('2026-07-29T10:59:59.000Z')), false);
+  assert.equal(isTelegramChannelIntervalDue(lastSentAt, 60, new Date('2026-07-29T11:00:00.000Z')), true);
+  assert.equal(isTelegramChannelIntervalDue('2026-07-29 10:00:00', 60, new Date('2026-07-29T10:59:59.000Z')), false);
 });

@@ -1,9 +1,67 @@
 const ALLOWED_CONTENT_TYPES = new Set(['news', 'holidays', 'word']);
+const DEFAULT_TELEGRAM_CHANNEL_TEMPLATE = '<b>🔥 {title}</b>\n\n{excerpt}\n\n📁 {source} || {category}\n\n👉 <a href="{article_url}">Читать далее</a>';
 
 function trimExcerpt(value, maxLength = 420) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
+
+function escapeTelegramHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderTelegramChannelTemplate(article, settings = {}, { siteUrl } = {}) {
+  const label = article.editorialStatus === 'urgent'
+    ? '🔴 СРОЧНО'
+    : article.editorialStatus === 'important' ? '🟠 ВАЖНО' : '📰 Финские Новости';
+  const articleUrl = article.slug
+    ? `${String(siteUrl || '').replace(/\/+$/, '')}/news/${encodeURIComponent(article.slug)}`
+    : '';
+  const originalUrl = settings.includeOriginal && article.originalUrl
+    && !String(article.originalUrl).startsWith('manual:')
+    ? article.originalUrl
+    : '';
+  const rawExcerpt = String(article.summaryRu || article.summaryFi || '').replace(/\s+/g, ' ').trim();
+  const channelExcerpt = rawExcerpt.length > 280
+    ? `${rawExcerpt.slice(0, 277).trimEnd()}...`
+    : rawExcerpt;
+  const values = {
+    label,
+    category: article.category || 'Новости',
+    source: article.sourceName || 'Финские Новости',
+    title: article.titleRu || article.titleFi || '',
+    excerpt: channelExcerpt,
+    article_url: articleUrl,
+    original_url: originalUrl,
+  };
+  let text = String(settings.template || DEFAULT_TELEGRAM_CHANNEL_TEMPLATE).replace(/\\n/g, '\n');
+  for (const [key, value] of Object.entries(values)) {
+    text = text.replaceAll(`{${key}}`, escapeTelegramHtml(value));
+  }
+  if (articleUrl && !text.includes(escapeTelegramHtml(articleUrl))) {
+    text += `\n\n👉 <a href="${escapeTelegramHtml(articleUrl)}">Читать далее</a>`;
+  }
+  if (originalUrl && !text.includes(escapeTelegramHtml(originalUrl))) {
+    text += `\n<a href="${escapeTelegramHtml(originalUrl)}">Оригинал</a>`;
+  }
+  return text.trim().slice(0, 4096);
+}
+
+function isTelegramChannelIntervalDue(lastSentAt, intervalMinutes, now = new Date()) {
+  const minutes = Math.max(0, Number.parseInt(intervalMinutes, 10) || 0);
+  if (!minutes || !lastSentAt) return true;
+  const timestamp = String(lastSentAt).trim();
+  const normalizedTimestamp = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(timestamp)
+    ? `${timestamp.replace(' ', 'T')}Z`
+    : timestamp;
+  const lastSent = new Date(normalizedTimestamp);
+  if (Number.isNaN(lastSent.getTime())) return true;
+  return now.getTime() - lastSent.getTime() >= minutes * 60 * 1000;
 }
 
 function articleMatchesSubscription(article, subscription) {
@@ -147,13 +205,17 @@ function normalizeContentTypes(values) {
 }
 
 module.exports = {
+  DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
   canDeliverArticleNow,
+  escapeTelegramHtml,
   isDeliveryScheduleDue,
   isQuietTime,
+  isTelegramChannelIntervalDue,
   localWeekday,
   normalizeContentTypes,
+  renderTelegramChannelTemplate,
   trimExcerpt,
 };

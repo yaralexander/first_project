@@ -15,10 +15,12 @@ const {
   openAiRetellArticle,
   PROMPT_VERSION: OPENAI_PROMPT_VERSION,
 } = require('./openAiRetell');
+const { translateArticleWithGoogleFree } = require('./freeTranslate');
 const { createAdminNotification } = require('./db');
 
 const PROVIDER = (process.env.RUSSIAN_PROVIDER || 'openai').toLowerCase();
 const FALLBACK_PROVIDER = (process.env.RUSSIAN_FALLBACK_PROVIDER || '').toLowerCase();
+const FREE_FALLBACK_PROVIDER = (process.env.RUSSIAN_FREE_FALLBACK || 'google').toLowerCase();
 
 const DEEPL_KEY = process.env.DEEPL_API_KEY || '';
 const LIBRE_URL = process.env.LIBRETRANSLATE_URL || 'http://localhost:5000/translate';
@@ -66,12 +68,29 @@ async function translateWithLibre(titleFi, summaryFi) {
 }
 
 function notifyProviderFailure(provider, error) {
-  if (!error?.billing) return;
+  if (!error?.billing && error?.code !== 'missing_api_key') return;
   createAdminNotification({
     notificationKey: `${provider}-billing`,
     level: 'error',
-    title: `Закончился баланс ${provider === 'openai' ? 'OpenAI' : provider}`,
+    title: error?.code === 'missing_api_key'
+      ? `Не настроен ключ ${provider === 'openai' ? 'OpenAI' : provider}`
+      : `Закончился баланс ${provider === 'openai' ? 'OpenAI' : provider}`,
     body: `Новые статьи временно переводятся резервным методом. Пополните баланс и проверьте ключ API. Код: ${error.code || error.status || 'billing_error'}.`,
+  });
+}
+
+function canUseEmergencyFreeFallback(provider, error) {
+  return provider === 'openai'
+    && FREE_FALLBACK_PROVIDER === 'google'
+    && (Boolean(error?.billing) || error?.code === 'missing_api_key');
+}
+
+function notifyFreeFallbackEnabled() {
+  createAdminNotification({
+    notificationKey: 'google-free-fallback-enabled',
+    level: 'warning',
+    title: 'Включён бесплатный резервный перевод',
+    body: 'OpenAI недоступен из-за ключа или баланса. Новые статьи временно переводятся через бесплатный Google Translate без гарантии качества. Проверьте баланс OpenAI.',
   });
 }
 
@@ -108,6 +127,15 @@ async function getRussianVersion(article) {
         return await translateWithLibre(titleFi, summaryFi);
       } catch (fallbackError) {
         console.error('[getRussianVersion] резервный LibreTranslate недоступен:', fallbackError.message);
+      }
+    }
+    if (canUseEmergencyFreeFallback(PROVIDER, err)) {
+      try {
+        const translated = await translateArticleWithGoogleFree(article);
+        notifyFreeFallbackEnabled();
+        return translated;
+      } catch (fallbackError) {
+        console.error('[getRussianVersion] бесплатный Google Translate недоступен:', fallbackError.message);
       }
     }
     console.error('[getRussianVersion] ошибка, возвращаю оригинал на финском:', err.message);
