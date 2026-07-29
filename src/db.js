@@ -219,6 +219,17 @@ function createDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_user_deliveries_user_day
       ON telegram_user_deliveries (user_id, sent_at DESC);
+    CREATE TABLE IF NOT EXISTS telegram_content_deliveries (
+      id INTEGER PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      content_key TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      telegram_message_id TEXT,
+      UNIQUE(user_id, content_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_content_deliveries_user_day
+      ON telegram_content_deliveries (user_id, sent_at DESC);
   `);
 
   const articleColumns = new Set(db.prepare('PRAGMA table_info(articles)').all().map((column) => column.name));
@@ -907,12 +918,16 @@ function getCategories() {
 
 function getSitemapArticles() {
   return db.prepare(`
-    SELECT slug, published_at
+    SELECT slug, published_at, created_at
     FROM articles
     WHERE slug IS NOT NULL AND slug <> ''
       AND publication_status = 'published'
     ORDER BY published_at DESC, id DESC
-  `).all().map((row) => ({ slug: row.slug, publishedAt: row.published_at }));
+  `).all().map((row) => ({
+    slug: row.slug,
+    publishedAt: row.published_at,
+    createdAt: row.created_at,
+  }));
 }
 
 function getNews({ category, source, limit } = {}) {
@@ -1721,6 +1736,16 @@ function recordTelegramUserDelivery({ userId, articleId, telegramMessageId = nul
 function hasTelegramUserDelivery({ userId, articleId }) {
   return Boolean(db.prepare('SELECT 1 FROM telegram_user_deliveries WHERE user_id = ? AND article_id = ?').get(userId, articleId));
 }
+function hasTelegramContentDelivery({ userId, contentKey }) {
+  return Boolean(db.prepare('SELECT 1 FROM telegram_content_deliveries WHERE user_id = ? AND content_key = ?').get(userId, contentKey));
+}
+function recordTelegramContentDelivery({ userId, contentKey, contentType, telegramMessageId = null }) {
+  return db.prepare(`
+    INSERT OR IGNORE INTO telegram_content_deliveries (
+      user_id, content_key, content_type, telegram_message_id
+    ) VALUES (?, ?, ?, ?)
+  `).run(userId, contentKey, contentType, telegramMessageId ? String(telegramMessageId) : null).changes === 1;
+}
 function getPublishedArticlesSince(sinceIso) {
   return db.prepare(`
     SELECT *
@@ -2193,6 +2218,8 @@ module.exports = {
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
+  hasTelegramContentDelivery,
+  recordTelegramContentDelivery,
   getPublishedArticlesSince,
   consumeAdminOAuthState,
   recordAdminAction,

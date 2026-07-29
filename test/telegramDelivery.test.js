@@ -5,6 +5,7 @@ const {
   buildTelegramDigestMessage,
   buildTelegramMessage,
   canDeliverArticleNow,
+  isDailyContentDue,
   isDeliveryScheduleDue,
   isQuietTime,
   isTelegramChannelIntervalDue,
@@ -113,6 +114,16 @@ test('delivery schedule respects selected days, digest time and critical quiet-h
     { ...quiet, allowCriticalDuringQuiet: true },
     mondayMorning,
   ), true);
+});
+
+test('daily editorial content is delivered after the selected time and survives a late restart', () => {
+  const subscriptionWithTime = {
+    timezone: 'Europe/Helsinki',
+    deliveryTimes: ['08:00'],
+  };
+  assert.equal(isDailyContentDue(subscriptionWithTime, new Date('2026-01-12T05:59:00Z')), false);
+  assert.equal(isDailyContentDue(subscriptionWithTime, new Date('2026-01-12T06:00:00Z')), true);
+  assert.equal(isDailyContentDue(subscriptionWithTime, new Date('2026-01-12T11:30:00Z')), true);
 });
 
 test('instant and digest messages contain title, excerpt and read-more link', () => {

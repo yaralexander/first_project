@@ -1,4 +1,4 @@
-const ALLOWED_CONTENT_TYPES = new Set(['news', 'holidays', 'word']);
+const ALLOWED_CONTENT_TYPES = new Set(['news', 'holidays', 'flag_days', 'word']);
 const DEFAULT_TELEGRAM_CHANNEL_TEMPLATE = '<b>🔥 {title}</b>\n\n{excerpt}\n\n📁 {source} || {category}\n\n👉 <a href="{article_url}">Читать далее</a>';
 const TELEGRAM_CHANNEL_TEMPLATE_VARIABLES = Object.freeze([
   'label',
@@ -199,6 +199,17 @@ function isDeliveryScheduleDue(subscription, now = new Date()) {
   return deliveryTimes.some((value) => minutesFromTime(value) === current);
 }
 
+function isDailyContentDue(subscription, now = new Date()) {
+  const deliveryTimes = Array.isArray(subscription.deliveryTimes) && subscription.deliveryTimes.length
+    ? subscription.deliveryTimes
+    : ['08:00'];
+  const targets = deliveryTimes
+    .map(minutesFromTime)
+    .filter((value) => value !== null);
+  const firstTarget = targets.length ? Math.min(...targets) : 8 * 60;
+  return localMinutes(now, subscription.timezone) >= firstTarget;
+}
+
 function buildTelegramMessage(article, {
   siteUrl,
   includeOriginal = true,
@@ -260,6 +271,7 @@ module.exports = {
   buildTelegramMessage,
   canDeliverArticleNow,
   escapeTelegramHtml,
+  isDailyContentDue,
   isDeliveryScheduleDue,
   isQuietTime,
   isTelegramChannelIntervalDue,

@@ -5,6 +5,10 @@ const {
   TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
 } = require('./telegramDelivery');
 
+const SITE_NAME = 'Финские Новости';
+const SITE_NAME_LATIN = 'Finskie Novosti';
+const DEFAULT_SEO_KEYWORDS = 'Финские Новости, Finskie Novosti, новости Финляндии, новости Финляндии на русском, Финляндия сегодня';
+
 function escapeHtml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -42,6 +46,45 @@ function shortDate(value) {
 
 function documentPage({ title, description, canonicalPath, siteUrl, content, robots, breakingArticle, searchQuery = '', showInterestModal = false, structuredData = null }) {
   const canonical = `${siteUrl}${canonicalPath}`;
+  const cleanTitle = String(title || SITE_NAME)
+    .replace(/\bFinskiye Novosti\b/gi, SITE_NAME_LATIN)
+    .trim();
+  const seoTitle = cleanTitle.includes(SITE_NAME)
+    ? cleanTitle
+    : `${cleanTitle} | ${SITE_NAME}`;
+  const seoDescription = String(description || '')
+    .replace(/\bFinskiye Novosti\b/gi, SITE_NAME_LATIN)
+    .trim();
+  const baseGraph = [
+    {
+      '@type': 'Organization',
+      '@id': `${siteUrl}/#organization`,
+      name: SITE_NAME,
+      alternateName: SITE_NAME_LATIN,
+      url: siteUrl,
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${siteUrl}/#website`,
+      url: siteUrl,
+      name: SITE_NAME,
+      alternateName: SITE_NAME_LATIN,
+      inLanguage: 'ru',
+      publisher: { '@id': `${siteUrl}/#organization` },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${siteUrl}/search?q={search_term_string}`,
+        'query-input': 'required name=search_term_string',
+      },
+    },
+  ];
+  const extraStructuredData = structuredData
+    ? (Array.isArray(structuredData) ? structuredData : [structuredData])
+    : [];
+  const seoGraph = { '@context': 'https://schema.org', '@graph': [...baseGraph, ...extraStructuredData.map((item) => {
+    const { '@context': _context, ...entry } = item;
+    return entry;
+  })] };
   const breakingTitle = breakingArticle
     ? breakingArticle.titleRu || breakingArticle.titleFi
     : 'Свежие новости Финляндии для русскоязычных читателей';
@@ -58,17 +101,25 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
-  <meta name="description" content="${escapeHtml(description)}">
+  <title>${escapeHtml(seoTitle)}</title>
+  <meta name="description" content="${escapeHtml(seoDescription)}">
+  <meta name="keywords" content="${escapeHtml(DEFAULT_SEO_KEYWORDS)}">
+  <meta name="author" content="${SITE_NAME}">
   <meta property="og:type" content="${canonicalPath.startsWith('/news/') ? 'article' : 'website'}">
-  <meta property="og:title" content="${escapeHtml(title)}">
-  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:title" content="${escapeHtml(seoTitle)}">
+  <meta property="og:description" content="${escapeHtml(seoDescription)}">
   <meta property="og:url" content="${escapeHtml(canonical)}">
-  <meta property="og:site_name" content="Финские Новости">
+  <meta property="og:site_name" content="${SITE_NAME}">
+  <meta property="og:locale" content="ru_RU">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${escapeHtml(seoTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(seoDescription)}">
   ${robots ? `<meta name="robots" content="${escapeHtml(robots)}">` : ''}
   <link rel="canonical" href="${escapeHtml(canonical)}">
+  <link rel="alternate" hreflang="ru" href="${escapeHtml(canonical)}">
+  <link rel="alternate" hreflang="x-default" href="${escapeHtml(canonical)}">
   <link rel="alternate" type="application/rss+xml" title="Финские Новости — общая лента" href="${escapeHtml(`${siteUrl}/rss.xml`)}">
-  ${structuredData ? `<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</script>` : ''}
+  <script type="application/ld+json">${JSON.stringify(seoGraph).replace(/</g, '\\u003c')}</script>
   <style>${siteStyles}</style>
 </head>
 <body>
@@ -78,7 +129,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   <header class="masthead"><div class="wrap"><div class="topbar"><a class="brand" href="/"><span class="brand-mark">${brandMark}</span><span><strong class="brand-name">Финские Новости</strong><small class="brand-tagline">Свежие новости Финляндии на русском языке</small></span></a><form class="search-box" action="/search" method="get" role="search"><label class="skip-link" for="site-search">Поиск по новостям</label><span aria-hidden="true">⌕</span><input id="site-search" name="q" type="search" value="${escapeHtml(searchQuery)}" placeholder="Поиск новостей…" minlength="2" maxlength="120" required><button type="submit">Найти</button></form><div class="top-actions">${interestControl}<a class="account-link" href="/account" aria-label="Личный кабинет">👤 Личный кабинет</a><a class="icon-btn" href="/about" aria-label="О проекте">i</a><a class="icon-btn" href="/page/2" aria-label="Архив">☰</a></div></div><nav class="catnav" id="category-nav" aria-label="Категории"><a class="active" href="/">🏠 Главная</a>${nav}</nav></div></header>
   <aside class="telegram-promo" aria-label="Персональные новости в Telegram"><a class="wrap telegram-promo-inner" href="/telegram"><span class="telegram-promo-icon" aria-hidden="true">✈</span><span class="telegram-promo-copy"><strong>Ваша личная лента новостей в Telegram</strong><small>Выберите темы, источники и удобное время — бот пришлёт только важное для вас.</small></span><span class="telegram-promo-action">Как это работает →</span></a></aside>
   <main class="wrap" id="content">${content}</main>
-  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>Новости Финляндии</strong><p>Свежие новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/about#privacy">Конфиденциальность</a></div></div><div class="footer-bottom"><span>© 2026 Новости Финляндии</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
+  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>${SITE_NAME}</strong><p>${SITE_NAME_LATIN} — новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/about#privacy">Конфиденциальность</a></div></div><div class="footer-bottom"><span>© 2026 ${SITE_NAME} · ${SITE_NAME_LATIN}</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
   ${interestModal}
   <nav class="mobile-bottom-nav" aria-label="Мобильная навигация"><a href="/"><i>⌂</i><span>Главная</span></a><a href="/search"><i>⌕</i><span>Поиск</span></a><a href="/#feed-heading"><i>♧</i><span>Лента</span></a><a href="#category-nav"><i>⊞</i><span>Разделы</span></a><button type="button" data-theme-toggle><i>◐</i><span>Тема</span></button></nav>
   ${themeScript}
@@ -205,7 +256,29 @@ function renderListPage({ title, description, canonicalPath, siteUrl, articles, 
   const content = isHome
     ? `${bento}${renderCommentTicker(recentComments)}${renderDigest(featured)}${renderRail(rest)}<div class="layout"><div>${feedContent}</div>${renderSidebar(rest)}</div>`
     : `<div class="listing-layout"><div>${homeLead}${feedContent}</div>${renderSidebar(articles)}</div>`;
-  return documentPage({ title, description, canonicalPath, siteUrl, content, robots, searchQuery: searchQuery || '', breakingArticle: articles.find((article) => article.editorialStatus === 'urgent') || (isHome ? featured[0] : null), showInterestModal: isHome });
+  const itemList = {
+    '@type': 'ItemList',
+    '@id': `${siteUrl}${canonicalPath}#items`,
+    name: title,
+    numberOfItems: articles.length,
+    itemListElement: articles.slice(0, 50).map((article, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      url: `${siteUrl}${articleUrl(article)}`,
+      name: article.titleRu || article.titleFi,
+    })),
+  };
+  const structuredData = {
+    '@type': 'CollectionPage',
+    '@id': `${siteUrl}${canonicalPath}#collection`,
+    name: title,
+    description,
+    inLanguage: 'ru',
+    url: `${siteUrl}${canonicalPath}`,
+    isPartOf: { '@id': `${siteUrl}/#website` },
+    mainEntity: itemList,
+  };
+  return documentPage({ title, description, canonicalPath, siteUrl, content, robots, searchQuery: searchQuery || '', breakingArticle: articles.find((article) => article.editorialStatus === 'urgent') || (isHome ? featured[0] : null), showInterestModal: isHome, structuredData });
 }
 
 function reactionForm(article, reactionMessage) {
@@ -218,8 +291,8 @@ function renderComments({ article, comments, commentMessage }) {
 }
 
 function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], commentMessage = '', reactionMessage = '', relatedArticles = [], adjacent = {} }) {
-  const title = article.titleRu || article.titleFi;
-  const description = article.summaryRu || article.summaryFi || title;
+  const title = article.seoTitle || article.titleRu || article.titleFi;
+  const description = article.seoDescription || article.summaryRu || article.summaryFi || title;
   const classification = article.classification || {};
   const classificationItems = [
     classification.region ? `<a href="/region/${encodeURIComponent(classification.region.code)}">📍 ${escapeHtml(classification.region.name)}</a>` : '',
@@ -242,17 +315,21 @@ function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], co
     : '';
   const content = `<div class="article-wrap"><article><header class="article-head"><p class="eyebrow">Новость Финляндии</p>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h1 class="article-title">${escapeHtml(title)}</h1><div class="article-facts"><span class="fact">${escapeHtml(article.category || 'Новости')}</span><span class="fact">${escapeHtml(article.sourceName || '')}</span><span class="fact">${escapeHtml(formatDate(article.publishedAt))}</span></div>${classificationMarkup}<p class="article-lead">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p></header><div class="article-body-grid"><div>${reactionForm(article, reactionMessage)}${renderComments({ article, comments, commentMessage })}</div><aside class="article-aside">${original}<section class="side-card"><p class="sidebar-kicker">Поделиться</p><h2>Читайте и обсуждайте</h2><p>Сохраните постоянную ссылку на материал и оставьте комментарий после модерации.</p></section></aside></div>${adjacentMarkup}${relatedMarkup}</article></div>`;
   const structuredData = {
-    '@context': 'https://schema.org',
     '@type': 'NewsArticle',
+    '@id': `${siteUrl}/news/${encodeURIComponent(article.slug)}#article`,
     headline: title,
     description: truncateText(description, 300),
     datePublished: article.publishedAt || undefined,
     dateModified: article.createdAt || article.publishedAt || undefined,
     mainEntityOfPage: `${siteUrl}/news/${encodeURIComponent(article.slug)}`,
-    publisher: { '@type': 'Organization', name: 'Финские Новости', url: siteUrl },
+    url: `${siteUrl}/news/${encodeURIComponent(article.slug)}`,
+    inLanguage: 'ru',
+    isAccessibleForFree: true,
+    author: { '@type': 'Organization', name: article.sourceName || SITE_NAME },
+    publisher: { '@id': `${siteUrl}/#organization` },
     isBasedOn: safeExternalUrl(article.originalUrl) === '#' ? undefined : safeExternalUrl(article.originalUrl),
   };
-  return documentPage({ title: `${title} — Финские Новости`, description, canonicalPath: `/news/${encodeURIComponent(article.slug)}`, siteUrl, content, breakingArticle: article.editorialStatus === 'urgent' ? article : null, structuredData });
+  return documentPage({ title, description, canonicalPath: `/news/${encodeURIComponent(article.slug)}`, siteUrl, content, breakingArticle: article.editorialStatus === 'urgent' ? article : null, structuredData });
 }
 
 function optionMarkup(value, label, selected) {
@@ -898,10 +975,11 @@ function renderAccountPage({
             <legend>Что присылать</legend>
             <div class="account-choices">
               <label class="account-choice"><input type="checkbox" name="content_types" value="news"${selectedContentTypes.includes('news') ? ' checked' : ''}><span>📰 Новости</span></label>
-              <label class="account-choice"><input type="checkbox" name="content_types" value="holidays"${selectedContentTypes.includes('holidays') ? ' checked' : ''}><span>🇫🇮 Праздники <small>скоро</small></span></label>
-              <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня <small>скоро</small></span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="holidays"${selectedContentTypes.includes('holidays') ? ' checked' : ''}><span>🎉 Праздники Финляндии</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="flag_days"${selectedContentTypes.includes('flag_days') ? ' checked' : ''}><span>🇫🇮 Дни флага</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня</span></label>
             </div>
-            <small class="account-muted">Новости уже работают. Праздники и слово/фраза дня сохраняются в настройках и будут включены после запуска этих рубрик.</small>
+            <small class="account-muted">Слово дня приходит ежедневно в выбранное время. Праздники и дни флага — только в соответствующие календарные даты.</small>
           </fieldset>
           <fieldset class="account-fieldset account-quiet">
             <legend>Не беспокоить</legend>
@@ -1036,6 +1114,8 @@ function renderSitemap({
   const archivePages = Array.from({ length: Math.max(0, archivePageCount - 1) }, (_, index) => ({ path: `/page/${index + 2}` }));
   const urls = [
     { path: '/' },
+    { path: '/about' },
+    { path: '/contact' },
     { path: '/telegram' },
     ...archivePages,
     ...categorySlugs.map((slug) => ({ path: `/category/${encodeURIComponent(slug)}` })),
@@ -1043,7 +1123,7 @@ function renderSitemap({
     ...regionCodes.map((code) => ({ path: `/region/${encodeURIComponent(code)}` })),
     ...articles.map((article) => ({
       path: `/news/${encodeURIComponent(article.slug)}`,
-      lastmod: formatLastmod(article.publishedAt),
+      lastmod: formatLastmod(article.updatedAt || article.createdAt || article.publishedAt),
     })),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((entry) => `  <url><loc>${escapeXml(`${siteUrl}${entry.path}`)}</loc>${entry.lastmod ? `<lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;

@@ -20,12 +20,14 @@ const {
   buildTelegramDigestMessage,
   buildTelegramMessage,
   canDeliverArticleNow,
+  isDailyContentDue,
   isDeliveryScheduleDue,
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
   renderTelegramChannelTemplate,
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
+const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
 const {
   createGoogleAuthProvider,
   createPkcePair,
@@ -136,6 +138,8 @@ const {
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
+  hasTelegramContentDelivery,
+  recordTelegramContentDelivery,
   publishArticle,
   publishScheduledArticles,
   resolveDuplicateArticle,
@@ -950,6 +954,44 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
   return { delivered, skipped };
 }
 
+async function deliverDailyContentToSubscriptions(now = new Date()) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, skipped: 0 };
+  const items = contentForDate(now);
+  const subscriptions = getActiveUserSubscriptions();
+  let delivered = 0;
+  let skipped = 0;
+  for (const subscription of subscriptions) {
+    const selected = new Set(subscription.contentTypes || []);
+    if (!isDailyContentDue(subscription, now)
+      || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
+      skipped += 1;
+      continue;
+    }
+    for (const item of items) {
+      if (!selected.has(item.type)
+        || hasTelegramContentDelivery({ userId: subscription.userId, contentKey: item.key })) {
+        continue;
+      }
+      try {
+        const messageId = await sendTelegramMessageToChat(
+          subscription.telegramChatId,
+          buildDailyContentMessage(item, SITE_URL),
+        );
+        if (recordTelegramContentDelivery({
+          userId: subscription.userId,
+          contentKey: item.key,
+          contentType: item.type,
+          telegramMessageId: messageId,
+        })) delivered += 1;
+      } catch (error) {
+        skipped += 1;
+        console.error('[telegram-daily-content] ошибка доставки:', error.message);
+      }
+    }
+  }
+  return { delivered, skipped };
+}
+
 async function processTelegramRetryQueue() {
   if (!TELEGRAM_BOT_CONFIGURED) return { completed: 0, failed: 0 };
   const subscriptions = new Map(getActiveUserSubscriptions().map((subscription) => [subscription.userId, subscription]));
@@ -1174,10 +1216,12 @@ function renderArchive(req, res, page) {
   if (page > 1 && articles.length === 0) {
     return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   }
-  const title = page === 1 ? 'Финские Новости' : `Архив новостей — страница ${page}`;
+  const title = page === 1
+    ? 'Финские Новости — Finskie Novosti | Новости Финляндии на русском'
+    : `Архив новостей Финляндии — страница ${page}`;
   const description = page === 1
-    ? 'Свежие новости Финляндии на русском языке.'
-    : `Архив новостей Финляндии, страница ${page}.`;
+    ? 'Финские Новости (Finskie Novosti): свежие новости Финляндии на русском языке из Yle, Helsingin Sanomat, Iltalehti и Ilta-Sanomat.'
+    : `Архив «Финских Новостей»: новости Финляндии на русском языке, страница ${page}.`;
   const canonicalPath = page === 1 ? '/' : `/page/${page}`;
   return res.type('html').send(renderListPage({
     title,
@@ -1220,8 +1264,8 @@ app.get('/', (req, res) => {
     return query ? `/?${query}#feed-heading` : '/';
   };
   return res.type('html').send(renderListPage({
-    title: 'Финские Новости',
-    description: 'Свежие новости Финляндии на русском языке.',
+    title: 'Финские Новости — Finskie Novosti | Новости Финляндии на русском',
+    description: 'Финские Новости (Finskie Novosti): свежие новости Финляндии на русском языке из Yle, Helsingin Sanomat, Iltalehti и Ilta-Sanomat.',
     canonicalPath: '/',
     siteUrl: SITE_URL,
     articles,
@@ -1315,8 +1359,8 @@ app.get('/category/:slug', (req, res) => {
   const pageSuffix = page === 1 ? '' : ` — страница ${page}`;
   const categoryPath = `/category/${encodeURIComponent(resolution.canonicalSlug)}`;
   return res.type('html').send(renderListPage({
-    title: `Новости: ${category}${pageSuffix}`,
-    description: `Новости Финляндии в категории «${category}»${pageSuffix.toLowerCase()}.`,
+    title: `${category} в Финляндии — новости на русском${pageSuffix}`,
+    description: `Свежие новости Финляндии в категории «${category}» на русском языке. Финские Новости — Finskie Novosti${pageSuffix.toLowerCase()}.`,
     canonicalPath: page === 1 ? categoryPath : `${categoryPath}?page=${page}`,
     siteUrl: SITE_URL,
     articles,
@@ -2245,6 +2289,7 @@ app.listen(PORT, () => {
   });
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
   runScheduledPublishing().catch((error) => console.error('[startup scheduled publish] ошибка:', error.message));
+  deliverDailyContentToSubscriptions().catch((error) => console.error('[startup telegram daily content] ошибка:', error.message));
   safeRefresh();
   cleanupAnalytics(ANALYTICS_RETENTION_DAYS);
   cleanupAdminAuthData();
@@ -2273,6 +2318,11 @@ cron.schedule('* * * * *', () => processTelegramRetryQueue().catch((error) => co
 });
 cron.schedule('* * * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
   name: 'telegram-digest',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
+});
+cron.schedule('* * * * *', () => deliverDailyContentToSubscriptions().catch((error) => console.error('[telegram-daily-content] ошибка:', error.message)), {
+  name: 'telegram-daily-content',
   noOverlap: true,
   timezone: 'Europe/Helsinki',
 });
