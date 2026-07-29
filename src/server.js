@@ -24,6 +24,7 @@ const {
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
   renderTelegramChannelTemplate,
+  validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
 const {
   createGoogleAuthProvider,
@@ -1740,6 +1741,11 @@ app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
 });
 
 app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
+  const templateValidation = validateTelegramChannelTemplate(req.body.template);
+  if (!templateValidation.valid) {
+    console.warn('[telegram-channel-template] отклонён шаблон:', templateValidation.errors.join(' '));
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=template-error');
+  }
   const settings = normalizeTelegramChannelSettings({
     enabled: req.body.enabled,
     chatId: req.body.chat_id,

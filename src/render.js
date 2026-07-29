@@ -1,5 +1,9 @@
 const { categories: defaultCategories } = require('./categories');
 const { siteStyles, brandMark, themeScript } = require('./siteDesign');
+const {
+  DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
+  TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
+} = require('./telegramDelivery');
 
 function escapeHtml(value = '') {
   return String(value)
@@ -481,6 +485,7 @@ function renderAdminPage({
   const categoryOptions = categories.map((category) => optionMarkup(category, category, '')).join('');
   const channelStatusLabels = {
     saved: 'Настройки общего Telegram-канала сохранены.',
+    'template-error': 'Шаблон не сохранён: проверьте переменные, ссылки и разрешённые HTML-теги.',
     'test-sent': 'Тестовое сообщение отправлено в общий Telegram-канал.',
     'test-error': 'Telegram не принял тестовое сообщение. Проверьте имя канала и права бота.',
     'not-configured': 'Сначала добавьте TELEGRAM_BOT_TOKEN на сервере.',
@@ -540,6 +545,19 @@ function renderAdminPage({
     return `<tr><td>${escapeHtml(formatDate(entry.createdAt))}</td><td>${escapeHtml(entry.actorUsername)} <span class="summary">${escapeHtml(entry.actorRole)}</span></td><td>${escapeHtml(actionLabels[entry.action] || entry.action)}</td><td>${escapeHtml(entry.targetType)}${entry.targetId ? ` #${escapeHtml(entry.targetId)}` : ''}</td><td>${escapeHtml(details)}</td></tr>`;
   }).join('')}</tbody></table></div>` : '<p class="summary">Журнал пока пуст.</p>';
   const selectedChannelCategories = new Set(telegramChannelSettings.categories || []);
+  const channelTemplate = telegramChannelSettings.template || DEFAULT_TELEGRAM_CHANNEL_TEMPLATE;
+  const templateVariableLabels = {
+    title: 'заголовок',
+    excerpt: 'краткий текст',
+    source: 'источник',
+    category: 'категория',
+    article_url: 'ссылка на статью',
+    original_url: 'ссылка на оригинал',
+    label: 'метка важности',
+  };
+  const telegramTemplateTokens = TELEGRAM_CHANNEL_TEMPLATE_VARIABLES
+    .map((variable) => `<button class="telegram-template-token" type="button" data-template-token="{${variable}}" title="${escapeHtml(templateVariableLabels[variable])}">{${variable}}</button>`)
+    .join('');
   const telegramChannelMarkup = `<div class="admin-grid">
     <section class="admin-panel">
       <p class="eyebrow">Публичный канал</p>
@@ -568,12 +586,106 @@ function renderAdminPage({
         <label for="channel-limit">Максимум постов в день<input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
         <fieldset><legend>Категории</legend>${categories.map((category) => `<label><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}> ${escapeHtml(category)}</label>`).join('')}</fieldset>
         <label><input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинальный источник</label>
-        <label for="channel-template">Шаблон сообщения<textarea id="channel-template" name="template" maxlength="3000">${escapeHtml(telegramChannelSettings.template)}</textarea></label>
-        <p class="field-hint">Доступные поля: {label}, {category}, {source}, {title}, {excerpt}, {article_url}, {original_url}. Поддерживаются безопасные HTML-теги Telegram: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a&gt;.</p>
-        <button type="submit">Сохранить настройки канала</button>
+        <section class="telegram-template-studio" aria-labelledby="telegram-template-title">
+          <div class="telegram-template-heading">
+            <div>
+              <p class="eyebrow">Оформление сообщения</p>
+              <h3 id="telegram-template-title">Шаблон публикации</h3>
+            </div>
+            <button class="telegram-template-reset" type="button" data-template-reset>Вернуть красивый шаблон</button>
+          </div>
+          <div class="telegram-template-layout">
+            <div class="telegram-template-editor">
+              <label for="channel-template">Текст и разметка</label>
+              <textarea id="channel-template" name="template" maxlength="3000" spellcheck="false" data-template-editor>${escapeHtml(channelTemplate)}</textarea>
+              <p class="field-hint">Нажмите на переменную, чтобы вставить её в позицию курсора. Переносы строк можно вводить обычной клавишей Enter.</p>
+              <div class="telegram-template-tokens" aria-label="Переменные шаблона">${telegramTemplateTokens}</div>
+              <details class="telegram-template-help">
+                <summary>Что означают переменные и теги?</summary>
+                <dl>${TELEGRAM_CHANNEL_TEMPLATE_VARIABLES.map((variable) => `<div><dt>{${variable}}</dt><dd>${escapeHtml(templateVariableLabels[variable])}</dd></div>`).join('')}</dl>
+                <p>Разрешены теги Telegram: <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;u&gt;</code>, <code>&lt;strong&gt;</code>, <code>&lt;em&gt;</code>, <code>&lt;s&gt;</code>, <code>&lt;code&gt;</code> и безопасные ссылки <code>&lt;a href="{article_url}"&gt;</code>.</p>
+              </details>
+            </div>
+            <div class="telegram-template-preview-shell">
+              <span class="telegram-template-preview-label">Предпросмотр в Telegram</span>
+              <div class="telegram-template-preview" data-template-preview aria-live="polite"></div>
+              <span class="telegram-template-preview-time">12:45 ✓✓</span>
+            </div>
+          </div>
+        </section>
+        <button class="telegram-template-save" type="submit">Сохранить правила и шаблон</button>
       </form>
     </section>
-  </div>`;
+  </div>
+  <script>
+  (() => {
+    const editor = document.querySelector('[data-template-editor]');
+    const preview = document.querySelector('[data-template-preview]');
+    const reset = document.querySelector('[data-template-reset]');
+    if (!editor || !preview) return;
+    const defaultTemplate = ${JSON.stringify(DEFAULT_TELEGRAM_CHANNEL_TEMPLATE)};
+    const samples = {
+      label: '🟠 ВАЖНО',
+      category: 'Общество',
+      source: 'YLE',
+      title: 'Новая важная новость из Финляндии',
+      excerpt: 'Короткий и понятный пересказ новости на русском языке. Читатель сразу видит главное и может перейти на сайт за подробностями.',
+      article_url: '${escapeHtml(siteUrl)}/news/primer-novosti',
+      original_url: 'https://yle.fi/example'
+    };
+    const allowed = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'INS', 'S', 'STRIKE', 'DEL', 'CODE']);
+    function safeNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || '');
+      if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+      if (node.tagName === 'BR') return document.createElement('br');
+      if (node.tagName === 'A') {
+        const link = document.createElement('a');
+        try {
+          const url = new URL(node.getAttribute('href') || '');
+          link.href = url.protocol === 'https:' ? url.href : '#';
+        } catch { link.href = '#'; }
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        node.childNodes.forEach((child) => link.appendChild(safeNode(child)));
+        return link;
+      }
+      if (allowed.has(node.tagName)) {
+        const element = document.createElement(node.tagName.toLowerCase());
+        node.childNodes.forEach((child) => element.appendChild(safeNode(child)));
+        return element;
+      }
+      const fragment = document.createDocumentFragment();
+      node.childNodes.forEach((child) => fragment.appendChild(safeNode(child)));
+      return fragment;
+    }
+    function updatePreview() {
+      let rendered = editor.value.replace(/\\\\n/g, '\\n');
+      Object.entries(samples).forEach(([name, value]) => {
+        rendered = rendered.split('{' + name + '}').join(value);
+      });
+      const parsed = new DOMParser().parseFromString(rendered.replace(/\\n/g, '<br>'), 'text/html');
+      preview.replaceChildren();
+      parsed.body.childNodes.forEach((node) => preview.appendChild(safeNode(node)));
+    }
+    document.querySelectorAll('[data-template-token]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const token = button.getAttribute('data-template-token') || '';
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+        editor.setRangeText(token, start, end, 'end');
+        editor.focus();
+        updatePreview();
+      });
+    });
+    reset?.addEventListener('click', () => {
+      editor.value = defaultTemplate;
+      editor.focus();
+      updatePreview();
+    });
+    editor.addEventListener('input', updatePreview);
+    updatePreview();
+  })();
+  </script>`;
   const notificationMarkup = adminNotifications.length
     ? `<div class="admin-list">${adminNotifications.map((notification) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(notification.title)}</h2><span class="admin-status admin-status--${notification.status === 'new' ? 'pending' : 'approved'}">${notification.status === 'new' ? 'Новое' : 'Прочитано'}</span></div><time class="comment-date">${escapeHtml(formatDate(notification.updatedAt))}</time><p class="comment-body">${escapeHtml(notification.body)}</p>${notification.status === 'new' ? `<form action="/admin/notifications/${notification.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>`
     : '<p class="summary">Системных уведомлений пока нет.</p>';

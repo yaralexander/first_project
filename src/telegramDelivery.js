@@ -1,5 +1,14 @@
 const ALLOWED_CONTENT_TYPES = new Set(['news', 'holidays', 'word']);
 const DEFAULT_TELEGRAM_CHANNEL_TEMPLATE = '<b>🔥 {title}</b>\n\n{excerpt}\n\n📁 {source} || {category}\n\n👉 <a href="{article_url}">Читать далее</a>';
+const TELEGRAM_CHANNEL_TEMPLATE_VARIABLES = Object.freeze([
+  'label',
+  'category',
+  'source',
+  'title',
+  'excerpt',
+  'article_url',
+  'original_url',
+]);
 
 function trimExcerpt(value, maxLength = 420) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -13,6 +22,41 @@ function escapeTelegramHtml(value = '') {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function validateTelegramChannelTemplate(value) {
+  const template = String(value || '').replace(/\\n/g, '\n').trim();
+  const errors = [];
+  if (!template) errors.push('Шаблон не может быть пустым.');
+  if (template.length > 3000) errors.push('Шаблон длиннее 3000 символов.');
+
+  const allowedVariables = new Set(TELEGRAM_CHANNEL_TEMPLATE_VARIABLES);
+  const variables = [...template.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]);
+  const unknownVariables = [...new Set(variables.filter((name) => !allowedVariables.has(name)))];
+  if (unknownVariables.length) {
+    errors.push(`Неизвестные переменные: ${unknownVariables.map((name) => `{${name}}`).join(', ')}.`);
+  }
+
+  const tags = template.match(/<[^>]*>/g) || [];
+  for (const tag of tags) {
+    const simpleTag = /^<\/?(?:b|strong|i|em|u|ins|s|strike|del|code)>$/i.test(tag);
+    const closingLink = /^<\/a>$/i.test(tag);
+    const safeLink = /^<a\s+href=(?:"|')\{(?:article_url|original_url)\}(?:"|')>$/i.test(tag);
+    if (!simpleTag && !closingLink && !safeLink) {
+      errors.push(`Недопустимый HTML-тег: ${tag}.`);
+    }
+  }
+
+  const textWithoutTags = template.replace(/<[^>]*>/g, '');
+  if (/[<>]/.test(textWithoutTags)) {
+    errors.push('В шаблоне есть незакрытая или недопустимая HTML-разметка.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    variables: [...new Set(variables)],
+  };
 }
 
 function renderTelegramChannelTemplate(article, settings = {}, { siteUrl } = {}) {
@@ -39,7 +83,11 @@ function renderTelegramChannelTemplate(article, settings = {}, { siteUrl } = {})
     article_url: articleUrl,
     original_url: originalUrl,
   };
-  let text = String(settings.template || DEFAULT_TELEGRAM_CHANNEL_TEMPLATE).replace(/\\n/g, '\n');
+  const requestedTemplate = String(settings.template || DEFAULT_TELEGRAM_CHANNEL_TEMPLATE);
+  const template = validateTelegramChannelTemplate(requestedTemplate).valid
+    ? requestedTemplate
+    : DEFAULT_TELEGRAM_CHANNEL_TEMPLATE;
+  let text = template.replace(/\\n/g, '\n');
   for (const [key, value] of Object.entries(values)) {
     text = text.replaceAll(`{${key}}`, escapeTelegramHtml(value));
   }
@@ -206,6 +254,7 @@ function normalizeContentTypes(values) {
 
 module.exports = {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
+  TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
   articleMatchesSubscription,
   buildTelegramDigestMessage,
   buildTelegramMessage,
@@ -218,4 +267,5 @@ module.exports = {
   normalizeContentTypes,
   renderTelegramChannelTemplate,
   trimExcerpt,
+  validateTelegramChannelTemplate,
 };

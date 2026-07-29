@@ -157,6 +157,14 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /href="\/rss\.xml"/);
   assert.match(html, /name="interval_minutes"/);
   assert.match(html, /\{source\}/);
+  assert.match(html, /data-template-editor/);
+  assert.match(html, /data-template-preview/);
+  assert.match(html, /Вернуть красивый шаблон/);
+  assert.match(html, /&lt;b&gt;🔥 \{title\}&lt;\/b&gt;/);
+  const templateStudioScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    .find((match) => match[1].includes('data-template-editor'));
+  assert.ok(templateStudioScript, 'template editor script should be rendered');
+  assert.doesNotThrow(() => new Function(templateStudioScript[1]));
 });
 
 test('public RSS contains Russian summaries, permanent URLs and escaped XML', () => {

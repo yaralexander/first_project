@@ -10,6 +10,7 @@ const {
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
   renderTelegramChannelTemplate,
+  validateTelegramChannelTemplate,
 } = require('../src/telegramDelivery');
 
 const article = {
@@ -150,6 +151,30 @@ test('general channel template is safe HTML and links to the permanent article p
   const excerpt = text.split('\n\n')[1];
   assert.ok(excerpt.replaceAll('&amp;', '&').length <= 280);
   assert.match(excerpt, /\.\.\.$/);
+});
+
+test('general channel template validator accepts supported formatting and rejects unsafe markup', () => {
+  const valid = validateTelegramChannelTemplate(
+    '<b>🔥 {title}</b>\n\n{excerpt}\n\n👉 <a href="{article_url}">Читать далее</a>',
+  );
+  assert.equal(valid.valid, true);
+  assert.deepEqual(valid.errors, []);
+
+  const unsafe = validateTelegramChannelTemplate(
+    '<script>alert(1)</script><a href="javascript:alert(1)">{unknown}</a>',
+  );
+  assert.equal(unsafe.valid, false);
+  assert.match(unsafe.errors.join(' '), /Неизвестные переменные/);
+  assert.match(unsafe.errors.join(' '), /Недопустимый HTML-тег/);
+});
+
+test('general channel delivery falls back to the safe default when stored template is invalid', () => {
+  const text = renderTelegramChannelTemplate(article, {
+    template: '<script>alert(1)</script>{title}',
+  }, { siteUrl: 'https://finskienovosti.fi' });
+
+  assert.match(text, /^<b>🔥 Важная новость из Финляндии<\/b>/);
+  assert.doesNotMatch(text, /script|alert/);
 });
 
 test('general channel interval becomes due only after the configured pause', () => {
