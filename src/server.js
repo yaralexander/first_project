@@ -17,7 +17,6 @@ const {
 const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
-  buildTelegramDigestMessage,
   buildTelegramMessage,
   canDeliverArticleNow,
   isDailyContentDue,
@@ -37,6 +36,11 @@ const {
   sha256,
 } = require('./googleAdminAuth');
 const { categorize } = require('./config');
+const {
+  DEFAULT_PUBLIC_CHANNEL_SCORE,
+  calculateArticleRanking,
+  meetsPublicChannelThreshold,
+} = require('./articleRanking');
 const {
   countArticles,
   claimDueTasks,
@@ -77,6 +81,7 @@ const {
   getArticleBySlug,
   getArticleById,
   getArticleClassification,
+  getArticleRankingSignals,
   getQualityReviewQueue,
   countQualityReviewQueue,
   reviewArticleQuality,
@@ -757,12 +762,17 @@ async function sendTelegramMessageToChat(chatId, text, options = {}) {
 }
 
 async function sendTelegramMessage(article) {
-  return sendTelegramMessageToChat(TELEGRAM_CHAT_ID, buildTelegramMessage(article, { siteUrl: SITE_URL, includeOriginal: true }));
+  return sendTelegramMessageToChat(
+    TELEGRAM_CHAT_ID,
+    buildTelegramMessage(article, { siteUrl: SITE_URL, includeOriginal: true }),
+    { parse_mode: 'HTML', link_preview_options: { is_disabled: false } },
+  );
 }
 
 function normalizeTelegramChannelSettings(input = {}) {
   const legacyTemplate = '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}';
   const chatId = String(input.chatId || '@finskienovosti').trim();
+  const parsedMinimumScore = Number.parseInt(input.minimumScore, 10);
   const importance = new Set(['all', 'important', 'urgent']).has(input.importance)
     ? input.importance
     : 'all';
@@ -775,6 +785,10 @@ function normalizeTelegramChannelSettings(input = {}) {
     chatId: /^@[A-Za-z0-9_]{5,32}$/.test(chatId) ? chatId : '@finskienovosti',
     categories: categories.map((value) => String(value).trim()).filter((value) => managedCategories().includes(value)),
     importance,
+    minimumScore: Math.min(
+      Math.max(Number.isInteger(parsedMinimumScore) ? parsedMinimumScore : DEFAULT_PUBLIC_CHANNEL_SCORE, 0),
+      100,
+    ),
     intervalMinutes: Math.min(Math.max(Number.parseInt(input.intervalMinutes, 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
     includeOriginal: input.includeOriginal === true || input.includeOriginal === '1' || input.includeOriginal === 'on',
@@ -786,9 +800,10 @@ function normalizeTelegramChannelSettings(input = {}) {
   };
 }
 
-function articleMatchesTelegramChannel(article, settings) {
+function articleMatchesTelegramChannel(article, settings, ranking) {
   if (!article || article.publicationStatus !== 'published') return false;
   if (settings.categories.length && !settings.categories.includes(article.category)) return false;
+  if (!meetsPublicChannelThreshold(ranking, settings.minimumScore)) return false;
   const importanceLevel = Number(article.importanceLevel || 1);
   if (settings.importance === 'urgent') {
     return article.editorialStatus === 'urgent' || importanceLevel >= 5;
@@ -803,7 +818,10 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
   if (!TELEGRAM_BOT_CONFIGURED) return { sent: false, reason: 'not_configured' };
   const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
   if (!ignoreEnabled && !settings.enabled) return { sent: false, reason: 'disabled' };
-  if (!articleMatchesTelegramChannel(article, settings)) return { sent: false, reason: 'filtered' };
+  const ranking = calculateArticleRanking(article, getArticleRankingSignals(article.id));
+  if (!articleMatchesTelegramChannel(article, settings, ranking)) {
+    return { sent: false, reason: 'filtered', ranking };
+  }
   if (getTelegramChannelPublication(article.id)) return { sent: false, reason: 'already_sent' };
   if (countTelegramChannelPublicationsToday(settings.chatId) >= settings.maxPostsPerDay) {
     return { sent: false, reason: 'daily_limit' };
@@ -826,7 +844,7 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
     telegramMessageId,
     deliveryType,
   });
-  return { sent: true, telegramMessageId };
+  return { sent: true, telegramMessageId, ranking };
 }
 
 async function publishArticlesToTelegramChannel(articles) {
@@ -904,26 +922,32 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       continue;
     }
     if (frequency === 'daily') {
-      const text = buildTelegramDigestMessage(batch, subscription, { siteUrl: SITE_URL });
-      try {
-        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, text);
-        for (const article of batch) {
+      for (const article of batch) {
+        try {
+          const telegramMessageId = await sendTelegramMessageToChat(
+            subscription.telegramChatId,
+            buildTelegramMessage(article, {
+              siteUrl: SITE_URL,
+              includeOriginal: subscription.includeOriginal !== false,
+            }),
+            { parse_mode: 'HTML', link_preview_options: { is_disabled: false } },
+          );
           if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
             delivered += 1;
+            sentToday += 1;
             recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'sent', telegramMessageId });
           }
-        }
-      } catch (error) {
-        console.error('[telegram-digest] ошибка отправки:', error.message);
-        for (const article of batch) {
+        } catch (error) {
+          console.error('[telegram-digest] ошибка отправки:', error.message);
           recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'failed', errorCode: error.message });
           enqueueTask({
             taskType: 'personal_telegram',
             payload: { userId: subscription.userId, articleId: article.id },
             idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
           });
+          skipped += 1;
         }
-        skipped += 1;
+        if (sentToday >= quota) break;
       }
       continue;
     }
@@ -932,7 +956,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
         const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
           siteUrl: SITE_URL,
           includeOriginal: subscription.includeOriginal !== false,
-        }));
+        }), { parse_mode: 'HTML', link_preview_options: { is_disabled: false } });
         if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
           delivered += 1;
           sentToday += 1;
@@ -1010,7 +1034,7 @@ async function processTelegramRetryQueue() {
       const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
         siteUrl: SITE_URL,
         includeOriginal: subscription.includeOriginal !== false,
-      }));
+      }), { parse_mode: 'HTML', link_preview_options: { is_disabled: false } });
       recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId });
       recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'sent', telegramMessageId });
       completeTask(task.id);
@@ -1623,9 +1647,9 @@ app.post('/account/subscription', async (req, res) => {
     frequency: req.body.frequency === 'instant' ? 'instant' : 'daily',
     categories: cats.filter((category) => managedCategories().includes(category)),
     scope: req.body.scope === 'all' ? 'all' : 'finland',
-    importance: req.body.importance === 'important' ? 'important' : 'all',
+    importance: ['all', 'important', 'urgent'].includes(req.body.importance) ? req.body.importance : 'all',
     sourceIds: requestedSources.filter((sourceId) => allowedSourceIds.has(sourceId)),
-    maxPostsPerDay: Math.min(30, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)),
+    maxPostsPerDay: Math.min(100, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)),
     includeOriginal: req.body.include_original === 'on',
     quietHoursEnabled: req.body.quiet_hours_enabled === 'on',
     quietStart,
@@ -1732,6 +1756,7 @@ app.get('/admin', (req, res) => {
     .map((article) => ({
       ...article,
       classification: getArticleClassification(article.id),
+      ranking: calculateArticleRanking(article, getArticleRankingSignals(article.id)),
       telegramPublication: getTelegramPublication(article.id),
       editorialDiscussions: getEditorialDiscussions(article.id),
     }));
@@ -1795,6 +1820,7 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     chatId: req.body.chat_id,
     categories: req.body.categories,
     importance: req.body.importance,
+    minimumScore: req.body.minimum_score,
     intervalMinutes: req.body.interval_minutes,
     maxPostsPerDay: req.body.max_posts_per_day,
     includeOriginal: req.body.include_original,
@@ -1808,6 +1834,7 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     enabled: settings.enabled,
     categories: settings.categories,
     importance: settings.importance,
+    minimumScore: settings.minimumScore,
     intervalMinutes: settings.intervalMinutes,
     maxPostsPerDay: settings.maxPostsPerDay,
   });

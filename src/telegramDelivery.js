@@ -116,8 +116,15 @@ function articleMatchesSubscription(article, subscription) {
   if (!article || article.publicationStatus !== 'published') return false;
   const contentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
   if (!contentTypes.includes('news')) return false;
-  if (subscription.importance === 'important' && !['important', 'urgent'].includes(article.editorialStatus || 'normal')) return false;
-  if ((Number(article.importanceLevel) || 1) < (Number(subscription.minimumImportance) || 1)) return false;
+  const importanceLevel = Number(article.importanceLevel) || 1;
+  const editorialStatus = article.editorialStatus || 'normal';
+  if (subscription.importance === 'urgent'
+    && editorialStatus !== 'urgent'
+    && importanceLevel < 5) return false;
+  if (subscription.importance === 'important'
+    && !['important', 'urgent'].includes(editorialStatus)
+    && importanceLevel < 4) return false;
+  if (importanceLevel < (Number(subscription.minimumImportance) || 1)) return false;
   if (subscription.scope === 'finland' && (article.category || '') === 'Мир') return false;
   if (subscription.categories.length && !subscription.categories.includes(article.category || '')) return false;
   if ((subscription.excludedCategories || []).includes(article.category || '')) return false;
@@ -213,48 +220,18 @@ function isDailyContentDue(subscription, now = new Date()) {
 function buildTelegramMessage(article, {
   siteUrl,
   includeOriginal = true,
-  excerptLength = 420,
 } = {}) {
-  const editorialLabel = article.editorialStatus === 'urgent'
-    ? '🔴 Срочно'
-    : article.editorialStatus === 'important'
-      ? '🟠 Важно'
-      : '';
-  const classification = article.classification || {};
-  const tags = (classification.tags || []).slice(0, 3)
-    .map((tag) => `#${String(tag.slug || tag.name || '').replace(/[^\p{L}\p{N}_]+/gu, '_')}`)
-    .filter((tag) => tag.length > 1);
-  const category = article.category ? `📌 ${article.category}` : '';
-  const title = article.titleRu || article.titleFi || '';
-  const excerpt = trimExcerpt(article.summaryRu || article.summaryFi || '', excerptLength);
-  const articleUrl = article.slug ? `${String(siteUrl || '').replace(/\/+$/, '')}/news/${encodeURIComponent(article.slug)}` : '';
-  const originalUrl = includeOriginal && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
-    ? article.originalUrl
-    : '';
-  return [
-    editorialLabel,
-    category,
-    title,
-    excerpt,
-    articleUrl ? `Читать далее: ${articleUrl}` : '',
-    originalUrl ? `Первоисточник: ${originalUrl}` : '',
-    tags.join(' '),
-  ].filter(Boolean).join('\n\n');
+  return renderTelegramChannelTemplate(article, {
+    includeOriginal,
+    template: DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
+  }, { siteUrl });
 }
 
 function buildTelegramDigestMessage(articles, subscription, { siteUrl } = {}) {
-  const header = '📰 Ежедневная подборка «Финских Новостей»';
-  const lines = articles.map((article, index) => {
-    const title = article.titleRu || article.titleFi || '';
-    const excerpt = trimExcerpt(article.summaryRu || article.summaryFi || '', 220);
-    const articleUrl = `${String(siteUrl || '').replace(/\/+$/, '')}/news/${encodeURIComponent(article.slug)}`;
-    const source = article.sourceName ? ` · ${article.sourceName}` : '';
-    const originalLink = subscription.includeOriginal !== false && article.originalUrl && !String(article.originalUrl).startsWith('manual:')
-      ? `\nПервоисточник: ${article.originalUrl}`
-      : '';
-    return `${index + 1}. ${title}${source}${excerpt ? `\n${excerpt}` : ''}\nЧитать далее: ${articleUrl}${originalLink}`;
-  });
-  return [header, ...lines].join('\n\n');
+  return articles.map((article) => buildTelegramMessage(article, {
+    siteUrl,
+    includeOriginal: subscription.includeOriginal !== false,
+  })).join('\n\n──────────\n\n').slice(0, 4096);
 }
 
 function normalizeContentTypes(values) {

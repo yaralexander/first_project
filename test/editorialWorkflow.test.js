@@ -127,6 +127,10 @@ test('stores duplicate decisions, audit entries and filtered statistics', () => 
   });
   const duplicate = db.getRecentDuplicateArticles(1)[0];
   assert.equal(db.getDuplicateArticleById(duplicate.id).summaryFi, 'Lyhyt kuvaus.');
+  assert.deepEqual(db.getArticleRankingSignals(matched.id), {
+    independentSourceCount: 2,
+    corroboratingMentions: 1,
+  });
   assert.equal(db.resolveDuplicateArticle({ id: duplicate.id, resolution: 'published', resolvedBy: 'editor' }), true);
 
   db.recordAdminAction({

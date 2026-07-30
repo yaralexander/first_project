@@ -280,6 +280,7 @@ function applyFoundationSchema(db) {
   ensureColumn(db, 'user_subscriptions', 'region_codes', "TEXT NOT NULL DEFAULT 'finland'");
   ensureColumn(db, 'user_subscriptions', 'audience_codes', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'user_subscriptions', 'minimum_importance', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'user_subscriptions', 'importance_filter', "TEXT NOT NULL DEFAULT 'all'");
   ensureColumn(db, 'user_subscriptions', 'delivery_times', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'user_subscriptions', 'delivery_weekdays', "TEXT NOT NULL DEFAULT '1,2,3,4,5,6,0'");
   ensureColumn(db, 'user_subscriptions', 'quiet_weekdays', "TEXT NOT NULL DEFAULT '1,2,3,4,5,6,0'");

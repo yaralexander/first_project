@@ -72,6 +72,21 @@ test('filters by importance, exclusions, regions, tags and audiences', () => {
     ...subscription,
     tagIds: ['99'],
   }), false);
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    importance: 'important',
+  }), true);
+  assert.equal(articleMatchesSubscription(classifiedArticle, {
+    ...subscription,
+    importance: 'urgent',
+  }), false);
+  assert.equal(articleMatchesSubscription({
+    ...classifiedArticle,
+    importanceLevel: 5,
+  }, {
+    ...subscription,
+    importance: 'urgent',
+  }), true);
 });
 
 test('quiet hours work both across midnight and within one day', () => {
@@ -128,19 +143,16 @@ test('daily editorial content is delivered after the selected time and survives 
 
 test('instant and digest messages contain title, excerpt and read-more link', () => {
   const instant = buildTelegramMessage(article, { siteUrl: 'https://finskienovosti.fi/' });
-  assert.match(instant, /Важная новость из Финляндии/);
+  assert.match(instant, /<b>🔥 Важная новость из Финляндии<\/b>/);
   assert.match(instant, /Краткое описание новости/);
-  assert.match(instant, /Читать далее: https:\/\/finskienovosti\.fi\/news\/test-news/);
-  assert.match(instant, /Первоисточник: https:\/\/yle\.fi\/example/);
-  assert.match(buildTelegramMessage({
-    ...article,
-    classification: { tags: [{ slug: 'finland-life' }] },
-  }, { siteUrl: 'https://finskienovosti.fi' }), /#finland_life/);
+  assert.match(instant, /📁 YLE \|\| Общество/);
+  assert.match(instant, /<a href="https:\/\/finskienovosti\.fi\/news\/test-news">Читать далее<\/a>/);
+  assert.match(instant, /<a href="https:\/\/yle\.fi\/example">Оригинал<\/a>/);
 
   const digest = buildTelegramDigestMessage([article], subscription, { siteUrl: 'https://finskienovosti.fi' });
-  assert.match(digest, /Ежедневная подборка/);
+  assert.match(digest, /<b>🔥 Важная новость из Финляндии<\/b>/);
   assert.match(digest, /Краткое описание новости/);
-  assert.match(digest, /Читать далее: https:\/\/finskienovosti\.fi\/news\/test-news/);
+  assert.match(digest, /<a href="https:\/\/finskienovosti\.fi\/news\/test-news">Читать далее<\/a>/);
 });
 
 test('normalizes future content types safely', () => {

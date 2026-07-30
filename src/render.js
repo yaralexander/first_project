@@ -371,7 +371,9 @@ function renderAdminArticleForm(article, categories, telegramConfigured, canDele
     Number.isFinite(classification.confidence) ? `Уверенность: ${Math.round(classification.confidence * 100)}%` : '',
   ].filter(Boolean).join(' · ');
   const classificationControl = `<section class="admin-classification"><div><h3>Автоматическая классификация</h3><p>${escapeHtml(classificationSummary || 'Статья ещё не классифицирована.')}</p></div><form action="/admin/articles/${article.id}/classify" method="post"><button type="submit">Переклассифицировать</button></form></section>`;
-  return `<article class="admin-comment"><h2>${article.publicationStatus === 'draft' ? 'Черновик: ' : ''}${article.publicationStatus === 'published' ? `<a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.titleRu || article.titleFi)}</a>` : escapeHtml(article.titleRu || article.titleFi)}</h2><form class="admin-form" action="/admin/articles/${article.id}" method="post"><label for="title-${article.id}">Заголовок</label><input id="title-${article.id}" name="title" maxlength="300" required value="${escapeHtml(article.titleRu || article.titleFi || '')}"><label for="text-${article.id}">Текст</label><textarea id="text-${article.id}" name="text" maxlength="20000" required>${escapeHtml(article.summaryRu || article.summaryFi || '')}</textarea><label for="category-${article.id}">Категория</label><select id="category-${article.id}" name="category" required>${categoryOptions}</select><label for="status-${article.id}">Редакционная метка</label><select id="status-${article.id}" name="editorial_status">${statusOptions}</select><label for="pinned-${article.id}">Закрепить до</label><input id="pinned-${article.id}" name="pinned_until" type="datetime-local" value="${escapeHtml(toDateTimeLocal(article.pinnedUntil))}">${scheduleField}<div class="admin-actions"><button type="submit">Сохранить</button>${deleteControl}</div></form>${classificationControl}<div class="admin-actions">${publication}</div>${discussionMarkup}</article>`;
+  const ranking = article.ranking || {};
+  const rankingControl = `<section class="admin-classification"><div><h3>Рейтинг новости: ${escapeHtml(String(ranking.score ?? 0))}/100</h3><p>${escapeHtml(ranking.explanation || 'Рейтинг ещё не рассчитан.')}</p></div><span class="editorial-label">${ranking.eligible ? 'Допущена к автоматическому отбору' : 'Не допущена к автоматическому отбору'}</span></section>`;
+  return `<article class="admin-comment"><h2>${article.publicationStatus === 'draft' ? 'Черновик: ' : ''}${article.publicationStatus === 'published' ? `<a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.titleRu || article.titleFi)}</a>` : escapeHtml(article.titleRu || article.titleFi)}</h2><form class="admin-form" action="/admin/articles/${article.id}" method="post"><label for="title-${article.id}">Заголовок</label><input id="title-${article.id}" name="title" maxlength="300" required value="${escapeHtml(article.titleRu || article.titleFi || '')}"><label for="text-${article.id}">Текст</label><textarea id="text-${article.id}" name="text" maxlength="20000" required>${escapeHtml(article.summaryRu || article.summaryFi || '')}</textarea><label for="category-${article.id}">Категория</label><select id="category-${article.id}" name="category" required>${categoryOptions}</select><label for="status-${article.id}">Редакционная метка</label><select id="status-${article.id}" name="editorial_status">${statusOptions}</select><label for="pinned-${article.id}">Закрепить до</label><input id="pinned-${article.id}" name="pinned_until" type="datetime-local" value="${escapeHtml(toDateTimeLocal(article.pinnedUntil))}">${scheduleField}<div class="admin-actions"><button type="submit">Сохранить</button>${deleteControl}</div></form>${classificationControl}${rankingControl}<div class="admin-actions">${publication}</div>${discussionMarkup}</article>`;
 }
 
 function statusMessage(kind, status) {
@@ -521,6 +523,7 @@ function renderAdminPage({
     chatId: '@finskienovosti',
     categories: [],
     importance: 'all',
+    minimumScore: 65,
     intervalMinutes: 0,
     maxPostsPerDay: 20,
     includeOriginal: false,
@@ -640,6 +643,14 @@ function renderAdminPage({
       <p class="eyebrow">Публичный канал</p>
       <h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2>
       <p class="summary">Это общая лента для всех читателей. Она не связана с персональными настройками пользователей в боте.</p>
+      <h3>Как выбираются новости</h3>
+      <ul class="summary">
+        <li>Важность события по шкале 1–5.</li>
+        <li>Подтверждение темы несколькими независимыми СМИ.</li>
+        <li>Прямая связь с Финляндией, свежесть и редакционные метки.</li>
+        <li>Статьи на ручной проверке качества не отправляются.</li>
+      </ul>
+      <p class="field-hint">Повтор одного источника не повышает рейтинг. Два разных СМИ — сильный сигнал, но не единственный критерий.</p>
       <p><a class="button-link" href="/rss.xml" target="_blank">Открыть общую RSS-ленту ↗</a></p>
       <p class="field-hint">Постоянный адрес: <code>${escapeHtml(`${siteUrl}/rss.xml`)}</code></p>
       <ol>
@@ -657,7 +668,13 @@ function renderAdminPage({
       <form class="admin-form" action="/admin/telegram-channel/settings" method="post">
         <label><input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}> Включить автоматическую отправку новых статей</label>
         <label for="channel-chat-id">Канал<input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
-        <label for="channel-importance">Какие статьи<select id="channel-importance" name="importance">${optionMarkup('all', 'Все новые статьи', telegramChannelSettings.importance)}${optionMarkup('important', 'Только важные и срочные', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Только срочные', telegramChannelSettings.importance)}</select></label>
+        <label for="channel-importance">Какие статьи отправлять<select id="channel-importance" name="importance">${optionMarkup('all', 'Все, прошедшие минимальный рейтинг', telegramChannelSettings.importance)}${optionMarkup('important', 'Только важные — уровень 4–5', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Только срочные — уровень 5', telegramChannelSettings.importance)}</select></label>
+        <label for="channel-minimum-score">Минимальный рейтинг интереса (0–100)<input id="channel-minimum-score" name="minimum_score" type="number" min="0" max="100" step="1" value="${telegramChannelSettings.minimumScore ?? 65}" required></label>
+        <div class="account-callout">
+          <strong>Как работает рейтинг</strong>
+          <span>Система учитывает важность 1–5, упоминание темы несколькими независимыми источниками, редакционную метку «Важно»/«Срочно», связь с Финляндией и свежесть публикации.</span>
+          <span><b>65 — рекомендуемый порог:</b> он отсекает обычные повторы, но пропускает действительно заметные новости. Выбранный режим «Важные» или «Срочные» применяется дополнительно к этому порогу.</span>
+        </div>
         <label for="channel-interval">Пауза между сообщениями (минуты)<input id="channel-interval" name="interval_minutes" type="number" min="0" max="1440" step="1" value="${telegramChannelSettings.intervalMinutes || 0}" required></label>
         <p class="field-hint">0 — отправлять сразу; 60 — не чаще одного сообщения в час; 1440 — не чаще одного в сутки. Статьи во время паузы остаются в очереди.</p>
         <label for="channel-limit">Максимум постов в день<input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
@@ -957,10 +974,15 @@ function renderAccountPage({
           <div class="account-form-grid">
             <label class="account-field"><span>Частота</span><select name="frequency"><option value="instant"${subscription.frequency === 'instant' ? ' selected' : ''}>Сразу после публикации</option><option value="daily"${subscription.frequency === 'daily' ? ' selected' : ''}>Ежедневная подборка</option></select></label>
             <label class="account-field"><span>Охват</span><select name="scope"><option value="finland"${subscription.scope === 'finland' ? ' selected' : ''}>Только Финляндия</option><option value="all"${subscription.scope === 'all' ? ' selected' : ''}>Финляндия и мир</option></select></label>
-            <label class="account-field"><span>Важность</span><select name="importance"><option value="all"${subscription.importance === 'all' ? ' selected' : ''}>Все выбранные статьи</option><option value="important"${subscription.importance === 'important' ? ' selected' : ''}>Только важные и срочные</option></select></label>
-            <label class="account-field"><span>Минимальная важность 1–5</span><input name="minimum_importance" type="number" min="1" max="5" value="${subscription.minimumImportance || 1}"></label>
-            <label class="account-field"><span>Максимум постов в день</span><input name="max_posts_per_day" type="number" min="1" max="30" value="${subscription.maxPostsPerDay}"></label>
+            <label class="account-field"><span>Какие статьи отправлять</span><select name="importance"><option value="all"${subscription.importance === 'all' ? ' selected' : ''}>Все выбранные новости</option><option value="important"${subscription.importance === 'important' ? ' selected' : ''}>Важные — уровень 4–5</option><option value="urgent"${subscription.importance === 'urgent' ? ' selected' : ''}>Срочные — уровень 5</option></select></label>
+            <label class="account-field"><span>Дополнительный порог важности</span><select name="minimum_importance"><option value="1"${Number(subscription.minimumImportance || 1) === 1 ? ' selected' : ''}>1 — без дополнительного ограничения</option><option value="2"${Number(subscription.minimumImportance) === 2 ? ' selected' : ''}>2 — заметные и выше</option><option value="3"${Number(subscription.minimumImportance) === 3 ? ' selected' : ''}>3 — значимые и выше</option><option value="4"${Number(subscription.minimumImportance) === 4 ? ' selected' : ''}>4 — важные и срочные</option><option value="5"${Number(subscription.minimumImportance) === 5 ? ' selected' : ''}>5 — только критически срочные</option></select></label>
+            <label class="account-field"><span>Максимум постов в день</span><input name="max_posts_per_day" type="number" min="1" max="100" value="${subscription.maxPostsPerDay}"></label>
             <label class="account-field"><span>Время ежедневной подборки</span><input name="delivery_time" type="time" value="${escapeHtml(subscription.deliveryTimes?.[0] || '08:00')}"></label>
+          </div>
+          <div class="account-callout">
+            <strong>Что означает важность 1–5</strong>
+            <span><b>1–2</b> — обычные и локальные новости; <b>3</b> — заметные события; <b>4</b> — важные решения и события с широкими последствиями; <b>5</b> — срочные события, безопасность и немедленные изменения.</span>
+            <span>Режим «Важные» пропускает уровни 4–5, «Срочные» — только уровень 5. Дополнительный порог позволяет сделать фильтр ещё строже.</span>
           </div>
           <fieldset class="account-fieldset"><legend>Темы</legend><div class="account-choices">${categoryOptions || '<span class="account-muted">Нет доступных категорий.</span>'}</div></fieldset>
           <details class="account-advanced"><summary>Расширенные фильтры</summary>

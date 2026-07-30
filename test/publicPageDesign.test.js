@@ -84,6 +84,9 @@ test('account page keeps subscription controls inside the shared design', () => 
   assert.match(html, /name="source_ids" value="yle" checked/);
   assert.match(html, /name="quiet_start" type="time" value="22:00"/);
   assert.match(html, /name="content_types" value="holidays" checked/);
+  assert.match(html, /Срочные — уровень 5/);
+  assert.match(html, /name="max_posts_per_day" type="number" min="1" max="100"/);
+  assert.match(html, /Что означает важность 1–5/);
   assert.match(html, /&lt;Reader&gt;/);
   assert.doesNotMatch(html, /<Reader>/);
 

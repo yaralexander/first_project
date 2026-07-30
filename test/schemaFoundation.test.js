@@ -68,6 +68,7 @@ test('foundation migration is idempotent and preserves existing data', () => {
       db.prepare('PRAGMA table_info(user_subscriptions)').all().map((column) => column.name),
     );
     assert.ok(subscriptionColumns.has('minimum_importance'));
+    assert.ok(subscriptionColumns.has('importance_filter'));
     assert.ok(subscriptionColumns.has('quiet_weekdays'));
     assert.ok(subscriptionColumns.has('audience_codes'));
 

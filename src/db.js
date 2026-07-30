@@ -275,6 +275,7 @@ function createDatabase() {
   if (!userSubscriptionColumns.has('quiet_end')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN quiet_end TEXT NOT NULL DEFAULT '07:00'");
   if (!userSubscriptionColumns.has('timezone')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki'");
   if (!userSubscriptionColumns.has('content_types')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN content_types TEXT NOT NULL DEFAULT 'news'");
+  if (!userSubscriptionColumns.has('importance_filter')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN importance_filter TEXT NOT NULL DEFAULT 'all'");
   if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
   const telegramUserLinkColumns = new Set(db.prepare('PRAGMA table_info(telegram_user_links)').all().map((column) => column.name));
@@ -659,6 +660,33 @@ function getRecentDuplicateArticles(limit = 20) {
     matchedTitle: row.matched_title_ru || row.matched_title_fi,
     matchedSourceName: row.matched_source_name,
   }));
+}
+
+function getArticleRankingSignals(articleId) {
+  const row = db.prepare(`
+    SELECT articles.source_id,
+      COUNT(DISTINCT CASE
+        WHEN duplicate.source_id <> articles.source_id
+          AND duplicate.resolution <> 'dismissed'
+        THEN duplicate.source_id
+      END) AS corroborating_sources,
+      COALESCE(SUM(CASE
+        WHEN duplicate.source_id <> articles.source_id
+          AND duplicate.resolution <> 'dismissed'
+        THEN duplicate.seen_count
+        ELSE 0
+      END), 0) AS corroborating_mentions
+    FROM articles
+    LEFT JOIN article_duplicate_log AS duplicate
+      ON duplicate.matched_article_id = articles.id
+    WHERE articles.id = ?
+    GROUP BY articles.id, articles.source_id
+  `).get(articleId);
+  if (!row) return { independentSourceCount: 1, corroboratingMentions: 0 };
+  return {
+    independentSourceCount: 1 + Number(row.corroborating_sources || 0),
+    corroboratingMentions: Number(row.corroborating_mentions || 0),
+  };
 }
 
 function getDuplicateArticleById(id) {
@@ -1497,6 +1525,11 @@ function deleteUserSession(tokenHash) { return db.prepare('DELETE FROM user_sess
 function csvValues(value, fallback = []) {
   return value ? String(value).split(',').map((item) => item.trim()).filter(Boolean) : fallback;
 }
+
+function normalizeSubscriptionImportance(value) {
+  return ['all', 'important', 'urgent'].includes(value) ? value : 'all';
+}
+
 function getUserSubscription(userId) {
   const defaults = {
     userId,
@@ -1534,7 +1567,7 @@ function getUserSubscription(userId) {
       frequency: row.frequency,
       categories: csvValues(row.categories),
       scope: row.scope,
-      importance: row.importance,
+      importance: normalizeSubscriptionImportance(row.importance_filter || row.importance),
       sourceIds: csvValues(row.source_ids),
       maxPostsPerDay: row.max_posts_per_day,
       includeOriginal: Boolean(row.include_original),
@@ -1562,6 +1595,7 @@ function getActiveUserSubscriptions() {
   return db.prepare(`
     SELECT subscriptions.user_id, subscriptions.enabled, subscriptions.frequency,
       subscriptions.categories, subscriptions.scope, subscriptions.importance,
+      subscriptions.importance_filter,
       subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
       subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
       subscriptions.timezone, subscriptions.content_types, subscriptions.excluded_categories,
@@ -1580,7 +1614,7 @@ function getActiveUserSubscriptions() {
     frequency: row.frequency,
     categories: csvValues(row.categories),
     scope: row.scope,
-    importance: row.importance,
+    importance: normalizeSubscriptionImportance(row.importance_filter || row.importance),
     sourceIds: csvValues(row.source_ids),
     maxPostsPerDay: row.max_posts_per_day,
     includeOriginal: Boolean(row.include_original),
@@ -1632,7 +1666,7 @@ function upsertUserSubscription({
     frequency,
     categories,
     scope,
-    importance,
+    importance: normalizeSubscriptionImportance(importance),
     sourceIds,
     maxPostsPerDay,
     includeOriginal: Boolean(includeOriginal),
@@ -1654,18 +1688,19 @@ function upsertUserSubscription({
   const save = db.transaction(() => {
     db.prepare(`
       INSERT INTO user_subscriptions (
-        user_id, enabled, frequency, categories, scope, importance, source_ids,
+        user_id, enabled, frequency, categories, scope, importance, importance_filter, source_ids,
         max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
         quiet_end, timezone, content_types, excluded_categories, tag_ids,
         region_codes, audience_codes, minimum_importance, delivery_times,
         delivery_weekdays, quiet_weekdays, allow_critical_during_quiet, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         enabled=excluded.enabled,
         frequency=excluded.frequency,
         categories=excluded.categories,
         scope=excluded.scope,
         importance=excluded.importance,
+        importance_filter=excluded.importance_filter,
         source_ids=excluded.source_ids,
         max_posts_per_day=excluded.max_posts_per_day,
         include_original=excluded.include_original,
@@ -1685,7 +1720,8 @@ function upsertUserSubscription({
         allow_critical_during_quiet=excluded.allow_critical_during_quiet,
         updated_at=CURRENT_TIMESTAMP
     `).run(
-      userId, settings.enabled ? 1 : 0, frequency, categories.join(','), scope, importance,
+      userId, settings.enabled ? 1 : 0, frequency, categories.join(','), scope,
+      settings.importance === 'urgent' ? 'important' : settings.importance, settings.importance,
       sourceIds.join(','), maxPostsPerDay, settings.includeOriginal ? 1 : 0,
       settings.quietHoursEnabled ? 1 : 0, quietStart, quietEnd, timezone,
       contentTypes.join(','), excludedCategories.join(','), tagIds.join(','),
@@ -2003,12 +2039,14 @@ function setSystemSettings(entries) {
 }
 
 function getTelegramChannelSettings() {
+  const parsedMinimumScore = Number.parseInt(getSystemSetting('telegram_channel_minimum_score', '65'), 10);
   return {
     enabled: getSystemSetting('telegram_channel_enabled', '0') === '1',
     enabledSince: getSystemSetting('telegram_channel_enabled_since', ''),
     chatId: getSystemSetting('telegram_channel_chat_id', '@finskienovosti'),
     categories: getSystemSetting('telegram_channel_categories', ''),
     importance: getSystemSetting('telegram_channel_importance', 'all'),
+    minimumScore: Math.min(Math.max(Number.isInteger(parsedMinimumScore) ? parsedMinimumScore : 65, 0), 100),
     intervalMinutes: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_interval_minutes', '0'), 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_max_posts_per_day', '20'), 10) || 20, 1), 100),
     includeOriginal: getSystemSetting('telegram_channel_include_original', '0') === '1',
@@ -2028,6 +2066,7 @@ function saveTelegramChannelSettings(settings) {
     telegram_channel_chat_id: settings.chatId,
     telegram_channel_categories: settings.categories,
     telegram_channel_importance: settings.importance,
+    telegram_channel_minimum_score: settings.minimumScore,
     telegram_channel_interval_minutes: settings.intervalMinutes,
     telegram_channel_max_posts_per_day: settings.maxPostsPerDay,
     telegram_channel_include_original: settings.includeOriginal ? '1' : '0',
@@ -2194,6 +2233,7 @@ module.exports = {
   getDailyAdminStatistics,
   getPendingComments,
   getRecentDuplicateArticles,
+  getArticleRankingSignals,
   getDuplicateArticleById,
   getSourceCounts,
   getSitemapArticles,
