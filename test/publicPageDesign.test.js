@@ -145,9 +145,10 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
     duplicateArticles: [],
     auditLog: [],
     currentAccount: { username: 'editor', role: 'editor' },
-    categories: [],
+    categories: ['Политика', 'Общество'],
     telegramConfigured: false,
     telegramStatus: '',
+    telegramChannelStatus: 'saved',
     importProviderConfigured: false,
     importStatus: '',
     siteUrl,
@@ -164,6 +165,11 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /data-template-preview/);
   assert.match(html, /Вернуть красивый шаблон/);
   assert.match(html, /&lt;b&gt;🔥 \{title\}&lt;\/b&gt;/);
+  assert.match(html, /class="account-notice" role="status">Настройки сохранены\.<\/p>/);
+  assert.match(html, /class="telegram-rule-list"/);
+  assert.match(html, /class="account-fieldset telegram-channel-categories"/);
+  assert.match(html, /class="account-choice"/);
+  assert.doesNotMatch(html, /Настройки общего Telegram-канала сохранены/);
   const templateStudioScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
     .find((match) => match[1].includes('data-template-editor'));
   assert.ok(templateStudioScript, 'template editor script should be rendered');

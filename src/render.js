@@ -576,7 +576,7 @@ function renderAdminPage({
   };
   const notices = [
     statusMessage('telegram', telegramStatus),
-    channelStatusLabels[telegramChannelStatus] || '',
+    telegramChannelStatus === 'saved' ? '' : channelStatusLabels[telegramChannelStatus] || '',
     statusMessage('import', importStatus),
     rssStatusLabels[rssStatus] || '',
     statusMessage('article', articleStatus),
@@ -585,6 +585,9 @@ function renderAdminPage({
     statusMessage('classification', classificationStatus),
     statusMessage('quality', qualityStatus),
   ].filter(Boolean).map((message) => `<p class="form-message" role="status">${escapeHtml(message)}</p>`).join('');
+  const telegramChannelNotice = telegramChannelStatus === 'saved'
+    ? '<p class="account-notice" role="status">Настройки сохранены.</p>'
+    : '';
   const dailyRows = statistics.daily.map((day) => `<tr><th scope="row">${escapeHtml(day.day)}</th><td>${day.articles}</td><td>${day.visitors}</td><td>${day.articleViews}</td><td>${day.comments}</td><td>${day.reactions}</td><td>${day.duplicates}</td></tr>`).join('');
   const maxVisitors = Math.max(1, ...statistics.daily.map((day) => day.visitors));
   const visitorChart = `<div class="visitor-chart" aria-label="Посетители по дням">${statistics.daily.slice(-14).map((day) => `<div class="visitor-bar-wrap" title="${escapeHtml(day.day)}: ${day.visitors} посетителей"><div class="visitor-bar" style="height:${Math.max(8, Math.round((day.visitors / maxVisitors) * 100))}%"></div><span>${escapeHtml(day.day.slice(5))}</span></div>`).join('')}</div>`;
@@ -638,48 +641,64 @@ function renderAdminPage({
   const telegramTemplateTokens = TELEGRAM_CHANNEL_TEMPLATE_VARIABLES
     .map((variable) => `<button class="telegram-template-token" type="button" data-template-token="{${variable}}" title="${escapeHtml(templateVariableLabels[variable])}">{${variable}}</button>`)
     .join('');
-  const telegramChannelMarkup = `<div class="admin-grid">
-    <section class="admin-panel">
-      <p class="eyebrow">Публичный канал</p>
-      <h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2>
+  const telegramChannelMarkup = `${telegramChannelNotice}<div class="admin-grid telegram-channel-grid">
+    <section class="admin-panel telegram-channel-card">
+      <div class="account-section-head">
+        <div><p class="eyebrow">Публичный канал</p><h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2></div>
+        <span aria-hidden="true">01</span>
+      </div>
       <p class="summary">Это общая лента для всех читателей. Она не связана с персональными настройками пользователей в боте.</p>
       <h3>Как выбираются новости</h3>
-      <ul class="summary">
-        <li>Важность события по шкале 1–5.</li>
-        <li>Подтверждение темы несколькими независимыми СМИ.</li>
-        <li>Прямая связь с Финляндией, свежесть и редакционные метки.</li>
-        <li>Статьи на ручной проверке качества не отправляются.</li>
-      </ul>
-      <p class="field-hint">Повтор одного источника не повышает рейтинг. Два разных СМИ — сильный сигнал, но не единственный критерий.</p>
+      <div class="telegram-rule-list">
+        <div><span>1–5</span><p><strong>Важность события</strong><small>Оценка влияния новости на читателей и жизнь в Финляндии.</small></p></div>
+        <div><span>2+</span><p><strong>Несколько источников</strong><small>Подтверждение темы независимыми СМИ повышает рейтинг.</small></p></div>
+        <div><span>🇫🇮</span><p><strong>Связь и свежесть</strong><small>Учитываются Финляндия, время публикации и редакционные метки.</small></p></div>
+        <div><span>✓</span><p><strong>Контроль качества</strong><small>Сомнительные материалы не отправляются до проверки редактором.</small></p></div>
+      </div>
+      <div class="account-callout"><strong>Важно</strong><span>Повтор одного источника не повышает рейтинг. Два разных СМИ — сильный сигнал, но не единственный критерий.</span></div>
       <p><a class="button-link" href="/rss.xml" target="_blank">Открыть общую RSS-ленту ↗</a></p>
       <p class="field-hint">Постоянный адрес: <code>${escapeHtml(`${siteUrl}/rss.xml`)}</code></p>
-      <ol>
+      <ol class="telegram-channel-steps">
         <li>Добавьте бота администратором канала с правом публикации.</li>
         <li>Сохраните настройки справа.</li>
         <li>Нажмите тест — сообщение должно появиться в канале.</li>
       </ol>
-      <form action="/admin/telegram-channel/test" method="post">
-        <button type="submit" ${telegramChannelConfigured ? '' : 'disabled'}>✈ Отправить тест в канал</button>
+      <form class="telegram-channel-test" action="/admin/telegram-channel/test" method="post">
+        <button class="account-button account-button--telegram" type="submit" ${telegramChannelConfigured ? '' : 'disabled'}>✈ Отправить тест в канал</button>
       </form>
       ${telegramChannelConfigured ? '' : '<p class="form-message">На сервере не задан TELEGRAM_BOT_TOKEN.</p>'}
     </section>
-    <section class="admin-panel">
-      <h2>Правила публикации</h2>
-      <form class="admin-form" action="/admin/telegram-channel/settings" method="post">
-        <label><input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}> Включить автоматическую отправку новых статей</label>
-        <label for="channel-chat-id">Канал<input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
-        <label for="channel-importance">Какие статьи отправлять<select id="channel-importance" name="importance">${optionMarkup('all', 'Все, прошедшие минимальный рейтинг', telegramChannelSettings.importance)}${optionMarkup('important', 'Только важные — уровень 4–5', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Только срочные — уровень 5', telegramChannelSettings.importance)}</select></label>
-        <label for="channel-minimum-score">Минимальный рейтинг интереса (0–100)<input id="channel-minimum-score" name="minimum_score" type="number" min="0" max="100" step="1" value="${telegramChannelSettings.minimumScore ?? 65}" required></label>
+    <section class="admin-panel telegram-channel-card telegram-channel-settings">
+      <div class="account-section-head">
+        <div><p class="eyebrow">Настройки</p><h2>Правила публикации</h2></div>
+        <span aria-hidden="true">02</span>
+      </div>
+      <form class="admin-form account-form" action="/admin/telegram-channel/settings" method="post">
+        <label class="account-toggle">
+          <input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}>
+          <span><strong>Включить автоматическую отправку</strong><small>Новые подходящие статьи будут попадать в общий Telegram-канал.</small></span>
+        </label>
+        <div class="account-form-grid">
+          <label class="account-field" for="channel-chat-id"><span>Канал</span><input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
+          <label class="account-field" for="channel-importance"><span>Какие статьи отправлять</span><select id="channel-importance" name="importance">${optionMarkup('all', 'Все, прошедшие рейтинг', telegramChannelSettings.importance)}${optionMarkup('important', 'Важные — уровень 4–5', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Срочные — уровень 5', telegramChannelSettings.importance)}</select></label>
+          <label class="account-field" for="channel-minimum-score"><span>Минимальный рейтинг 0–100</span><input id="channel-minimum-score" name="minimum_score" type="number" min="0" max="100" step="1" value="${telegramChannelSettings.minimumScore ?? 65}" required></label>
+          <label class="account-field" for="channel-interval"><span>Пауза между сообщениями</span><input id="channel-interval" name="interval_minutes" type="number" min="0" max="1440" step="1" value="${telegramChannelSettings.intervalMinutes || 0}" required><small class="field-hint">В минутах: 0 — сразу, 60 — не чаще раза в час.</small></label>
+          <label class="account-field" for="channel-limit"><span>Максимум постов в день</span><input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
+        </div>
         <div class="account-callout">
           <strong>Как работает рейтинг</strong>
           <span>Система учитывает важность 1–5, упоминание темы несколькими независимыми источниками, редакционную метку «Важно»/«Срочно», связь с Финляндией и свежесть публикации.</span>
           <span><b>65 — рекомендуемый порог:</b> он отсекает обычные повторы, но пропускает действительно заметные новости. Выбранный режим «Важные» или «Срочные» применяется дополнительно к этому порогу.</span>
         </div>
-        <label for="channel-interval">Пауза между сообщениями (минуты)<input id="channel-interval" name="interval_minutes" type="number" min="0" max="1440" step="1" value="${telegramChannelSettings.intervalMinutes || 0}" required></label>
-        <p class="field-hint">0 — отправлять сразу; 60 — не чаще одного сообщения в час; 1440 — не чаще одного в сутки. Статьи во время паузы остаются в очереди.</p>
-        <label for="channel-limit">Максимум постов в день<input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
-        <fieldset><legend>Категории</legend>${categories.map((category) => `<label><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}> ${escapeHtml(category)}</label>`).join('')}</fieldset>
-        <label><input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}> Добавлять ссылку на оригинальный источник</label>
+        <fieldset class="account-fieldset telegram-channel-categories">
+          <legend>Категории новостей</legend>
+          <p class="account-muted">Выберите темы, которые разрешено публиковать в общем канале.</p>
+          <div class="account-choices">${categories.map((category) => `<label class="account-choice"><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('')}</div>
+        </fieldset>
+        <label class="account-toggle account-toggle--compact">
+          <input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}>
+          <span><strong>Добавлять ссылку на оригинал</strong><small>В сообщение будет включена дополнительная ссылка на первоисточник.</small></span>
+        </label>
         <section class="telegram-template-studio" aria-labelledby="telegram-template-title">
           <div class="telegram-template-heading">
             <div>
