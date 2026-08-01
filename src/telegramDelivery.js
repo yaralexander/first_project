@@ -36,6 +36,12 @@ function validateTelegramChannelTemplate(value) {
   if (unknownVariables.length) {
     errors.push(`Неизвестные переменные: ${unknownVariables.map((name) => `{${name}}`).join(', ')}.`);
   }
+  if (!variables.includes('title')) {
+    errors.push('Шаблон должен содержать заголовок новости: {title}.');
+  }
+  if (!variables.includes('article_url')) {
+    errors.push('Шаблон должен содержать ссылку на статью: {article_url}.');
+  }
 
   const tags = template.match(/<[^>]*>/g) || [];
   for (const tag of tags) {

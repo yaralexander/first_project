@@ -219,6 +219,22 @@ test('general channel template validator accepts supported formatting and reject
   assert.match(unsafe.errors.join(' '), /Недопустимый HTML-тег/);
 });
 
+test('general channel replaces the old generic publication notice with the article itself', () => {
+  const oldTemplate = validateTelegramChannelTemplate('Новая публикация');
+  assert.equal(oldTemplate.valid, false);
+  assert.match(oldTemplate.errors.join(' '), /\{title\}/);
+  assert.match(oldTemplate.errors.join(' '), /\{article_url\}/);
+
+  const text = renderTelegramChannelTemplate(article, {
+    template: 'Новая публикация',
+  }, { siteUrl: 'https://finskienovosti.fi' });
+
+  assert.match(text, /^<b>🔥 Важная новость из Финляндии<\/b>/);
+  assert.match(text, /Краткое описание новости/);
+  assert.match(text, /<a href="https:\/\/finskienovosti\.fi\/news\/test-news">Читать далее<\/a>/);
+  assert.doesNotMatch(text, /Новая публикация/);
+});
+
 test('general channel delivery falls back to the safe default when stored template is invalid', () => {
   const text = renderTelegramChannelTemplate(article, {
     template: '<script>alert(1)</script>{title}',

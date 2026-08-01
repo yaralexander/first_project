@@ -95,7 +95,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   const nav = defaultCategories.map((category) => `<a href="/category/${encodeURIComponent(categoryToStaticSlug(category))}">${categoryIcons[category]} ${escapeHtml(category)}</a>`).join('');
   const interestButtons = defaultCategories.map((category) => `<button type="button" class="interest-chip" data-interest="${escapeHtml(category)}" aria-pressed="false">${categoryIcons[category]} ${escapeHtml(category)}</button>`).join('');
   const interestControl = showInterestModal ? '<button class="icon-btn" type="button" data-interests-open aria-label="Настроить интересы">✦</button>' : '';
-  const interestModal = showInterestModal ? `<div class="interest-modal" data-interest-modal hidden><div class="interest-dialog" role="dialog" aria-modal="true" aria-labelledby="interest-title"><p class="interest-flags">🇫🇮🤝🇷🇺</p><h2 id="interest-title">Что вам интереснее всего?</h2><p>Выберите 2–3 темы — соберём для вас персональную ленту. Можно изменить в любой момент.</p><div class="interest-options">${interestButtons}</div><p class="interest-status" data-interest-status aria-live="polite"></p><div class="interest-actions"><button type="button" class="interest-skip" data-interest-skip>Пропустить</button><button type="button" class="interest-save" data-interest-save>Готово</button></div></div></div>` : '';
+  const interestModal = showInterestModal ? `<div class="interest-modal" data-interest-modal hidden><div class="interest-dialog" role="dialog" aria-modal="true" aria-labelledby="interest-title"><h2 id="interest-title">Что вам интереснее всего?</h2><p>Выберите 2–3 темы — соберём для вас персональную ленту. Можно изменить в любой момент.</p><div class="interest-options">${interestButtons}</div><p class="interest-status" data-interest-status aria-live="polite"></p><div class="interest-actions"><button type="button" class="interest-skip" data-interest-skip>Пропустить</button><button type="button" class="interest-save" data-interest-save>Готово</button></div></div></div>` : '';
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -929,13 +929,21 @@ function renderTelegramInfoPage({ siteUrl }) {
   });
 }
 
-function renderContactPage({ siteUrl, status = '' }) {
-  const message = status === 'sent' ? '<p class="form-message" role="status">Сообщение отправлено в редакцию.</p>' : '';
+function renderContactPage({ siteUrl, status = '', formToken = '' }) {
+  const messages = {
+    sent: '<p class="form-message form-message--success" role="status">Сообщение отправлено в редакцию.</p>',
+    invalid: '<p class="form-message form-message--error" role="alert">Проверьте заполнение всех полей.</p>',
+    'too-many-links': '<p class="form-message form-message--error" role="alert">В сообщении слишком много ссылок.</p>',
+    'rate-limited': '<p class="form-message form-message--error" role="alert">Слишком много обращений. Попробуйте снова немного позже.</p>',
+  };
+  const message = messages[status] || '';
   const content = `<article class="contact-page">
     <section class="page-top"><p class="eyebrow">Обратная связь</p><h1 class="page-heading">Связаться с редакцией</h1><p class="page-intro">Расскажите о новости, предложите сотрудничество или сообщите, что можно улучшить.</p></section>
     <div class="contact-layout">
       <form class="contact-form contact-form--page" action="/contact" method="post">
         ${message}
+        <input type="hidden" name="form_token" value="${escapeHtml(formToken)}">
+        <label class="honeypot" aria-hidden="true">Ваш сайт<input name="website" tabindex="-1" autocomplete="off"></label>
         <label>Ваше имя<input name="name" maxlength="80" autocomplete="name" placeholder="Иван Иванов" required></label>
         <label>E-mail для ответа<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="ivan@example.com" required></label>
         <label>Сообщение<textarea name="body" maxlength="3000" placeholder="Ваше сообщение…" required></textarea></label>

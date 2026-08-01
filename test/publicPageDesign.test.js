@@ -111,11 +111,13 @@ test('account page keeps subscription controls inside the shared design', () => 
 });
 
 test('contact and login states retain accessible feedback', () => {
-  const contact = renderContactPage({ siteUrl, status: 'sent' });
+  const contact = renderContactPage({ siteUrl, status: 'sent', formToken: 'signed-token' });
   const login = renderAccountLoginPage({ siteUrl, error: 'failed' });
 
   assert.match(contact, /role="status"/);
   assert.match(contact, /action="\/contact"/);
+  assert.match(contact, /name="form_token" value="signed-token"/);
+  assert.match(contact, /name="website"/);
   assert.match(login, /role="alert"/);
   assert.match(login, /href="\/account\/login\/start"/);
 });

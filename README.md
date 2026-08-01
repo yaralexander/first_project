@@ -162,6 +162,13 @@ origin, явно перечислите разрешённые адреса в `
 длины и in-memory rate limit по IP (`COMMENT_RATE_LIMIT_WINDOW_SECONDS` и
 `COMMENT_RATE_LIMIT_MAX`).
 
+Форма связи защищена подписанным временем загрузки, скрытым honeypot-полем,
+ограничением частоты по анонимному HMAC-идентификатору, лимитом ссылок и
+подавлением одинаковых сообщений. Пороговые значения настраиваются через
+`CONTACT_RATE_LIMIT_*`, `CONTACT_MIN_FILL_SECONDS`, `CONTACT_FORM_TTL_SECONDS`,
+`CONTACT_DUPLICATE_WINDOW_HOURS` и `CONTACT_MAX_LINKS`. Исходные IP-адреса для
+этой защиты не записываются в SQLite.
+
 `/admin` рекомендует вход через Google OpenID Connect. Существующая пара
 `ADMIN_USER` и `ADMIN_PASSWORD` продолжает работать только как аварийная
 учётная запись администратора через HTTP Basic Auth.

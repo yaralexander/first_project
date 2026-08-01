@@ -1980,6 +1980,18 @@ function createContactMessage({ name, email, body }) {
   return db.prepare('INSERT INTO contact_messages (name, email, body) VALUES (?, ?, ?)').run(name, email, body).lastInsertRowid;
 }
 
+function hasRecentContactMessage({ email, body, windowHours = 24 }) {
+  const safeWindowHours = Math.min(Math.max(Number.parseInt(windowHours, 10) || 24, 1), 720);
+  return Boolean(db.prepare(`
+    SELECT 1
+    FROM contact_messages
+    WHERE lower(email) = lower(?)
+      AND body = ?
+      AND created_at >= datetime('now', ?)
+    LIMIT 1
+  `).get(email, body, `-${safeWindowHours} hours`));
+}
+
 function createAdminNotification({ notificationKey, level = 'info', title, body }) {
   return db.prepare(`
     INSERT INTO admin_notifications (
@@ -2284,6 +2296,7 @@ module.exports = {
   updateComment,
   updateCommentStatus,
   createContactMessage,
+  hasRecentContactMessage,
   createAdminNotification,
   getAdminNotifications,
   markAdminNotificationRead,

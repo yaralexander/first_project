@@ -10,6 +10,13 @@ const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
+  countLinks,
+  createContactFormToken,
+  createSlidingWindowRateLimiter,
+  normalizeContactText,
+  verifyContactFormToken,
+} = require('./contactSpam');
+const {
   configureRussianTelegramBot,
   configureTelegramWebhook,
   getRussianTelegramReply,
@@ -67,6 +74,7 @@ const {
   getAdminAuditLog,
   getAdminComments,
   getContactMessages,
+  hasRecentContactMessage,
   getAdminNotifications,
   getUnreadContactMessageCount,
   getManagedTaxonomy,
@@ -234,6 +242,30 @@ const COMMENT_RATE_LIMIT_MAX = Number.isInteger(configuredCommentLimit) && confi
 const COMMENT_RATE_LIMIT_WINDOW_MS = COMMENT_RATE_LIMIT_WINDOW_SECONDS * 1000;
 const COMMENT_NAME_MAX_LENGTH = 80;
 const COMMENT_BODY_MAX_LENGTH = 1500;
+const configuredContactWindow = Number.parseInt(process.env.CONTACT_RATE_LIMIT_WINDOW_SECONDS || '3600', 10);
+const CONTACT_RATE_LIMIT_WINDOW_MS = (Number.isInteger(configuredContactWindow) && configuredContactWindow > 0
+  ? configuredContactWindow
+  : 3600) * 1000;
+const configuredContactLimit = Number.parseInt(process.env.CONTACT_RATE_LIMIT_MAX || '3', 10);
+const CONTACT_RATE_LIMIT_MAX = Number.isInteger(configuredContactLimit) && configuredContactLimit > 0
+  ? configuredContactLimit
+  : 3;
+const configuredContactMinFill = Number.parseInt(process.env.CONTACT_MIN_FILL_SECONDS || '2', 10);
+const CONTACT_MIN_FILL_MS = (Number.isInteger(configuredContactMinFill) && configuredContactMinFill >= 0
+  ? configuredContactMinFill
+  : 2) * 1000;
+const configuredContactTtl = Number.parseInt(process.env.CONTACT_FORM_TTL_SECONDS || '7200', 10);
+const CONTACT_FORM_TTL_MS = (Number.isInteger(configuredContactTtl) && configuredContactTtl > 0
+  ? configuredContactTtl
+  : 7200) * 1000;
+const configuredContactDuplicateHours = Number.parseInt(process.env.CONTACT_DUPLICATE_WINDOW_HOURS || '24', 10);
+const CONTACT_DUPLICATE_WINDOW_HOURS = Number.isInteger(configuredContactDuplicateHours) && configuredContactDuplicateHours > 0
+  ? configuredContactDuplicateHours
+  : 24;
+const configuredContactMaxLinks = Number.parseInt(process.env.CONTACT_MAX_LINKS || '3', 10);
+const CONTACT_MAX_LINKS = Number.isInteger(configuredContactMaxLinks) && configuredContactMaxLinks >= 0
+  ? configuredContactMaxLinks
+  : 3;
 const REACTION_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const REACTION_RATE_LIMIT_MAX = 10;
 const REACTION_TYPES = new Set(['like', 'important', 'sad']);
@@ -440,6 +472,10 @@ let isRefreshing = false;
 let lastManualRefreshAt = 0;
 const commentRequestsByIp = new Map();
 const reactionRequestsByIp = new Map();
+const contactRateLimiter = createSlidingWindowRateLimiter({
+  windowMs: CONTACT_RATE_LIMIT_WINDOW_MS,
+  max: CONTACT_RATE_LIMIT_MAX,
+});
 const telegramSendingArticleIds = new Set();
 
 function hasValidRefreshToken(authorization) {
@@ -1074,6 +1110,22 @@ function consumeCommentRateLimit(ip) {
   return true;
 }
 
+function contactVisitorKey(req) {
+  return crypto
+    .createHmac('sha256', ANALYTICS_SECRET)
+    .update(`${req.ip || ''}\n${req.get('user-agent') || ''}`)
+    .digest('hex');
+}
+
+function renderContactResponse(res, statusCode, status) {
+  res.set('Cache-Control', 'no-store');
+  return res.status(statusCode).type('html').send(renderContactPage({
+    siteUrl: SITE_URL,
+    status,
+    formToken: createContactFormToken(ANALYTICS_SECRET),
+  }));
+}
+
 function consumeReactionRateLimit(ip) {
   const now = Date.now();
   const previous = (reactionRequestsByIp.get(ip) || [])
@@ -1210,7 +1262,12 @@ app.get('/about', (req, res) => {
 });
 
 app.get('/contact', (req, res) => {
-  res.type('html').send(renderContactPage({ siteUrl: SITE_URL, status: typeof req.query.contact === 'string' ? req.query.contact : '' }));
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(renderContactPage({
+    siteUrl: SITE_URL,
+    status: typeof req.query.contact === 'string' ? req.query.contact : '',
+    formToken: createContactFormToken(ANALYTICS_SECRET),
+  }));
 });
 
 app.get('/telegram', (req, res) => {
@@ -1517,10 +1574,26 @@ app.get('/admin/login', (req, res) => {
 });
 
 app.post('/contact', (req, res) => {
-  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-  const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
-  const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
-  if (!name || name.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !body || body.length > 3000) return res.status(400).redirect('/?contact=invalid#contact');
+  const name = normalizeContactText(req.body.name);
+  const email = normalizeContactText(req.body.email).toLowerCase();
+  const body = normalizeContactText(req.body.body);
+  const website = normalizeContactText(req.body.website);
+  const formToken = typeof req.body.form_token === 'string' ? req.body.form_token : '';
+
+  const looksAutomated = website || !verifyContactFormToken(formToken, ANALYTICS_SECRET, {
+    minAgeMs: CONTACT_MIN_FILL_MS,
+    maxAgeMs: CONTACT_FORM_TTL_MS,
+  });
+  if (looksAutomated) return res.redirect(303, '/contact?contact=sent');
+
+  if (!name || name.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !body || body.length > 3000) {
+    return renderContactResponse(res, 400, 'invalid');
+  }
+  if (countLinks(body) > CONTACT_MAX_LINKS) return renderContactResponse(res, 400, 'too-many-links');
+  if (!contactRateLimiter.consume(contactVisitorKey(req))) return renderContactResponse(res, 429, 'rate-limited');
+  if (hasRecentContactMessage({ email, body, windowHours: CONTACT_DUPLICATE_WINDOW_HOURS })) {
+    return res.redirect(303, '/contact?contact=sent');
+  }
   createContactMessage({ name, email, body });
   return res.redirect(303, '/contact?contact=sent');
 });
