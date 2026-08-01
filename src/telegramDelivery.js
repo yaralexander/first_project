@@ -197,6 +197,19 @@ function canDeliverArticleNow(article, subscription, now = new Date()) {
     && ((Number(article?.importanceLevel) || 1) >= 5 || article?.editorialStatus === 'urgent');
 }
 
+function isArticleSuppressedByQuietHours(article, subscription) {
+  if (!subscription?.quietHoursEnabled || !article?.publishedAt) return false;
+
+  const publishedAt = new Date(article.publishedAt);
+  if (Number.isNaN(publishedAt.getTime()) || !isQuietTime(subscription, publishedAt)) {
+    return false;
+  }
+
+  const isCritical = (Number(article.importanceLevel) || 1) >= 5
+    || article.editorialStatus === 'urgent';
+  return !(subscription.allowCriticalDuringQuiet && isCritical);
+}
+
 function isDeliveryScheduleDue(subscription, now = new Date()) {
   if (subscription.frequency !== 'daily') return true;
   const deliveryTimes = Array.isArray(subscription.deliveryTimes) && subscription.deliveryTimes.length
@@ -250,6 +263,7 @@ module.exports = {
   escapeTelegramHtml,
   isDailyContentDue,
   isDeliveryScheduleDue,
+  isArticleSuppressedByQuietHours,
   isQuietTime,
   isTelegramChannelIntervalDue,
   localWeekday,

@@ -21,6 +21,8 @@ const {
   canDeliverArticleNow,
   isDailyContentDue,
   isDeliveryScheduleDue,
+  isArticleSuppressedByQuietHours,
+  isQuietTime,
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
   renderTelegramChannelTemplate,
@@ -779,6 +781,9 @@ function normalizeTelegramChannelSettings(input = {}) {
   const categories = Array.isArray(input.categories)
     ? input.categories
     : String(input.categories || '').split(',');
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const quietStart = timePattern.test(String(input.quietStart || '')) ? String(input.quietStart) : '22:00';
+  const quietEnd = timePattern.test(String(input.quietEnd || '')) ? String(input.quietEnd) : '07:00';
   return {
     enabled: input.enabled === true || input.enabled === '1' || input.enabled === 'on',
     enabledSince: String(input.enabledSince || '').trim(),
@@ -791,6 +796,10 @@ function normalizeTelegramChannelSettings(input = {}) {
     ),
     intervalMinutes: Math.min(Math.max(Number.parseInt(input.intervalMinutes, 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
+    quietHoursEnabled: input.quietHoursEnabled === true || input.quietHoursEnabled === '1' || input.quietHoursEnabled === 'on',
+    quietStart,
+    quietEnd,
+    timezone: 'Europe/Helsinki',
     includeOriginal: input.includeOriginal === true || input.includeOriginal === '1' || input.includeOriginal === 'on',
     template: String(!input.template || input.template === legacyTemplate
       ? DEFAULT_TELEGRAM_CHANNEL_TEMPLATE
@@ -818,6 +827,9 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
   if (!TELEGRAM_BOT_CONFIGURED) return { sent: false, reason: 'not_configured' };
   const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
   if (!ignoreEnabled && !settings.enabled) return { sent: false, reason: 'disabled' };
+  if (!ignoreEnabled && (isQuietTime(settings) || isArticleSuppressedByQuietHours(article, settings))) {
+    return { sent: false, reason: 'quiet_hours' };
+  }
   const ranking = calculateArticleRanking(article, getArticleRankingSignals(article.id));
   if (!articleMatchesTelegramChannel(article, settings, ranking)) {
     return { sent: false, reason: 'filtered', ranking };
@@ -910,6 +922,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
     const eligible = articles.filter((article) => (
       articleMatchesSubscription(article, subscription)
       && canDeliverArticleNow(article, subscription)
+      && !isArticleSuppressedByQuietHours(article, subscription)
       && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })
     ));
     if (sinceIso) {
@@ -1823,6 +1836,9 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     minimumScore: req.body.minimum_score,
     intervalMinutes: req.body.interval_minutes,
     maxPostsPerDay: req.body.max_posts_per_day,
+    quietHoursEnabled: req.body.quiet_hours_enabled,
+    quietStart: req.body.quiet_start,
+    quietEnd: req.body.quiet_end,
     includeOriginal: req.body.include_original,
     template: req.body.template,
   });
@@ -1837,6 +1853,9 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     minimumScore: settings.minimumScore,
     intervalMinutes: settings.intervalMinutes,
     maxPostsPerDay: settings.maxPostsPerDay,
+    quietHoursEnabled: settings.quietHoursEnabled,
+    quietStart: settings.quietStart,
+    quietEnd: settings.quietEnd,
   });
   return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=saved');
 });

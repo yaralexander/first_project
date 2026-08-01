@@ -7,6 +7,7 @@ const {
   canDeliverArticleNow,
   isDailyContentDue,
   isDeliveryScheduleDue,
+  isArticleSuppressedByQuietHours,
   isQuietTime,
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
@@ -129,6 +130,33 @@ test('delivery schedule respects selected days, digest time and critical quiet-h
     { ...quiet, allowCriticalDuringQuiet: true },
     mondayMorning,
   ), true);
+});
+
+test('news published during quiet hours is skipped instead of delivered as a morning backlog', () => {
+  const quiet = {
+    quietHoursEnabled: true,
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    timezone: 'Europe/Helsinki',
+  };
+  const nighttimeArticle = {
+    ...article,
+    publishedAt: '2026-01-10T21:30:00.000Z',
+  };
+
+  assert.equal(isArticleSuppressedByQuietHours(nighttimeArticle, quiet), true);
+  assert.equal(isArticleSuppressedByQuietHours({
+    ...nighttimeArticle,
+    importanceLevel: 5,
+    editorialStatus: 'urgent',
+  }, {
+    ...quiet,
+    allowCriticalDuringQuiet: true,
+  }), false);
+  assert.equal(isArticleSuppressedByQuietHours({
+    ...article,
+    publishedAt: '2026-01-10T10:00:00.000Z',
+  }, quiet), false);
 });
 
 test('daily editorial content is delivered after the selected time and survives a late restart', () => {

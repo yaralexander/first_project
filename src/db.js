@@ -1309,6 +1309,7 @@ function getAdminStatistics(filters = {}) {
       (SELECT COUNT(*) FROM comments WHERE status = 'pending') AS pendingComments,
       (SELECT COUNT(*) FROM comments WHERE date(created_at) = date('now')) AS commentsToday,
       (SELECT COUNT(*) FROM analytics_views WHERE article_id = 0 AND viewed_on = date('now')) AS siteViewsToday,
+      (SELECT COUNT(DISTINCT visitor_hash) FROM analytics_views WHERE article_id = 0 AND viewed_on >= date('now', '-29 days')) AS siteVisitorsMonth,
       (SELECT COUNT(*) FROM article_reactions) AS reactionCount,
       (SELECT COUNT(*) FROM article_duplicate_log WHERE date(last_seen_at) = date('now')) AS duplicatesToday
   `).get();
@@ -2049,6 +2050,9 @@ function getTelegramChannelSettings() {
     minimumScore: Math.min(Math.max(Number.isInteger(parsedMinimumScore) ? parsedMinimumScore : 65, 0), 100),
     intervalMinutes: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_interval_minutes', '0'), 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_max_posts_per_day', '20'), 10) || 20, 1), 100),
+    quietHoursEnabled: getSystemSetting('telegram_channel_quiet_hours_enabled', '0') === '1',
+    quietStart: getSystemSetting('telegram_channel_quiet_start', '22:00'),
+    quietEnd: getSystemSetting('telegram_channel_quiet_end', '07:00'),
     includeOriginal: getSystemSetting('telegram_channel_include_original', '0') === '1',
     template: getSystemSetting('telegram_channel_template', '<b>🔥 {title}</b>\\n\\n{excerpt}\\n\\n📁 {source} || {category}\\n\\n👉 <a href="{article_url}">Читать далее</a>'),
   };
@@ -2069,6 +2073,9 @@ function saveTelegramChannelSettings(settings) {
     telegram_channel_minimum_score: settings.minimumScore,
     telegram_channel_interval_minutes: settings.intervalMinutes,
     telegram_channel_max_posts_per_day: settings.maxPostsPerDay,
+    telegram_channel_quiet_hours_enabled: settings.quietHoursEnabled ? '1' : '0',
+    telegram_channel_quiet_start: settings.quietStart,
+    telegram_channel_quiet_end: settings.quietEnd,
     telegram_channel_include_original: settings.includeOriginal ? '1' : '0',
     telegram_channel_template: settings.template,
   });

@@ -160,6 +160,10 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
   assert.match(html, /href="\/rss\.xml"/);
   assert.match(html, /name="interval_minutes"/);
+  assert.match(html, /name="quiet_hours_enabled"/);
+  assert.match(html, /name="quiet_start" type="time" value="22:00"/);
+  assert.match(html, /name="quiet_end" type="time" value="07:00"/);
+  assert.match(html, /Время применяется по часовому поясу Финляндии/);
   assert.match(html, /\{source\}/);
   assert.match(html, /data-template-editor/);
   assert.match(html, /data-template-preview/);
