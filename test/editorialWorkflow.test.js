@@ -178,3 +178,13 @@ test('consumes OAuth state once and stores only a hashed session token', () => {
   assert.equal(db.deleteAdminSession('session-token-hash'), true);
   assert.equal(db.getAdminSession('session-token-hash'), null);
 });
+
+test('admin can disable a configured RSS source without removing its archive', () => {
+  const source = db.getAdminSources().find((item) => item.sourceId === 'helsinki');
+  assert.ok(source);
+  assert.equal(source.enabled, true);
+  assert.equal(db.setNewsSourceEnabled('helsinki', false), true);
+  assert.equal(db.isNewsSourceEnabled('helsinki'), false);
+  assert.equal(db.getAdminSources().find((item) => item.sourceId === 'helsinki').enabled, false);
+  assert.equal(db.setNewsSourceEnabled('unknown-source', false), false);
+});

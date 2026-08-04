@@ -76,6 +76,7 @@ const {
   getContactMessages,
   hasRecentContactMessage,
   getAdminNotifications,
+  createAdminNotification,
   getUnreadContactMessageCount,
   getManagedTaxonomy,
   getVisibleManagedCategories,
@@ -87,6 +88,7 @@ const {
   deleteManagedTaxonomyItem,
   mergeManagedCategories,
   getAdminSources,
+  setNewsSourceEnabled,
   getAdminStatistics,
   getArticleBySlug,
   getArticleById,
@@ -119,6 +121,7 @@ const {
   createUserOAuthState,
   consumeUserOAuthState,
   createUserSession,
+  getUserStatistics,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -163,6 +166,8 @@ const {
   updateContactMessageStatus,
   markAdminNotificationRead,
   saveTelegramChannelSettings,
+  getAdminTelegramNotificationSettings,
+  saveAdminTelegramNotificationSettings,
   updateArticleEditorial,
   createEditorialDiscussion,
   getEditorialDiscussions,
@@ -558,7 +563,7 @@ async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') 
       user,
       subscription: sub,
       categories: managedCategories(),
-      sources: getAdminSources(),
+      sources: getAdminSources().filter((source) => source.enabled),
       taxonomy: getManagedTaxonomy(),
       telegramLink: link,
       botProfile,
@@ -797,6 +802,26 @@ async function sendTelegramMessageToChat(chatId, text, options = {}) {
   const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
   if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
   return result.message_id;
+}
+
+async function sendAdminTelegramNotification(event, title, lines = []) {
+  const settings = getAdminTelegramNotificationSettings();
+  const eventEnabled = event === 'user_registered' ? settings.userRegistered
+    : event === 'telegram_linked' ? settings.telegramLinked
+      : settings.subscriptionChanged;
+  if (!settings.enabled || !eventEnabled || !settings.chatId || !TELEGRAM_BOT_CONFIGURED) return false;
+  await sendTelegramMessageToChat(settings.chatId, [`🔔 ${title}`, ...lines].filter(Boolean).join('\n'));
+  return true;
+}
+
+function queueAdminTelegramNotification(event, title, lines) {
+  createAdminNotification({
+    notificationKey: `${event}:${Date.now()}:${crypto.randomBytes(4).toString('hex')}`,
+    level: 'info', title, body: lines.filter(Boolean).join(' · ') || title,
+  });
+  sendAdminTelegramNotification(event, title, lines).catch((error) => {
+    console.error('[admin-telegram-notification] ошибка:', error.message);
+  });
 }
 
 async function sendTelegramMessage(article) {
@@ -1074,7 +1099,16 @@ async function processTelegramRetryQueue() {
   for (const task of tasks) {
     const subscription = subscriptions.get(task.payload.userId);
     const article = getArticleById(task.payload.articleId);
-    if (!subscription || !article || hasTelegramUserDelivery({ userId: task.payload.userId, articleId: task.payload.articleId })) {
+    const alreadyDelivered = hasTelegramUserDelivery({
+      userId: task.payload.userId,
+      articleId: task.payload.articleId,
+    });
+    const suppressedBySettings = subscription && article && (
+      !articleMatchesSubscription(article, subscription)
+      || !canDeliverArticleNow(article, subscription)
+      || isArticleSuppressedByQuietHours(article, subscription)
+    );
+    if (!subscription || !article || alreadyDelivered || suppressedBySettings) {
       completeTask(task.id);
       completed += 1;
       continue;
@@ -1704,7 +1738,7 @@ app.get('/account/auth/google/callback', async (req, res) => {
   const state = typeof req.query.state === 'string' ? req.query.state : ''; const code = typeof req.query.code === 'string' ? req.query.code : '';
   const saved = state && safelyMatches(state, getCookie(req, USER_OAUTH_STATE_COOKIE)) ? consumeUserOAuthState(sha256(state)) : null;
   if (!saved || !code || Date.parse(saved.expiresAt) <= Date.now()) return res.redirect(303, '/account/login?error=state');
-  try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
+  try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); const created = createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); if (created.isNew) queueAdminTelegramNotification('user_registered', 'Новый пользователь зарегистрирован', [identity.displayName || '', identity.email]); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
 });
 app.get('/account', async (req, res) => simpleAccountPage(req, res));
 app.post('/account/subscription', async (req, res) => {
@@ -1719,7 +1753,7 @@ app.post('/account/subscription', async (req, res) => {
   const requestedDeliveryWeekdays = Array.isArray(req.body.delivery_weekdays) ? req.body.delivery_weekdays : (req.body.delivery_weekdays ? [req.body.delivery_weekdays] : []);
   const requestedQuietWeekdays = Array.isArray(req.body.quiet_weekdays) ? req.body.quiet_weekdays : (req.body.quiet_weekdays ? [req.body.quiet_weekdays] : []);
   const taxonomy = getManagedTaxonomy();
-  const allowedSourceIds = new Set(getAdminSources().map((source) => source.sourceId));
+  const allowedSourceIds = new Set(getAdminSources().filter((source) => source.enabled).map((source) => source.sourceId));
   const allowedTagIds = new Set(taxonomy.tags.filter((tag) => tag.isVisible).map((tag) => String(tag.id)));
   const allowedRegionCodes = new Set(taxonomy.regions.filter((region) => region.isVisible).map((region) => region.code));
   const allowedAudienceCodes = new Set(taxonomy.audiences.filter((audience) => audience.isVisible).map((audience) => audience.code));
@@ -1752,6 +1786,7 @@ app.post('/account/subscription', async (req, res) => {
     quietWeekdays: requestedQuietWeekdays.filter((day) => allowedWeekdays.has(day)),
     allowCriticalDuringQuiet: req.body.allow_critical_during_quiet === 'on',
   });
+  queueAdminTelegramNotification('subscription_changed', req.body.enabled === 'on' ? 'Пользователь включил или изменил подписку' : 'Пользователь отключил подписку', [user.email, cats.length ? `Темы: ${cats.join(', ')}` : 'Темы: все']);
   if (req.body.enabled === 'on') {
     runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message));
   }
@@ -1812,6 +1847,7 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   if (linkedUserId) {
     const subscription = getUserSubscription(linkedUserId);
     upsertUserSubscription({ ...subscription, enabled: true });
+    queueAdminTelegramNotification('telegram_linked', 'Пользователь подключил Telegram-бота', [`Пользователь: ${linkedUserId}`]);
     runInstantTelegramCatchup().catch((error) => console.error('[telegram-link-catchup] ошибка:', error.message));
   }
   if (chatId && TELEGRAM_BOT_TOKEN) {
@@ -1819,6 +1855,7 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
       await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
         accountUrl: SITE_URL,
         linkSucceeded,
+        chatId: String(chatId),
       }));
     } catch (error) {
       console.error('[telegram webhook] не удалось отправить ответ:', error.message);
@@ -1852,7 +1889,10 @@ app.get('/admin', (req, res) => {
     articles,
     query: typeof req.query.q === 'string' ? req.query.q : '',
     statistics: { ...getAdminStatistics(statisticsFilters), operational: getOperationalMetrics() },
+    userStatistics: getUserStatistics(),
     statisticsSources: getAdminSources(),
+    newsSources: getAdminSources(),
+    newsSourceStatus: typeof req.query.newsSource === 'string' ? req.query.newsSource : '',
     duplicateArticles: getRecentDuplicateArticles(20),
     auditLog: getAdminAuditLog(100),
     currentAccount: req.adminAccount,
@@ -1880,6 +1920,8 @@ app.get('/admin', (req, res) => {
     unreadContactMessages: getUnreadContactMessageCount(),
     adminNotifications: getAdminNotifications(50),
     unreadAdminNotifications: countUnreadAdminNotifications(),
+    adminTelegramNotificationSettings: getAdminTelegramNotificationSettings(),
+    adminTelegramNotificationStatus: typeof req.query.adminTelegram === 'string' ? req.query.adminTelegram : '',
     untranslatedArticleCount: countUntranslatedArticles(),
   }));
 });
@@ -1893,6 +1935,14 @@ app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
     console.error('[admin-rss-refresh] ошибка обновления:', error.message);
   });
   return res.redirect(303, '/admin?tab=articles&rss=started');
+});
+
+app.post('/admin/news-sources/:id/toggle', requireAdminOrigin, (req, res) => {
+  const sourceId = typeof req.params.id === 'string' ? req.params.id : '';
+  const enabled = req.body.enabled === '1';
+  if (!setNewsSourceEnabled(sourceId, enabled)) return res.status(404).type('text').send('Источник не найден.');
+  auditAdminAction(req, 'news_source.toggle', 'news_source', sourceId, { enabled });
+  return res.redirect(303, `/admin?tab=sources&newsSource=${enabled ? 'enabled' : 'disabled'}`);
 });
 
 app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
@@ -1949,6 +1999,33 @@ app.post('/admin/telegram-channel/test', requireAdminOrigin, async (req, res) =>
   } catch (error) {
     console.error('[telegram-channel-test] ошибка:', error.message);
     return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-error');
+  }
+});
+
+app.post('/admin/telegram-notifications/settings', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const chatId = typeof req.body.chat_id === 'string' ? req.body.chat_id.trim() : '';
+  if (chatId && !/^-?\d{5,20}$/.test(chatId)) {
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=invalid');
+  }
+  saveAdminTelegramNotificationSettings({
+    enabled: req.body.enabled === 'on', chatId,
+    userRegistered: req.body.user_registered === 'on',
+    telegramLinked: req.body.telegram_linked === 'on',
+    subscriptionChanged: req.body.subscription_changed === 'on',
+  });
+  auditAdminAction(req, 'telegram_notifications.settings', 'telegram_notifications', chatId);
+  return res.redirect(303, '/admin?tab=notifications&adminTelegram=saved');
+});
+
+app.post('/admin/telegram-notifications/test', requireAdminOrigin, requireAdministrator, async (req, res) => {
+  try {
+    const settings = getAdminTelegramNotificationSettings();
+    if (!TELEGRAM_BOT_CONFIGURED || !settings.chatId) throw new Error('not configured');
+    await sendTelegramMessageToChat(settings.chatId, '✅ Уведомления админ-панели «Финских Новостей» подключены.');
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=test-sent');
+  } catch (error) {
+    console.error('[admin-telegram-test] ошибка:', error.message);
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=test-error');
   }
 });
 

@@ -1,6 +1,7 @@
 const RUSSIAN_BOT_COMMANDS = Object.freeze([
   { command: 'start', description: 'Подключить персональную рассылку' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
+  { command: 'chatid', description: 'Показать ID этого Telegram-чата' },
   { command: 'help', description: 'Показать инструкцию' },
 ]);
 
@@ -51,7 +52,7 @@ async function configureTelegramWebhook(callMethod, { siteUrl, secret = '' } = {
   return { configured: true, url };
 }
 
-function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false } = {}) {
+function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chatId = '' } = {}) {
   const normalizedText = String(text || '').trim();
   const accountLink = String(accountUrl || '').replace(/\/$/, '') + '/account';
   const startMatch = /^\/start(?:@[A-Za-z0-9_]{5,32})?(?:\s+([A-Za-z0-9_-]{8,64}))?$/i.exec(normalizedText);
@@ -84,10 +85,15 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false } = {
     return `Настройки тем и частоты рассылки находятся в личном кабинете:\n\n${accountLink}`;
   }
 
+  if (/^\/chatid(?:@[A-Za-z0-9_]{5,32})?$/i.test(normalizedText)) {
+    return `ID этого Telegram-чата: ${chatId || 'не определён'}`;
+  }
+
   return [
     'Я понимаю команды:',
     '/start — подключить персональную рассылку',
     '/settings — открыть настройки',
+    '/chatid — показать ID этого чата',
     '/help — показать инструкцию',
   ].join('\n');
 }

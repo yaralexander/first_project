@@ -6,6 +6,7 @@ const { classifyArticle } = require('./articleClassifier');
 const { assessArticleQuality } = require('./articleQuality');
 const { applyFoundationSchema } = require('./schemaFoundation');
 const { createTaxonomyRepository } = require('./taxonomyRepository');
+const { SOURCES } = require('./config');
 
 const databasePath = process.env.DATABASE_PATH
   || path.join(__dirname, '..', 'data', 'finskienovosti.db');
@@ -194,6 +195,19 @@ function createDatabase() {
       last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS news_source_settings (
+      source_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS users (
+      google_sub TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      display_name TEXT,
+      registered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE TABLE IF NOT EXISTS telegram_user_links (
       user_id TEXT PRIMARY KEY, telegram_chat_id TEXT UNIQUE, link_code_hash TEXT UNIQUE,
       code_expires_at TEXT, linked_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -265,6 +279,12 @@ function createDatabase() {
   const userSessionColumns = new Set(db.prepare('PRAGMA table_info(user_sessions)').all().map((column) => column.name));
   if (!userSessionColumns.has('last_seen_at')) db.exec('ALTER TABLE user_sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
   if (!userSessionColumns.has('display_name')) db.exec('ALTER TABLE user_sessions ADD COLUMN display_name TEXT');
+  db.exec(`
+    INSERT OR IGNORE INTO users (google_sub, email, display_name, registered_at, last_login_at)
+    SELECT google_sub, MAX(email), MAX(display_name), MIN(created_at), MAX(last_seen_at)
+    FROM user_sessions
+    GROUP BY google_sub
+  `);
 
   const userSubscriptionColumns = new Set(db.prepare('PRAGMA table_info(user_subscriptions)').all().map((column) => column.name));
   if (!userSubscriptionColumns.has('source_ids')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN source_ids TEXT NOT NULL DEFAULT ''");
@@ -998,16 +1018,42 @@ function getSourceCounts() {
 }
 
 function getAdminSources() {
-  return db.prepare(`
+  const counts = new Map(db.prepare(`
     SELECT source_id, MAX(source_name) AS source_name, COUNT(*) AS count
     FROM articles
     GROUP BY source_id
     ORDER BY source_name COLLATE NOCASE, source_id
-  `).all().map((row) => ({
-    sourceId: row.source_id,
-    sourceName: row.source_name,
-    count: row.count,
+  `).all().map((row) => [row.source_id, row]));
+  const settings = new Map(db.prepare('SELECT source_id, enabled FROM news_source_settings').all().map((row) => [row.source_id, Boolean(row.enabled)]));
+  const configured = SOURCES.map((source) => ({
+    sourceId: source.id,
+    sourceName: source.name,
+    homepage: source.homepage,
+    count: counts.get(source.id)?.count || 0,
+    enabled: settings.get(source.id) !== false,
+    configured: true,
   }));
+  const configuredIds = new Set(SOURCES.map((source) => source.id));
+  const historical = [...counts.values()].filter((row) => !configuredIds.has(row.source_id)).map((row) => ({
+    sourceId: row.source_id, sourceName: row.source_name, count: row.count,
+    enabled: settings.get(row.source_id) !== false, configured: false,
+  }));
+  return [...configured, ...historical].sort((a, b) => a.sourceName.localeCompare(b.sourceName, 'ru'));
+}
+
+function isNewsSourceEnabled(sourceId) {
+  const row = db.prepare('SELECT enabled FROM news_source_settings WHERE source_id = ?').get(sourceId);
+  return !row || Boolean(row.enabled);
+}
+
+function setNewsSourceEnabled(sourceId, enabled) {
+  if (!SOURCES.some((source) => source.id === sourceId)) return false;
+  db.prepare(`
+    INSERT INTO news_source_settings (source_id, enabled, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(source_id) DO UPDATE SET enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP
+  `).run(sourceId, enabled ? 1 : 0);
+  return true;
 }
 
 function createManualArticle({ title, body, category, slug, originalUrl, publishedAt, editorialStatus, pinnedUntil, scheduledPublishAt, publicationStatus = 'published' }) {
@@ -1510,7 +1556,77 @@ function consumeUserOAuthState(stateHash) {
   return row ? { stateHash: row.state_hash, nonce: row.nonce, codeVerifier: row.code_verifier, expiresAt: row.expires_at } : null;
 }
 function createUserSession({ tokenHash, googleSub, email, displayName, expiresAt }) {
+  const isNew = db.prepare('SELECT 1 FROM users WHERE google_sub = ?').get(googleSub) === undefined;
+  db.prepare(`
+    INSERT INTO users (google_sub, email, display_name)
+    VALUES (?, ?, ?)
+    ON CONFLICT(google_sub) DO UPDATE SET
+      email = excluded.email,
+      display_name = excluded.display_name,
+      last_login_at = CURRENT_TIMESTAMP
+  `).run(googleSub, email, displayName || null);
   db.prepare('INSERT INTO user_sessions (token_hash, google_sub, email, display_name, expires_at) VALUES (?, ?, ?, ?, ?)').run(tokenHash, googleSub, email, displayName || null, expiresAt);
+  return { isNew };
+}
+
+function getUserStatistics() {
+  const totals = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM users) AS registered,
+      (SELECT COUNT(*) FROM users WHERE datetime(registered_at) >= datetime('now', '-7 days')) AS registered7Days,
+      (SELECT COUNT(*) FROM users WHERE datetime(registered_at) >= datetime('now', '-30 days')) AS registered30Days,
+      (SELECT COUNT(*) FROM telegram_user_links WHERE telegram_chat_id IS NOT NULL) AS telegramLinked,
+      (SELECT COUNT(*) FROM user_subscriptions WHERE enabled = 1) AS subscriptionsEnabled,
+      (SELECT COUNT(*) FROM user_subscriptions WHERE enabled = 1 AND frequency = 'instant') AS instant,
+      (SELECT COUNT(*) FROM user_subscriptions WHERE enabled = 1 AND frequency = 'daily') AS daily,
+      (SELECT COUNT(*) FROM telegram_user_deliveries) + (SELECT COUNT(*) FROM telegram_content_deliveries) AS delivered
+  `).get();
+  const users = db.prepare(`
+    SELECT u.google_sub, u.email, u.display_name, u.registered_at, u.last_login_at,
+      l.telegram_chat_id, l.linked_at, s.enabled, s.frequency, s.categories,
+      s.source_ids, s.tag_ids, s.region_codes, s.audience_codes, s.content_types,
+      s.updated_at,
+      (SELECT COUNT(*) FROM telegram_user_deliveries d WHERE d.user_id = u.google_sub) +
+      (SELECT COUNT(*) FROM telegram_content_deliveries d WHERE d.user_id = u.google_sub) AS deliveries
+    FROM users u
+    LEFT JOIN telegram_user_links l ON l.user_id = u.google_sub
+    LEFT JOIN user_subscriptions s ON s.user_id = u.google_sub
+    ORDER BY datetime(u.registered_at) DESC
+    LIMIT 500
+  `).all().map((row) => ({
+    userId: row.google_sub, email: row.email, displayName: row.display_name,
+    registeredAt: row.registered_at, lastLoginAt: row.last_login_at,
+    telegramLinked: Boolean(row.telegram_chat_id), linkedAt: row.linked_at,
+    enabled: Boolean(row.enabled), frequency: row.frequency || '',
+    categories: splitCsv(row.categories), sourceIds: splitCsv(row.source_ids),
+    tagIds: splitCsv(row.tag_ids), regionCodes: splitCsv(row.region_codes),
+    audienceCodes: splitCsv(row.audience_codes), contentTypes: splitCsv(row.content_types),
+    updatedAt: row.updated_at, deliveries: row.deliveries || 0,
+  }));
+  const topicRows = db.prepare("SELECT categories FROM user_subscriptions WHERE enabled = 1 AND categories <> ''").all();
+  const topicCounts = new Map();
+  for (const row of topicRows) for (const topic of splitCsv(row.categories)) topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
+  return { totals, users, topics: [...topicCounts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')) };
+}
+
+function getAdminTelegramNotificationSettings() {
+  return {
+    enabled: getSystemSetting('admin_telegram_notifications_enabled', '0') === '1',
+    chatId: getSystemSetting('admin_telegram_notifications_chat_id', ''),
+    userRegistered: getSystemSetting('admin_telegram_notify_user_registered', '1') === '1',
+    telegramLinked: getSystemSetting('admin_telegram_notify_telegram_linked', '1') === '1',
+    subscriptionChanged: getSystemSetting('admin_telegram_notify_subscription_changed', '1') === '1',
+  };
+}
+
+function saveAdminTelegramNotificationSettings(settings) {
+  setSystemSettings({
+    admin_telegram_notifications_enabled: settings.enabled ? '1' : '0',
+    admin_telegram_notifications_chat_id: settings.chatId,
+    admin_telegram_notify_user_registered: settings.userRegistered ? '1' : '0',
+    admin_telegram_notify_telegram_linked: settings.telegramLinked ? '1' : '0',
+    admin_telegram_notify_subscription_changed: settings.subscriptionChanged ? '1' : '0',
+  });
 }
 function getUserSession(tokenHash) {
   const row = db.prepare("SELECT * FROM user_sessions WHERE token_hash = ? AND datetime(expires_at) > datetime('now')").get(tokenHash);
@@ -2248,6 +2364,8 @@ module.exports = {
   getAnalyticsSecret,
   getAdminStatistics,
   getAdminSources,
+  isNewsSourceEnabled,
+  setNewsSourceEnabled,
   getAdminComments,
   getDailyAdminStatistics,
   getPendingComments,
@@ -2266,6 +2384,7 @@ module.exports = {
   createUserOAuthState,
   consumeUserOAuthState,
   createUserSession,
+  getUserStatistics,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -2305,6 +2424,8 @@ module.exports = {
   setSystemSettings,
   getTelegramChannelSettings,
   saveTelegramChannelSettings,
+  getAdminTelegramNotificationSettings,
+  saveAdminTelegramNotificationSettings,
   getTelegramChannelPublication,
   getLastTelegramChannelPublication,
   recordTelegramChannelPublication,

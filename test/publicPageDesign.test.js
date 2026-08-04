@@ -19,7 +19,8 @@ function assertSharedSiteShell(html) {
   assert.match(html, /class="site-footer"/);
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
-  assert.match(html, /data-theme-toggle/);
+  assert.match(html, /class="utility-theme-status"/);
+  assert.match(html, /prefers-color-scheme/);
   assert.match(html, /class="telegram-promo"/);
   assert.match(html, /href="\/telegram"/);
 }

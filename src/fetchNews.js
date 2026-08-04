@@ -11,6 +11,7 @@ const {
   getNews,
   insertArticle,
   recordDuplicateArticle,
+  isNewsSourceEnabled,
 } = require('./db');
 const { slugify } = require('./slugify');
 
@@ -51,6 +52,9 @@ async function fetchSource(source) {
   try {
     const feed = await parser.parseURL(source.url);
     for (const entry of feed.items || []) {
+      if (source.creator && String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') !== source.creator) {
+        continue;
+      }
       const titleFi = (entry.title || '').trim();
       const summaryFi = stripHtml(entry.contentSnippet || entry.content || entry.summary || '');
       const originalUrl = entry.link || entry.guid;
@@ -133,7 +137,7 @@ async function fetchSource(source) {
 
 async function fetchAllNews() {
   console.log('[fetchAllNews] старт обновления —', new Date().toISOString());
-  const results = await Promise.all(SOURCES.map(fetchSource));
+  const results = await Promise.all(SOURCES.filter((source) => isNewsSourceEnabled(source.id)).map(fetchSource));
   const inserted = results.reduce((sum, result) => sum + result.inserted, 0);
   const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
   const insertedArticles = results.flatMap((result) => result.insertedArticles || []);
