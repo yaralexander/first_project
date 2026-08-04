@@ -1598,14 +1598,14 @@ function getUserStatistics() {
     registeredAt: row.registered_at, lastLoginAt: row.last_login_at,
     telegramLinked: Boolean(row.telegram_chat_id), linkedAt: row.linked_at,
     enabled: Boolean(row.enabled), frequency: row.frequency || '',
-    categories: splitCsv(row.categories), sourceIds: splitCsv(row.source_ids),
-    tagIds: splitCsv(row.tag_ids), regionCodes: splitCsv(row.region_codes),
-    audienceCodes: splitCsv(row.audience_codes), contentTypes: splitCsv(row.content_types),
+    categories: csvValues(row.categories), sourceIds: csvValues(row.source_ids),
+    tagIds: csvValues(row.tag_ids), regionCodes: csvValues(row.region_codes),
+    audienceCodes: csvValues(row.audience_codes), contentTypes: csvValues(row.content_types),
     updatedAt: row.updated_at, deliveries: row.deliveries || 0,
   }));
   const topicRows = db.prepare("SELECT categories FROM user_subscriptions WHERE enabled = 1 AND categories <> ''").all();
   const topicCounts = new Map();
-  for (const row of topicRows) for (const topic of splitCsv(row.categories)) topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
+  for (const row of topicRows) for (const topic of csvValues(row.categories)) topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
   return { totals, users, topics: [...topicCounts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')) };
 }
 

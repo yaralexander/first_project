@@ -188,3 +188,25 @@ test('admin can disable a configured RSS source without removing its archive', (
   assert.equal(db.getAdminSources().find((item) => item.sourceId === 'helsinki').enabled, false);
   assert.equal(db.setNewsSourceEnabled('unknown-source', false), false);
 });
+
+test('user statistics render persisted users and subscription topics', () => {
+  const created = db.createUserSession({
+    tokenHash: 'user-session-token',
+    googleSub: 'reader-google-sub',
+    email: 'reader@example.com',
+    displayName: 'Reader',
+    expiresAt: '2030-01-15T11:00:00.000Z',
+  });
+  assert.equal(created.isNew, true);
+  db.upsertUserSubscription({
+    ...db.getUserSubscription('reader-google-sub'),
+    enabled: true,
+    categories: ['Экономика', 'Работа'],
+    sourceIds: ['yle'],
+  });
+  const statistics = db.getUserStatistics();
+  assert.equal(statistics.totals.registered, 1);
+  assert.equal(statistics.users[0].email, 'reader@example.com');
+  assert.deepEqual(statistics.users[0].categories, ['Экономика', 'Работа']);
+  assert.equal(statistics.topics.find((topic) => topic.name === 'Экономика').count, 1);
+});
