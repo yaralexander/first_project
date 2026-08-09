@@ -34,6 +34,19 @@ test('article page exposes stable canonical URL and NewsArticle metadata', () =>
   assert.doesNotMatch(html, />Finskiye Novosti</);
 });
 
+test('article page renders a translated summary as readable paragraphs', () => {
+  const html = renderArticlePage({
+    article: {
+      ...article,
+      summaryRu: 'Первый абзац сообщает главное событие.\n\nВторой абзац добавляет подтверждённые подробности.',
+    },
+    siteUrl,
+    categoryToSlug,
+  });
+
+  assert.match(html, /<div class="article-lead"><p>Первый абзац сообщает главное событие\.<\/p><p>Второй абзац добавляет подтверждённые подробности\.<\/p><\/div>/);
+});
+
 test('listing page has CollectionPage and searchable website metadata', () => {
   const html = renderListPage({
     title: 'Финские Новости — Finskie Novosti',

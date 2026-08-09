@@ -3,7 +3,7 @@ const { formatGlossaryForPrompt } = require('./glossary');
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
 const API_KEY = process.env.OPENAI_API_KEY || '';
-const PROMPT_VERSION = 3;
+const PROMPT_VERSION = 4;
 
 class OpenAiProviderError extends Error {
   constructor(message, { status = 0, code = 'request_failed', billing = false } = {}) {
@@ -18,7 +18,10 @@ class OpenAiProviderError extends Error {
 const SYSTEM_PROMPT = `Ты — редактор русскоязычного новостного дайджеста о Финляндии.
 По заголовку и RSS-анонсу на финском языке подготовь самостоятельный краткий
 пересказ по-русски. Не переводи дословно, не добавляй фактов и не угадывай роли
-людей. Заголовок — до 12 слов, пересказ — 1–3 предложения. Пиши нейтрально.
+людей. Заголовок — до 12 слов. Пересказ — 3–5 предложений в двух коротких
+абзацах, разделённых пустой строкой: сначала событие, затем подтверждённые
+детали и последствия. Если RSS-анонс слишком короткий, не повторяй факты и не
+растягивай текст искусственно. Пиши нейтрально.
 
 Устоявшиеся написания:
 ${formatGlossaryForPrompt()}`;

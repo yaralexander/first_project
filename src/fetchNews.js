@@ -14,6 +14,7 @@ const {
   isNewsSourceEnabled,
 } = require('./db');
 const { slugify } = require('./slugify');
+const { compareArticles } = require('./articleSimilarity');
 
 const parser = new Parser({
   timeout: 15000,
@@ -33,6 +34,39 @@ function createLimiter(concurrency) {
 }
 
 const limitAiCalls = createLimiter(parseInt(process.env.AI_CONCURRENCY || '3', 10));
+let pendingArticles = [];
+
+function publicationDay(value) {
+  const date = new Date(value || '');
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function rememberPendingArticle({ sourceId, sourceName, titleFi, summaryFi, publishedAt }) {
+  pendingArticles.push({
+    id: null, sourceId, sourceName, titleFi, summaryFi,
+    day: publicationDay(publishedAt),
+  });
+}
+
+function resetPendingArticles() {
+  pendingArticles = [];
+}
+
+function findPendingSimilarArticle({ sourceId, titleFi, summaryFi, publishedAt }) {
+  const day = publicationDay(publishedAt);
+  let best = null;
+  for (const candidate of pendingArticles) {
+    if (candidate.sourceId === sourceId || candidate.day !== day) continue;
+    const comparison = compareArticles(
+      { title: titleFi, summary: summaryFi },
+      { title: candidate.titleFi, summary: candidate.summaryFi },
+    );
+    if (comparison.isDuplicate && (!best || comparison.score > best.similarity)) {
+      best = { ...candidate, similarity: comparison.score };
+    }
+  }
+  return best;
+}
 
 function stripHtml(html = '') {
   return html
@@ -73,7 +107,7 @@ async function fetchSource(source) {
         titleFi,
         summaryFi: summaryFi.slice(0, 800),
         publishedAt,
-      });
+      }) || findPendingSimilarArticle({ sourceId: source.id, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
       if (similarArticle) {
         recordDuplicateArticle({
           originalUrl,
@@ -84,13 +118,15 @@ async function fetchSource(source) {
           externalGuid: entry.guid || null,
           category,
           publishedAt,
-          matchedArticleId: similarArticle.id,
+          matchedArticleId: similarArticle.id || null,
           similarity: similarArticle.similarity,
         });
         skipped += 1;
         console.log(`[fetchSource] похожая тема пропущена: ${source.name} → ${similarArticle.sourceName} (${Math.round(similarArticle.similarity * 100)}%)`);
         continue;
       }
+
+      rememberPendingArticle({ sourceId: source.id, sourceName: source.name, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
 
       const result = await limitAiCalls(() => getRussianVersion({
         titleFi,
@@ -137,6 +173,7 @@ async function fetchSource(source) {
 
 async function fetchAllNews() {
   console.log('[fetchAllNews] старт обновления —', new Date().toISOString());
+  resetPendingArticles();
   const results = await Promise.all(SOURCES.filter((source) => isNewsSourceEnabled(source.id)).map(fetchSource));
   const inserted = results.reduce((sum, result) => sum + result.inserted, 0);
   const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
@@ -158,4 +195,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { fetchAllNews, getCachedNews };
+module.exports = { fetchAllNews, findPendingSimilarArticle, getCachedNews, rememberPendingArticle, resetPendingArticles };

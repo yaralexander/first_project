@@ -1,5 +1,6 @@
 const { categories: defaultCategories } = require('./categories');
 const { siteStyles, brandMark, themeScript } = require('./siteDesign');
+const { contextualSummary, contextualTitle, peopleForArticle } = require('./peopleContext');
 const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
@@ -30,6 +31,11 @@ function safeExternalUrl(value) {
 function truncateText(value, maxLength = 160) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+}
+
+function renderTextParagraphs(value, className = '') {
+  const paragraphs = String(value || '').split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
+  return paragraphs.map((paragraph) => `<p${className ? ` class="${escapeHtml(className)}"` : ''}>${escapeHtml(paragraph)}</p>`).join('');
 }
 
 function formatDate(value) {
@@ -189,15 +195,15 @@ function renderCardTools(article) {
 }
 
 function renderArticleCard(article, categoryToSlug) {
-  return `<article class="card" data-category="${escapeHtml(article.category || 'Новости')}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h3><p class="summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>${sourceLine(article)}${reactionTotalsMarkup(article)}${renderCardTools(article)}</article>`;
+  return `<article class="card" data-category="${escapeHtml(article.category || 'Новости')}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h3><p class="summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>${sourceLine(article)}${reactionTotalsMarkup(article)}${renderCardTools(article)}</article>`;
 }
 
 function renderMiniCard(article, categoryToSlug, teal = false) {
-  return `<article class="mini-card${teal ? ' mini-card--teal' : ''}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h3></article>`;
+  return `<article class="mini-card${teal ? ' mini-card--teal' : ''}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h3></article>`;
 }
 
 function renderHeroCard(article, categoryToSlug) {
-  return `<article class="lead-card">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h2><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h2><p>${escapeHtml(article.summaryRu || article.summaryFi || '')}</p><div class="lead-meta"><span>${escapeHtml(article.sourceName || 'Финские Новости')} · ${escapeHtml(shortDate(article.publishedAt))}</span><a href="${articleUrl(article)}#comment-form">Комментировать</a></div></article>`;
+  return `<article class="lead-card">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h2><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h2><p>${escapeHtml(article.summaryRu || article.summaryFi || '')}</p><div class="lead-meta"><span>${escapeHtml(article.sourceName || 'Финские Новости')} · ${escapeHtml(shortDate(article.publishedAt))}</span><a href="${articleUrl(article)}#comment-form">Комментировать</a></div></article>`;
 }
 
 function renderCategoryNavigation(articles, categoryToSlug) {
@@ -291,8 +297,9 @@ function renderComments({ article, comments, commentMessage }) {
 }
 
 function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], commentMessage = '', reactionMessage = '', relatedArticles = [], adjacent = {} }) {
-  const title = article.seoTitle || article.titleRu || article.titleFi;
-  const description = article.seoDescription || article.summaryRu || article.summaryFi || title;
+  const title = contextualTitle(article);
+  const articleSummary = contextualSummary(article);
+  const description = article.seoDescription || articleSummary || title;
   const classification = article.classification || {};
   const classificationItems = [
     classification.region ? `<a href="/region/${encodeURIComponent(classification.region.code)}">📍 ${escapeHtml(classification.region.name)}</a>` : '',
@@ -304,6 +311,10 @@ function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], co
   const classificationMarkup = classificationItems.length
     ? `<div class="article-classification" aria-label="Темы и география">${classificationItems.join('')}</div>`
     : '';
+  const people = peopleForArticle(article);
+  const peopleMarkup = people.length
+    ? `<section class="side-card"><p class="sidebar-kicker">Кто упоминается</p>${people.map((person) => `<h2>${escapeHtml(person.nameRu)}</h2><p><strong>${escapeHtml(person.shortRoleRu)}</strong></p><p>${escapeHtml(person.descriptionRu)}</p><a href="${escapeHtml(person.sourceUrl)}" rel="noopener noreferrer" target="_blank">Официальная справка ↗</a>`).join('')}</section>`
+    : '';
   const original = article.sourceName === 'Редакция Финские Новости'
     ? '<p class="editorial-note">Материал подготовлен редакцией «Финские Новости».</p>'
     : `<div class="original-box"><p>Полный текст опубликован у первоисточника. Мы рекомендуем открыть его для подробностей и контекста.</p><a href="${escapeHtml(safeExternalUrl(article.originalUrl))}" rel="noopener noreferrer" target="_blank">Открыть оригинал ↗</a></div>`;
@@ -313,7 +324,7 @@ function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], co
   const relatedMarkup = relatedArticles.length
     ? `<section class="related-articles" aria-labelledby="related-heading"><h2 id="related-heading">Похожие материалы</h2><div class="related-grid">${relatedArticles.map((item) => `<article><p>${escapeHtml(item.category || 'Новости')}</p><h3><a href="${articleUrl(item)}">${escapeHtml(item.titleRu || item.titleFi)}</a></h3></article>`).join('')}</div></section>`
     : '';
-  const content = `<div class="article-wrap"><article><header class="article-head"><p class="eyebrow">Новость Финляндии</p>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h1 class="article-title">${escapeHtml(title)}</h1><div class="article-facts"><span class="fact">${escapeHtml(article.category || 'Новости')}</span><span class="fact">${escapeHtml(article.sourceName || '')}</span><span class="fact">${escapeHtml(formatDate(article.publishedAt))}</span></div>${classificationMarkup}<p class="article-lead">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p></header><div class="article-body-grid"><div>${reactionForm(article, reactionMessage)}${renderComments({ article, comments, commentMessage })}</div><aside class="article-aside">${original}<section class="side-card"><p class="sidebar-kicker">Поделиться</p><h2>Читайте и обсуждайте</h2><p>Сохраните постоянную ссылку на материал и оставьте комментарий после модерации.</p></section></aside></div>${adjacentMarkup}${relatedMarkup}</article></div>`;
+  const content = `<div class="article-wrap"><article><header class="article-head"><p class="eyebrow">Новость Финляндии</p>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h1 class="article-title">${escapeHtml(title)}</h1><div class="article-facts"><span class="fact">${escapeHtml(article.category || 'Новости')}</span><span class="fact">${escapeHtml(article.sourceName || '')}</span><span class="fact">${escapeHtml(formatDate(article.publishedAt))}</span></div>${classificationMarkup}<div class="article-lead">${renderTextParagraphs(articleSummary)}</div></header><div class="article-body-grid"><div>${reactionForm(article, reactionMessage)}${renderComments({ article, comments, commentMessage })}</div><aside class="article-aside">${peopleMarkup}${original}<section class="side-card"><p class="sidebar-kicker">Поделиться</p><h2>Читайте и обсуждайте</h2><p>Сохраните постоянную ссылку на материал и оставьте комментарий после модерации.</p></section></aside></div>${adjacentMarkup}${relatedMarkup}</article></div>`;
   const structuredData = {
     '@type': 'NewsArticle',
     '@id': `${siteUrl}/news/${encodeURIComponent(article.slug)}#article`,
