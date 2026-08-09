@@ -987,6 +987,7 @@ function renderAccountPage({
   const selectedCategories = Array.isArray(subscription.categories) ? subscription.categories : [];
   const selectedSources = Array.isArray(subscription.sourceIds) ? subscription.sourceIds : [];
   const selectedContentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
+  const selectedWordLevel = ['A1-A2', 'B1-B2', 'C1-C2'].includes(subscription.wordLevel) ? subscription.wordLevel : 'A1-A2';
   const selectedExcludedCategories = Array.isArray(subscription.excludedCategories) ? subscription.excludedCategories : [];
   const selectedTagIds = new Set((subscription.tagIds || []).map(String));
   const selectedRegions = new Set(subscription.regionCodes || []);
@@ -1061,6 +1062,7 @@ function renderAccountPage({
               <label class="account-choice"><input type="checkbox" name="content_types" value="flag_days"${selectedContentTypes.includes('flag_days') ? ' checked' : ''}><span>🇫🇮 Дни флага</span></label>
               <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня</span></label>
             </div>
+            <label class="account-field"><span>Уровень финского для слова дня</span><select name="word_level"><option value="A1-A2"${selectedWordLevel === 'A1-A2' ? ' selected' : ''}>A1–A2 — начинающий</option><option value="B1-B2"${selectedWordLevel === 'B1-B2' ? ' selected' : ''}>B1–B2 — средний</option><option value="C1-C2"${selectedWordLevel === 'C1-C2' ? ' selected' : ''}>C1–C2 — продвинутый</option></select></label>
             <small class="account-muted">Слово дня приходит ежедневно в выбранное время. Праздники и дни флага — только в соответствующие календарные даты.</small>
           </fieldset>
           <fieldset class="account-fieldset account-quiet">

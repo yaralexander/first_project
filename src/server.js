@@ -1054,11 +1054,11 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
 
 async function deliverDailyContentToSubscriptions(now = new Date()) {
   if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, skipped: 0 };
-  const items = contentForDate(now);
   const subscriptions = getActiveUserSubscriptions();
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
+    const items = contentForDate(now, { wordLevel: subscription.wordLevel });
     const selected = new Set(subscription.contentTypes || []);
     if (!isDailyContentDue(subscription, now)
       || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
@@ -1776,6 +1776,7 @@ app.post('/account/subscription', async (req, res) => {
     quietEnd,
     timezone: 'Europe/Helsinki',
     contentTypes: normalizeContentTypes(req.body.content_types),
+    wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(req.body.word_level) ? req.body.word_level : 'A1-A2',
     excludedCategories: requestedExcludedCategories.filter((category) => managedCategories().includes(category)),
     tagIds: requestedTags.map(String).filter((id) => allowedTagIds.has(id)),
     regionCodes: requestedRegions.filter((code) => allowedRegionCodes.has(code)),

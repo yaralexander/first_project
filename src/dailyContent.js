@@ -1,20 +1,39 @@
 // Calendar references:
 // https://almanakka.helsinki.fi/fi/liputus-ja-juhlapaivat/liputuspaivat-2026/
 // https://finlex.fi/fi/lainsaadanto/saadoskokoelma/1978/383
-const WORDS = [
-  ['sisu', 'стойкость, внутренняя сила', 'Suomalainen sisu auttaa vaikeina aikoina.', 'Финская стойкость помогает в трудные времена.'],
-  ['arki', 'будни, повседневная жизнь', 'Hyvä arki syntyy pienistä asioista.', 'Хорошие будни складываются из мелочей.'],
-  ['kiitos', 'спасибо', 'Kiitos avusta!', 'Спасибо за помощь!'],
-  ['ystävä', 'друг', 'Ystävä kulkee rinnalla.', 'Друг идёт рядом.'],
-  ['rauha', 'мир, спокойствие', 'Luonto tuo rauhaa.', 'Природа приносит спокойствие.'],
-  ['onni', 'счастье, удача', 'Onni löytyy usein läheltä.', 'Счастье часто находится рядом.'],
-  ['koti', 'дом', 'Koti on tärkeä paikka.', 'Дом — важное место.'],
-  ['valo', 'свет', 'Keväällä valo lisääntyy.', 'Весной света становится больше.'],
-  ['luonto', 'природа', 'Suomen luonto on monimuotoinen.', 'Природа Финляндии разнообразна.'],
-  ['yhdessä', 'вместе', 'Yhdessä onnistumme paremmin.', 'Вместе мы добиваемся большего.'],
-  ['tervetuloa', 'добро пожаловать', 'Tervetuloa Suomeen!', 'Добро пожаловать в Финляндию!'],
-  ['hyvinvointi', 'благополучие', 'Uni tukee hyvinvointia.', 'Сон поддерживает благополучие.'],
-];
+const WORD_LEVELS = new Set(['A1-A2', 'B1-B2', 'C1-C2']);
+const WORDS_BY_LEVEL = {
+  'A1-A2': [
+    ['kiitos', 'спасибо', 'Kiitos avusta!', 'Спасибо за помощь!'],
+    ['ystävä', 'друг', 'Ystävä asuu lähellä.', 'Друг живёт рядом.'],
+    ['koti', 'дом', 'Koti on tärkeä paikka.', 'Дом — важное место.'],
+    ['valo', 'свет', 'Keväällä valo lisääntyy.', 'Весной света становится больше.'],
+    ['ruoka', 'еда', 'Ruoka on valmista.', 'Еда готова.'],
+    ['työ', 'работа', 'Minä menen töihin.', 'Я иду на работу.'],
+    ['sää', 'погода', 'Tänään on hyvä sää.', 'Сегодня хорошая погода.'],
+    ['tervetuloa', 'добро пожаловать', 'Tervetuloa Suomeen!', 'Добро пожаловать в Финляндию!'],
+  ],
+  'B1-B2': [
+    ['arki', 'будни, повседневная жизнь', 'Sujuva arki syntyy hyvistä rutiineista.', 'Удобная повседневная жизнь складывается из хороших привычек.'],
+    ['hyvinvointi', 'благополучие', 'Riittävä uni tukee hyvinvointia.', 'Достаточный сон поддерживает благополучие.'],
+    ['vaikuttaa', 'влиять; казаться', 'Päätös vaikuttaa monen ihmisen arkeen.', 'Решение влияет на повседневную жизнь многих людей.'],
+    ['mahdollisuus', 'возможность', 'Koulutus tarjoaa uusia mahdollisuuksia.', 'Образование открывает новые возможности.'],
+    ['ympäristö', 'окружающая среда', 'Kaupunki suojelee ympäristöä uusilla toimilla.', 'Город защищает окружающую среду новыми мерами.'],
+    ['selvittää', 'выяснять, исследовать', 'Viranomaiset selvittävät tapahtumien syitä.', 'Власти выясняют причины произошедшего.'],
+    ['kehitys', 'развитие', 'Alueen kehitys jatkuu nopeasti.', 'Развитие региона быстро продолжается.'],
+    ['yhteiskunta', 'общество', 'Luottamus on tärkeää yhteiskunnalle.', 'Доверие важно для общества.'],
+  ],
+  'C1-C2': [
+    ['oikeudenmukaisuus', 'справедливость', 'Uudistuksen oikeudenmukaisuudesta käydään vilkasta keskustelua.', 'О справедливости реформы ведётся оживлённая дискуссия.'],
+    ['johdonmukainen', 'последовательный, логичный', 'Päätöksenteon tulisi olla avointa ja johdonmukaista.', 'Принятие решений должно быть открытым и последовательным.'],
+    ['ennakoida', 'предвидеть, прогнозировать', 'Talouden muutoksia on vaikea ennakoida pitkällä aikavälillä.', 'Экономические изменения трудно прогнозировать в долгосрочной перспективе.'],
+    ['ristiriitainen', 'противоречивый', 'Asiantuntijat pitävät ehdotuksen vaikutuksia ristiriitaisina.', 'Эксперты считают последствия предложения противоречивыми.'],
+    ['täytäntöönpano', 'реализация, введение в действие', 'Lain täytäntöönpano alkaa ensi vuoden alussa.', 'Реализация закона начнётся в начале следующего года.'],
+    ['harkinnanvarainen', 'зависящий от усмотрения', 'Tuki on määrältään ja ehdoiltaan harkinnanvarainen.', 'Размер и условия поддержки определяются индивидуально.'],
+    ['saumaton', 'бесшовный, слаженный', 'Palvelujen saumaton yhteistyö hyödyttää asiakasta.', 'Слаженное взаимодействие служб приносит пользу клиенту.'],
+    ['väistämätön', 'неизбежный', 'Rakenteellinen muutos näyttää väistämättömältä.', 'Структурное изменение выглядит неизбежным.'],
+  ],
+};
 
 const FLAG_DAYS = new Map([
   ['02-03', 'День Алвара и Айно Аалто, финской архитектуры и дизайна'],
@@ -22,13 +41,17 @@ const FLAG_DAYS = new Map([
   ['02-06', 'Национальный день саамов'],
   ['02-28', 'День Калевалы и финской культуры'],
   ['03-19', 'День Минны Кант и равноправия'],
+  ['04-08', 'Международный день ромов'],
   ['04-09', 'День Микаэля Агриколы и финского языка'],
+  ['04-20', 'День эвакуированных из Карелии и других утраченных территорий'],
   ['04-27', 'Национальный день ветеранов'],
   ['05-01', 'Ваппу — День финского труда'],
   ['05-09', 'День Европы'],
   ['05-12', 'День Снелльмана и финской идентичности'],
   ['06-04', 'День флага Сил обороны Финляндии'],
   ['07-06', 'День Эйно Лейно, поэзии и лета'],
+  ['08-09', 'День Туве Янссон и финского искусства'],
+  ['10-01', 'День Миины Силланпяя и гражданского участия'],
   ['10-10', 'День Алексиса Киви и финской литературы'],
   ['10-24', 'День Организации Объединённых Наций'],
   ['11-06', 'День шведского наследия'],
@@ -117,21 +140,25 @@ function movableDays(year) {
   ]);
 }
 
-function contentForDate(now = new Date()) {
+function contentForDate(now = new Date(), { wordLevel = 'A1-A2' } = {}) {
   const parts = helsinkiDateParts(now);
   const key = dateKey(parts);
   const md = monthDay(parts);
   const dayNumber = Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day) / 86400000);
-  const word = WORDS[((dayNumber % WORDS.length) + WORDS.length) % WORDS.length];
+  const normalizedWordLevel = WORD_LEVELS.has(wordLevel) ? wordLevel : 'A1-A2';
+  const words = WORDS_BY_LEVEL[normalizedWordLevel];
+  const word = words[((dayNumber % words.length) + words.length) % words.length];
   const content = [{
     type: 'word',
-    key: `word:${key}`,
-    title: `💬 Слово дня: ${word[0]}`,
+    key: `word:${key}:${normalizedWordLevel}`,
+    title: `💬 Слово дня (${normalizedWordLevel}): ${word[0]}`,
     message: `${word[0]} — ${word[1]}.\n\n🇫🇮 ${word[2]}\n🇷🇺 ${word[3]}`,
   }];
   const flagName = FLAG_DAYS.get(md)
     || (key === nthWeekdayOfMonth(parts.year, 5, 0, 2) ? 'День матери' : '')
+    || (key === nthWeekdayOfMonth(parts.year, 5, 0, 3) ? 'День памяти павших' : '')
     || (key === nthWeekdayOfMonth(parts.year, 11, 0, 2) ? 'День отца' : '')
+    || (key === saturdayInRange(parts.year, 8, 25, 31) ? 'День финской природы' : '')
     || (key === saturdayInRange(parts.year, 6, 20, 26) ? 'Юханнус — День флага Финляндии' : '');
   if (flagName) {
     content.push({
@@ -159,6 +186,7 @@ function buildDailyContentMessage(item, siteUrl) {
 }
 
 module.exports = {
+  WORD_LEVELS,
   buildDailyContentMessage,
   contentForDate,
   easterSunday,

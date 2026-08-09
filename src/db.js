@@ -224,6 +224,7 @@ function createDatabase() {
       quiet_end TEXT NOT NULL DEFAULT '07:00',
       timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki',
       content_types TEXT NOT NULL DEFAULT 'news',
+      word_level TEXT NOT NULL DEFAULT 'A1-A2',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS telegram_user_deliveries (
@@ -295,6 +296,7 @@ function createDatabase() {
   if (!userSubscriptionColumns.has('quiet_end')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN quiet_end TEXT NOT NULL DEFAULT '07:00'");
   if (!userSubscriptionColumns.has('timezone')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki'");
   if (!userSubscriptionColumns.has('content_types')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN content_types TEXT NOT NULL DEFAULT 'news'");
+  if (!userSubscriptionColumns.has('word_level')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN word_level TEXT NOT NULL DEFAULT 'A1-A2'");
   if (!userSubscriptionColumns.has('importance_filter')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN importance_filter TEXT NOT NULL DEFAULT 'all'");
   if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
@@ -1663,6 +1665,7 @@ function getUserSubscription(userId) {
     quietEnd: '07:00',
     timezone: 'Europe/Helsinki',
     contentTypes: ['news'],
+    wordLevel: 'A1-A2',
     excludedCategories: [],
     tagIds: [],
     regionCodes: ['finland'],
@@ -1693,6 +1696,7 @@ function getUserSubscription(userId) {
       quietEnd: row.quiet_end || defaults.quietEnd,
       timezone: row.timezone || defaults.timezone,
       contentTypes: csvValues(row.content_types, defaults.contentTypes),
+      wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(row.word_level) ? row.word_level : defaults.wordLevel,
       excludedCategories: csvValues(row.excluded_categories),
       tagIds: csvValues(row.tag_ids),
       regionCodes: csvValues(row.region_codes, defaults.regionCodes),
@@ -1716,6 +1720,7 @@ function getActiveUserSubscriptions() {
       subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
       subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
       subscriptions.timezone, subscriptions.content_types, subscriptions.excluded_categories,
+      subscriptions.word_level,
       subscriptions.tag_ids, subscriptions.region_codes, subscriptions.audience_codes,
       subscriptions.minimum_importance, subscriptions.delivery_times,
       subscriptions.delivery_weekdays, subscriptions.quiet_weekdays,
@@ -1740,6 +1745,7 @@ function getActiveUserSubscriptions() {
     quietEnd: row.quiet_end || '07:00',
     timezone: row.timezone || 'Europe/Helsinki',
     contentTypes: csvValues(row.content_types, ['news']),
+    wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(row.word_level) ? row.word_level : 'A1-A2',
     excludedCategories: csvValues(row.excluded_categories),
     tagIds: csvValues(row.tag_ids),
     regionCodes: csvValues(row.region_codes, ['finland']),
@@ -1768,6 +1774,7 @@ function upsertUserSubscription({
   quietEnd = '07:00',
   timezone = 'Europe/Helsinki',
   contentTypes = ['news'],
+  wordLevel = 'A1-A2',
   excludedCategories = [],
   tagIds = [],
   regionCodes = ['finland'],
@@ -1792,6 +1799,7 @@ function upsertUserSubscription({
     quietEnd,
     timezone,
     contentTypes,
+    wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(wordLevel) ? wordLevel : 'A1-A2',
     excludedCategories,
     tagIds,
     regionCodes,
@@ -1807,10 +1815,10 @@ function upsertUserSubscription({
       INSERT INTO user_subscriptions (
         user_id, enabled, frequency, categories, scope, importance, importance_filter, source_ids,
         max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
-        quiet_end, timezone, content_types, excluded_categories, tag_ids,
+        quiet_end, timezone, content_types, word_level, excluded_categories, tag_ids,
         region_codes, audience_codes, minimum_importance, delivery_times,
         delivery_weekdays, quiet_weekdays, allow_critical_during_quiet, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         enabled=excluded.enabled,
         frequency=excluded.frequency,
@@ -1826,6 +1834,7 @@ function upsertUserSubscription({
         quiet_end=excluded.quiet_end,
         timezone=excluded.timezone,
         content_types=excluded.content_types,
+        word_level=excluded.word_level,
         excluded_categories=excluded.excluded_categories,
         tag_ids=excluded.tag_ids,
         region_codes=excluded.region_codes,
@@ -1841,7 +1850,7 @@ function upsertUserSubscription({
       settings.importance === 'urgent' ? 'important' : settings.importance, settings.importance,
       sourceIds.join(','), maxPostsPerDay, settings.includeOriginal ? 1 : 0,
       settings.quietHoursEnabled ? 1 : 0, quietStart, quietEnd, timezone,
-      contentTypes.join(','), excludedCategories.join(','), tagIds.join(','),
+      contentTypes.join(','), settings.wordLevel, excludedCategories.join(','), tagIds.join(','),
       regionCodes.join(','), audienceCodes.join(','), settings.minimumImportance,
       deliveryTimes.join(','), deliveryWeekdays.join(','), quietWeekdays.join(','),
       settings.allowCriticalDuringQuiet ? 1 : 0,
