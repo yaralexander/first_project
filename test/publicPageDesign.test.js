@@ -51,6 +51,7 @@ test('Telegram information page explains the one-button personalized setup', () 
   assert.match(html, /Номер остановки/);
   assert.match(html, /Фото таблички/);
   assert.match(html, /Геопозиция/);
+  assert.match(html, /\.telegram-promo-inner\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
   assert.match(html, /rel="canonical" href="https:\/\/finskienovosti\.fi\/telegram"/);
 });
 
