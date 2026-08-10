@@ -45,3 +45,17 @@ test('uses coordinates to return nearby HSL stops', async () => {
   assert.equal(stops[0].distance, 85);
   assert.match(formatNearbyDepartures(stops), /85 м/);
 });
+
+test('labels the next-day morning timetable instead of making it look expired', () => {
+  const stop = {
+    name: 'Mattlidens skola', code: 'E3175',
+    stoptimesWithoutPatterns: [{
+      serviceDay: Math.floor(new Date('2026-08-10T21:00:00.000Z').getTime() / 1000),
+      scheduledDeparture: 8 * 3600 + 10 * 60,
+      realtime: false,
+      headsign: 'Matinkylä', trip: { route: { shortName: '138' } },
+    }],
+  };
+  const text = formatStopDepartures(stop, { now: new Date('2026-08-10T11:54:00.000Z') });
+  assert.match(text, /завтра, 08:10  138 → Matinkylä/);
+});

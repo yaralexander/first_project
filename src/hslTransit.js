@@ -100,7 +100,18 @@ function formatTime(timestamp, now = new Date()) {
   const clock = new Intl.DateTimeFormat('ru-RU', {
     timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(date);
-  return minutes < 60 ? `${clock} (через ${minutes} мин)` : clock;
+  const dateKey = (value) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Helsinki', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(value);
+  const todayKey = dateKey(now);
+  const tomorrowKey = dateKey(new Date(now.getTime() + 24 * 60 * 60 * 1000));
+  const departureKey = dateKey(date);
+  if (departureKey === todayKey) return minutes < 60 ? `${clock} (через ${minutes} мин)` : clock;
+  if (departureKey === tomorrowKey) return `завтра, ${clock}`;
+  const day = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Helsinki', weekday: 'short', day: '2-digit', month: '2-digit',
+  }).format(date).replace(',', '');
+  return `${day}, ${clock}`;
 }
 
 function formatStopDepartures(stop, { now = new Date(), includeDistance = false } = {}) {

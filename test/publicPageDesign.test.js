@@ -46,6 +46,11 @@ test('Telegram information page explains the one-button personalized setup', () 
   assert.match(html, /href="\/account"/);
   assert.match(html, /темы, источники и удобное время/i);
   assert.match(html, /Имя канала вводить не нужно/);
+  assert.match(html, /Расписание транспорта HSL прямо в Telegram/);
+  assert.match(html, /src="\/assets\/hsl-logo\.png"/);
+  assert.match(html, /Номер остановки/);
+  assert.match(html, /Фото таблички/);
+  assert.match(html, /Геопозиция/);
   assert.match(html, /rel="canonical" href="https:\/\/finskienovosti\.fi\/telegram"/);
 });
 

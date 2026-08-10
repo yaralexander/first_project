@@ -1,7 +1,7 @@
 const RUSSIAN_BOT_COMMANDS = Object.freeze([
+  { command: 'hsl', description: 'Расписание транспорта HSL' },
   { command: 'start', description: 'Подключить персональную рассылку' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
-  { command: 'hsl', description: 'Расписание транспорта HSL' },
   { command: 'chatid', description: 'Показать ID этого Telegram-чата' },
   { command: 'help', description: 'Показать инструкцию' },
 ]);
