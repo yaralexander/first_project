@@ -5,6 +5,8 @@ const {
   renderAccountLoginPage,
   renderAccountPage,
   renderAboutPage,
+  renderPrivacyPage,
+  renderTermsPage,
   renderContactPage,
   renderAdminPage,
   renderRssFeed,
@@ -28,6 +30,8 @@ function assertSharedSiteShell(html) {
 test('secondary public pages use the same site shell', () => {
   const pages = [
     renderAboutPage({ siteUrl }),
+    renderPrivacyPage({ siteUrl }),
+    renderTermsPage({ siteUrl }),
     renderContactPage({ siteUrl }),
     renderAccountLoginPage({ siteUrl }),
     renderAccountErrorPage({ siteUrl }),
@@ -35,6 +39,19 @@ test('secondary public pages use the same site shell', () => {
   ];
 
   for (const html of pages) assertSharedSiteShell(html);
+});
+
+test('privacy and terms pages disclose Google sign-in and service rules', () => {
+  const privacy = renderPrivacyPage({ siteUrl });
+  const terms = renderTermsPage({ siteUrl });
+
+  assert.match(privacy, /Политика конфиденциальности/);
+  assert.match(privacy, /уникальный идентификатор Google/);
+  assert.match(privacy, /Пароль Google сервису не передаётся/);
+  assert.match(privacy, /rel="canonical" href="https:\/\/finskienovosti\.fi\/privacy"/);
+  assert.match(terms, /Условия использования/);
+  assert.match(terms, /Digitransit\/HSL/);
+  assert.match(terms, /rel="canonical" href="https:\/\/finskienovosti\.fi\/terms"/);
 });
 
 test('Telegram information page explains the one-button personalized setup', () => {
@@ -49,7 +66,7 @@ test('Telegram information page explains the one-button personalized setup', () 
   assert.match(html, /Расписание транспорта HSL прямо в Telegram/);
   assert.match(html, /src="\/assets\/hsl-logo\.png"/);
   assert.match(html, /Номер остановки/);
-  assert.match(html, /Фото таблички/);
+  assert.doesNotMatch(html, /Фото таблички/);
   assert.match(html, /Геопозиция/);
   assert.match(html, /\.telegram-promo-inner\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
   assert.match(html, /rel="canonical" href="https:\/\/finskienovosti\.fi\/telegram"/);
@@ -127,6 +144,9 @@ test('contact and login states retain accessible feedback', () => {
   assert.match(contact, /name="website"/);
   assert.match(login, /role="alert"/);
   assert.match(login, /href="\/account\/login\/start"/);
+  assert.match(login, /Продолжить с Google/);
+  assert.match(login, /class="google-g"/);
+  assert.match(login, /account-google-button\{width:min\(100%,480px\)/);
 });
 
 test('articles admin tab exposes the protected manual RSS refresh control', () => {

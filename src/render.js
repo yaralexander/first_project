@@ -133,9 +133,9 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
 <div class="util-bar"><div class="wrap"><div class="util-left">🇫🇮 → 🇷🇺 AI пересказ в реальном времени</div><div class="util-right"><button class="utility-button" type="button" data-font-step="-0.10" aria-label="Уменьшить текст">A−</button><button class="utility-button utility-button--scale" type="button" data-font-reset aria-label="Обычный размер текста">100%</button><button class="utility-button" type="button" data-font-step="0.10" aria-label="Увеличить текст">A+</button><span class="utility-theme-status" aria-label="Тема зависит от настроек устройства">Система</span></div></div></div>
   ${breaking}
   <header class="masthead"><div class="wrap"><div class="topbar"><a class="brand" href="/"><span class="brand-mark">${brandMark}</span><span><strong class="brand-name">Финские Новости</strong><small class="brand-tagline">Свежие новости Финляндии на русском языке</small></span></a><form class="search-box" action="/search" method="get" role="search"><label class="skip-link" for="site-search">Поиск по новостям</label><span aria-hidden="true">⌕</span><input id="site-search" name="q" type="search" value="${escapeHtml(searchQuery)}" placeholder="Поиск новостей…" minlength="2" maxlength="120" required><button type="submit">Найти</button></form><div class="top-actions">${interestControl}<a class="account-link" href="/account" aria-label="Личный кабинет">👤 Личный кабинет</a><a class="icon-btn" href="/about" aria-label="О проекте">i</a><a class="icon-btn" href="/page/2" aria-label="Архив">☰</a></div></div><nav class="catnav" id="category-nav" aria-label="Категории"><a class="active" href="/">🏠 Главная</a>${nav}</nav></div></header>
-  <aside class="telegram-promo" aria-label="Новости и расписание HSL в Telegram"><a class="wrap telegram-promo-inner" href="/telegram"><span class="telegram-promo-icon" aria-hidden="true">✈</span><span class="telegram-promo-copy"><strong>Ваша личная лента новостей в Telegram</strong><small>Выберите темы, источники и удобное время — расписание HSL тоже доступно в боте.</small></span><span class="telegram-promo-hsl"><img src="/assets/hsl-logo.png" alt="HSL"><span><b>Расписание HSL</b><small>Остановка · фото · геопозиция</small></span></span><span class="telegram-promo-action">Как это работает →</span></a></aside>
+  <aside class="telegram-promo" aria-label="Новости и расписание HSL в Telegram"><a class="wrap telegram-promo-inner" href="/telegram"><span class="telegram-promo-icon" aria-hidden="true">✈</span><span class="telegram-promo-copy"><strong>Ваша личная лента новостей в Telegram</strong><small>Выберите темы, источники и удобное время — расписание HSL тоже доступно в боте.</small></span><span class="telegram-promo-hsl"><img src="/assets/hsl-logo.png" alt="HSL"><span><b>Расписание HSL</b><small>Номер остановки · геопозиция</small></span></span><span class="telegram-promo-action">Как это работает →</span></a></aside>
   <main class="wrap" id="content">${content}</main>
-  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>${SITE_NAME}</strong><p>${SITE_NAME_LATIN} — новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/about#privacy">Конфиденциальность</a></div></div><div class="footer-bottom"><span>© 2026 ${SITE_NAME} · ${SITE_NAME_LATIN}</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
+  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>${SITE_NAME}</strong><p>${SITE_NAME_LATIN} — новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/privacy">Конфиденциальность</a><a href="/terms">Условия использования</a></div></div><div class="footer-bottom"><span>© 2026 ${SITE_NAME} · ${SITE_NAME_LATIN}</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
   ${interestModal}
 <nav class="mobile-bottom-nav" aria-label="Мобильная навигация"><a href="/"><i>⌂</i><span>Главная</span></a><a href="/search"><i>⌕</i><span>Поиск</span></a><a href="/#feed-heading"><i>♧</i><span>Лента</span></a><a href="#category-nav"><i>⊞</i><span>Разделы</span></a><span class="mobile-theme-status" aria-label="Тема зависит от настроек устройства"><i>◐</i><span>Система</span></span></nav>
   ${themeScript}
@@ -908,6 +908,41 @@ function renderAboutPage({ siteUrl }) {
   return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content });
 }
 
+function renderPrivacyPage({ siteUrl }) {
+  const content = `<article class="legal-page">
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Политика конфиденциальности</h1><p>Как сервис «Финские Новости» получает, использует и защищает данные пользователей.</p><small>Последнее обновление: 10 августа 2026 года</small></header>
+    <nav class="legal-summary" aria-label="Содержание"><strong>Кратко</strong><a href="#privacy-data">Какие данные собираются</a><a href="#privacy-use">Как они используются</a><a href="#privacy-sharing">Передача данных</a><a href="#privacy-rights">Ваши права</a></nav>
+    <div class="legal-content">
+      <section><h2>1. О сервисе</h2><p>«Финские Новости» (Finskie Novosti) — русскоязычный информационный сервис о Финляндии. Эта политика относится к сайту <a href="${escapeHtml(siteUrl)}">${escapeHtml(siteUrl)}</a>, личному кабинету и связанному Telegram-боту. По вопросам конфиденциальности можно обратиться через <a href="/contact">форму связи</a>.</p></section>
+      <section id="privacy-data"><h2>2. Какие данные мы получаем</h2><p>При входе через Google сервис получает только данные, необходимые для идентификации аккаунта: уникальный идентификатор Google, адрес электронной почты и отображаемое имя. Пароль Google сервису не передаётся и не хранится.</p><p>Если вы подключаете Telegram, сохраняются идентификатор связанного Telegram-чата, дата подключения и выбранные настройки рассылки: темы, источники, регионы, частота, время и тихие часы.</p><p>Для защиты и статистики могут обрабатываться технические данные запроса. Публичные просмотры учитываются с помощью необратимого дневного идентификатора; исходный IP-адрес и User-Agent в аналитической записи не сохраняются. Сообщение через форму связи содержит имя, email и текст, которые вы вводите самостоятельно.</p></section>
+      <section id="privacy-use"><h2>3. Для чего используются данные</h2><ul><li>для входа и поддержания защищённой сессии;</li><li>для сохранения настроек личного кабинета;</li><li>для подключения Telegram и доставки выбранных материалов;</li><li>для предотвращения злоупотреблений, диагностики и агрегированной статистики;</li><li>для ответа на обращения пользователей.</li></ul><p>Данные Google используются исключительно для предоставления этих функций и в соответствии с настройками пользователя.</p></section>
+      <section id="privacy-sharing"><h2>4. Передача и внешние сервисы</h2><p>Мы не продаём персональные данные. Они могут технически обрабатываться поставщиками, необходимыми для работы сервиса: Google — для авторизации, Telegram — для доставки сообщений, Digitransit/HSL — для запросов расписания транспорта, а также инфраструктурным хостингом. В запросы расписания HSL не добавляются данные Google-аккаунта.</p><p>Данные могут быть раскрыты, если это необходимо для исполнения обязательного требования закона или защиты безопасности сервиса и пользователей.</p></section>
+      <section><h2>5. Хранение и безопасность</h2><p>Сессионные токены хранятся только в виде хеша и имеют ограниченный срок действия. Настройки аккаунта и Telegram-связка хранятся, пока они нужны для работы выбранных функций. Анонимная аналитика хранится ограниченный период, установленный настройками сервера. Применяются разумные технические и организационные меры защиты, однако ни один интернет-сервис не может гарантировать абсолютную безопасность.</p></section>
+      <section id="privacy-rights"><h2>6. Ваши права и удаление данных</h2><p>Вы можете изменить или отключить рассылку в личном кабинете. Вы также можете запросить доступ, исправление или удаление связанных с аккаунтом данных через <a href="/contact">форму связи</a>, указав email Google-аккаунта. Перед выполнением запроса может потребоваться подтверждение личности.</p></section>
+      <section><h2>7. Изменения политики</h2><p>Политика может обновляться при изменении функций или требований. Актуальная версия всегда публикуется на этой странице с датой обновления.</p></section>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Политика конфиденциальности — Финские Новости', description: 'Политика конфиденциальности сервиса «Финские Новости»: Google-вход, Telegram, аналитика и права пользователей.', canonicalPath: '/privacy', siteUrl, content });
+}
+
+function renderTermsPage({ siteUrl }) {
+  const content = `<article class="legal-page">
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Условия использования</h1><p>Правила использования сайта, личного кабинета и Telegram-бота «Финские Новости».</p><small>Последнее обновление: 10 августа 2026 года</small></header>
+    <div class="legal-content">
+      <section><h2>1. Принятие условий</h2><p>Используя сайт ${escapeHtml(siteUrl)}, личный кабинет или Telegram-бот, вы соглашаетесь с настоящими условиями и <a href="/privacy">Политикой конфиденциальности</a>. Если вы не согласны, прекратите использование сервиса.</p></section>
+      <section><h2>2. Назначение сервиса</h2><p>Сервис публикует краткие русскоязычные пересказы открытых новостных анонсов, ссылки на первоисточники, редакционные материалы, пользовательские комментарии и вспомогательные функции, включая персональную Telegram-ленту и расписание HSL.</p></section>
+      <section><h2>3. Информационный характер</h2><p>Материалы предоставляются для общего информирования и могут содержать задержки, неточности или ошибки автоматического пересказа. Они не являются юридической, медицинской, финансовой или иной профессиональной консультацией. Для полного контекста следует обращаться к указанному первоисточнику.</p><p>Расписание транспорта поступает из Digitransit/HSL и может меняться в реальном времени. Перед поездкой проверяйте критически важную информацию в официальных сервисах HSL.</p></section>
+      <section><h2>4. Аккаунт и безопасность</h2><p>Вход выполняется через Google. Пользователь отвечает за безопасность своего Google- и Telegram-аккаунта и за действия, совершённые через них. Запрещено пытаться получить доступ к чужому аккаунту, обходить ограничения, нарушать работу сервиса или использовать автоматизированные запросы, создающие чрезмерную нагрузку.</p></section>
+      <section><h2>5. Комментарии и пользовательский контент</h2><p>Запрещены незаконные материалы, угрозы, травля, спам, публикация чужих персональных данных и нарушение авторских прав. Комментарии проходят модерацию и могут быть отклонены или удалены. Отправляя комментарий, пользователь разрешает показать введённые имя и текст на соответствующей странице новости.</p></section>
+      <section><h2>6. Интеллектуальная собственность</h2><p>Права на оригинальные новости, изображения и товарные знаки принадлежат соответствующим владельцам. Ссылки и обозначения источников не означают партнёрство или одобрение проекта этими организациями. Дизайн и собственные редакционные материалы сервиса защищены применимым законодательством.</p></section>
+      <section><h2>7. Доступность и ответственность</h2><p>Сервис предоставляется «как есть» и может временно изменяться или быть недоступен. В пределах, допускаемых законом, оператор не отвечает за решения, принятые исключительно на основании опубликованного пересказа, за действия сторонних сервисов или за косвенные убытки.</p></section>
+      <section><h2>8. Изменения и прекращение доступа</h2><p>Функции и условия могут обновляться. Дата актуальной редакции указана в начале страницы. Доступ пользователя может быть ограничен при нарушении условий, угрозе безопасности или обязательном требовании закона.</p></section>
+      <section><h2>9. Контакты</h2><p>Вопросы об условиях можно направить через <a href="/contact">форму связи</a>.</p></section>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Условия использования — Финские Новости', description: 'Условия использования сайта, личного кабинета и Telegram-бота «Финские Новости».', canonicalPath: '/terms', siteUrl, content });
+}
+
 function renderTelegramInfoPage({ siteUrl }) {
   const content = `<article class="telegram-page">
     <section class="telegram-hero">
@@ -926,7 +961,7 @@ function renderTelegramInfoPage({ siteUrl }) {
 
     <section class="telegram-hsl" aria-labelledby="telegram-hsl-title">
       <div class="telegram-hsl-brand"><img src="/assets/hsl-logo.png" alt="Логотип HSL"><span>HSL</span></div>
-      <div class="telegram-hsl-copy"><p class="eyebrow">Новая функция бота</p><h2 id="telegram-hsl-title">Расписание транспорта HSL прямо в Telegram</h2><p>Не нужно отдельно искать остановку в браузере. Откройте в боте команду <strong>/hsl</strong> и получите ближайшие отправления с отметкой времени в реальном времени.</p><div class="telegram-hsl-methods"><span>⌨️ Номер остановки</span><span>📷 Фото таблички</span><span>📍 Геопозиция</span></div><small>Расписание предоставляется на основе данных Digitransit/HSL.</small></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Новая функция бота</p><h2 id="telegram-hsl-title">Расписание транспорта HSL прямо в Telegram</h2><p>Не нужно отдельно искать остановку в браузере. Откройте в боте команду <strong>/hsl</strong> и получите ближайшие отправления с отметкой времени в реальном времени.</p><div class="telegram-hsl-methods"><span>⌨️ Номер остановки</span><span>📍 Геопозиция</span></div><small>Расписание предоставляется на основе данных Digitransit/HSL.</small></div>
       <a class="telegram-hsl-button" href="/account">Подключить бота →</a>
     </section>
 
@@ -1121,7 +1156,7 @@ function renderAccountLoginPage({ siteUrl, googleEnabled = true, error = '' }) {
       ? 'Google не подтвердил вход. Проверьте аккаунт и повторите попытку.'
       : '';
   const action = googleEnabled
-    ? '<a class="google-login-button account-google-button" href="/account/login/start"><span>G</span>Войти через Google</a>'
+    ? '<a class="google-login-button account-google-button" href="/account/login/start"><svg class="google-g" viewBox="0 0 18 18" aria-hidden="true"><path fill="#EA4335" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.874 2.684-6.615Z"/><path fill="#4285F4" d="M9 18c2.43 0 4.468-.806 5.956-2.18l-2.91-2.258c-.805.54-1.835.859-3.046.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.333A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.963 10.707A5.42 5.42 0 0 1 3.681 9c0-.592.102-1.168.282-1.707V4.96H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.04l3.007-2.333Z"/><path fill="#34A853" d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.96l3.007 2.333C4.672 5.164 6.656 3.579 9 3.579Z"/></svg><span>Продолжить с Google</span></a>'
     : '<p class="account-notice account-notice--error">Вход временно недоступен: Google-авторизация не настроена.</p>';
   const content = `<section class="account-login">
     <div class="account-login-card">
@@ -1216,6 +1251,8 @@ function renderSitemap({
   const urls = [
     { path: '/' },
     { path: '/about' },
+    { path: '/privacy' },
+    { path: '/terms' },
     { path: '/contact' },
     { path: '/telegram' },
     ...archivePages,
@@ -1243,6 +1280,8 @@ module.exports = {
   renderAdminLoginPage,
   renderAdminArticleDeletePage,
   renderAboutPage,
+  renderPrivacyPage,
+  renderTermsPage,
   renderContactPage,
   renderTelegramInfoPage,
   renderListPage,

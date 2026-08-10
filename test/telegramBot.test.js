@@ -56,7 +56,8 @@ test('returns clear Russian replies for linking, help and settings', () => {
 
   const hsl = getRussianTelegramReply('/hsl', { accountUrl: 'https://finskienovosti.fi' });
   assert.match(hsl, /Расписание транспорта HSL/);
-  assert.match(hsl, /фотографию|геопозицию/);
+  assert.match(hsl, /геопозицией/);
+  assert.doesNotMatch(hsl, /фото|фотограф/i);
 });
 
 test('configures a secure Telegram webhook for the personal bot', async () => {

@@ -79,5 +79,7 @@ test('sitemap keeps permanent article and archive URLs indexable', () => {
   assert.match(xml, /https:\/\/finskienovosti\.fi\/page\/2/);
   assert.match(xml, /https:\/\/finskienovosti\.fi\/page\/3/);
   assert.match(xml, /https:\/\/finskienovosti\.fi\/about/);
+  assert.match(xml, /https:\/\/finskienovosti\.fi\/privacy/);
+  assert.match(xml, /https:\/\/finskienovosti\.fi\/terms/);
   assert.match(xml, /<lastmod>2026-07-29T10:05:00.000Z<\/lastmod>/);
 });

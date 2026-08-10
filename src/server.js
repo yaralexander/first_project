@@ -27,7 +27,6 @@ const {
   formatNearbyDepartures,
   formatStopDepartures,
 } = require('./hslTransit');
-const { downloadTelegramPhoto, recognizeHslStopCode } = require('./telegramPhotoOcr');
 const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
@@ -197,6 +196,8 @@ const {
   renderListPage,
   renderNotFound,
   renderAboutPage,
+  renderPrivacyPage,
+  renderTermsPage,
   renderContactPage,
   renderTelegramInfoPage,
   renderRssFeed,
@@ -819,7 +820,7 @@ function hslTelegramOptions() {
 async function sendHslStopDepartures(chatId, stopCode) {
   const stop = await departuresByStopCode(stopCode, hslTelegramOptions());
   if (!stop) {
-    await sendTelegramMessageToChat(chatId, `Остановка ${stopCode} не найдена в HSL. Проверьте номер на табличке.`);
+    await sendTelegramMessageToChat(chatId, `Остановка ${stopCode} не найдена в HSL. Проверьте введённый номер.`);
     return;
   }
   await sendTelegramMessageToChat(chatId, formatStopDepartures(stop));
@@ -835,7 +836,7 @@ async function handleHslTelegramMessage(message) {
   if (command && !command[1]) {
     await sendTelegramMessageToChat(chatId, [
       '🚌 Расписание транспорта HSL',
-      'Напишите номер остановки, сфотографируйте табличку или отправьте геопозицию кнопкой ниже.',
+      'Напишите номер остановки или отправьте геопозицию кнопкой ниже.',
     ].join('\n\n'), {
       reply_markup: {
         keyboard: [[{ text: '📍 Найти остановки рядом', request_location: true }]],
@@ -858,30 +859,6 @@ async function handleHslTelegramMessage(message) {
     return true;
   }
 
-  if (Array.isArray(message.photo) && message.photo.length) {
-    if (!process.env.OPENAI_API_KEY) {
-      await sendTelegramMessageToChat(chatId, 'Распознавание фото пока не настроено. Отправьте номер остановки текстом.');
-      return true;
-    }
-    await sendTelegramMessageToChat(chatId, '🔎 Читаю номер остановки на фотографии…');
-    const photo = message.photo[message.photo.length - 1];
-    const image = await downloadTelegramPhoto(photo.file_id, {
-      botToken: TELEGRAM_BOT_TOKEN,
-      apiBaseUrl: TELEGRAM_API_BASE_URL,
-      callTelegramMethod: callTelegramBotMethod,
-    });
-    const recognizedCode = await recognizeHslStopCode(image, {
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-5-nano',
-    });
-    if (!recognizedCode) {
-      await sendTelegramMessageToChat(chatId, 'Не удалось уверенно прочитать номер. Сфотографируйте табличку ближе или напишите номер остановки текстом.');
-      return true;
-    }
-    await sendTelegramMessageToChat(chatId, `Распознал остановку ${recognizedCode}. Показываю отправления:`);
-    await sendHslStopDepartures(chatId, recognizedCode);
-    return true;
-  }
   return false;
 }
 
@@ -1374,6 +1351,14 @@ app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISO
 
 app.get('/about', (req, res) => {
   res.type('html').send(renderAboutPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/privacy', (req, res) => {
+  res.type('html').send(renderPrivacyPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/terms', (req, res) => {
+  res.type('html').send(renderTermsPage({ siteUrl: SITE_URL }));
 });
 
 app.get('/contact', (req, res) => {
@@ -1943,7 +1928,7 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
       }));
     } catch (error) {
       console.error('[telegram webhook] не удалось отправить ответ:', error.message);
-      const wasHslRequest = Boolean(message?.location || message?.photo?.length
+      const wasHslRequest = Boolean(message?.location
         || /^\/hsl\b/iu.test(text) || /^[A-ZÅÄÖ]{0,2}\d{3,7}$/iu.test(text));
       if (!wasHslRequest) return res.status(200).json({ ok: true });
       try {
