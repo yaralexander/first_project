@@ -19,6 +19,7 @@ function assertSharedSiteShell(html) {
   assert.match(html, /class="masthead"/);
   assert.match(html, /class="catnav"/);
   assert.match(html, /class="site-footer"/);
+  assert.match(html, /\.footer-mark\{display:block;width:52px;height:52px;overflow:hidden/);
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
   assert.match(html, /class="utility-theme-status"/);
