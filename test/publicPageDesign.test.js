@@ -9,6 +9,7 @@ const {
   renderTermsPage,
   renderContactPage,
   renderAdminPage,
+  renderAdminLoginPage,
   renderRssFeed,
   renderTelegramInfoPage,
 } = require('../src/render');
@@ -148,6 +149,14 @@ test('contact and login states retain accessible feedback', () => {
   assert.match(login, /Продолжить с Google/);
   assert.match(login, /class="google-g"/);
   assert.match(login, /account-google-button\{width:min\(100%,480px\)/);
+});
+
+test('admin uses the same branded Google sign-in button as user accounts', () => {
+  const html = renderAdminLoginPage({ siteUrl, googleEnabled: true, basicEnabled: false });
+  assert.match(html, /href="\/admin\/auth\/google"/);
+  assert.match(html, /class="google-login-button account-google-button"/);
+  assert.match(html, /class="google-g"/);
+  assert.match(html, /Продолжить с Google/);
 });
 
 test('articles admin tab exposes the protected manual RSS refresh control', () => {

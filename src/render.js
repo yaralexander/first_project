@@ -501,7 +501,7 @@ function renderAdminLoginPage({ siteUrl, googleEnabled, basicEnabled, error = ''
     'google-failed': 'Google не подтвердил вход. Попробуйте ещё раз.',
   };
   const googleControl = googleEnabled
-    ? '<a class="google-login-button" href="/admin/auth/google"><span aria-hidden="true">G</span> Войти через Google</a>'
+    ? '<a class="google-login-button account-google-button" href="/admin/auth/google"><svg class="google-g" viewBox="0 0 18 18" aria-hidden="true"><path fill="#EA4335" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.874 2.684-6.615Z"/><path fill="#4285F4" d="M9 18c2.43 0 4.468-.806 5.956-2.18l-2.91-2.258c-.805.54-1.835.859-3.046.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.333A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.963 10.707A5.42 5.42 0 0 1 3.681 9c0-.592.102-1.168.282-1.707V4.96H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.04l3.007-2.333Z"/><path fill="#34A853" d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.96l3.007 2.333C4.672 5.164 6.656 3.579 9 3.579Z"/></svg><span>Продолжить с Google</span></a>'
     : '<p class="summary">Google-вход появится после настройки Client ID, Client Secret и списка разрешённых адресов.</p>';
   const basicControl = basicEnabled
     ? '<p class="admin-login-fallback"><a href="/admin/basic">Аварийный вход по старому паролю</a></p>'
