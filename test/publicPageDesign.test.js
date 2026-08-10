@@ -21,6 +21,8 @@ function assertSharedSiteShell(html) {
   assert.match(html, /class="catnav"/);
   assert.match(html, /class="site-footer"/);
   assert.match(html, /\.footer-mark\{display:block;width:52px;height:52px;overflow:hidden/);
+  assert.match(html, /\.related-grid a\{color:var\(--ink\)/);
+  assert.match(html, /\.article-navigation a\{[^}]*color:var\(--ink\)/);
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
   assert.match(html, /class="utility-theme-status"/);
