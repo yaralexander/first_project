@@ -27,6 +27,7 @@ test('configures Russian Telegram commands and descriptions for default and ru l
   assert.equal(calls[4].body.language_code, 'ru');
   assert.equal(calls[5].body.language_code, 'ru');
   assert.ok(calls.every(({ body }) => JSON.stringify(body).match(/[А-Яа-яЁё]/)));
+  assert.ok(RUSSIAN_BOT_COMMANDS.some(({ command }) => command === 'hsl'));
 });
 
 test('returns clear Russian replies for linking, help and settings', () => {
@@ -52,6 +53,10 @@ test('returns clear Russian replies for linking, help and settings', () => {
   });
   assert.match(settings, /Настройки тем и частоты рассылки/);
   assert.match(settings, /https:\/\/finskienovosti\.fi\/account/);
+
+  const hsl = getRussianTelegramReply('/hsl', { accountUrl: 'https://finskienovosti.fi' });
+  assert.match(hsl, /Расписание транспорта HSL/);
+  assert.match(hsl, /фотографию|геопозицию/);
 });
 
 test('configures a secure Telegram webhook for the personal bot', async () => {

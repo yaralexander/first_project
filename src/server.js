@@ -22,6 +22,13 @@ const {
   getRussianTelegramReply,
 } = require('./telegramBot');
 const {
+  departuresByStopCode,
+  departuresNearLocation,
+  formatNearbyDepartures,
+  formatStopDepartures,
+} = require('./hslTransit');
+const { downloadTelegramPhoto, recognizeHslStopCode } = require('./telegramPhotoOcr');
+const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
   buildTelegramMessage,
@@ -332,6 +339,7 @@ function getUserGoogleAuthProvider(req) {
 }
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const DIGITRANSIT_API_KEY = process.env.DIGITRANSIT_API_KEY || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET
   || (process.env.TELEGRAM_BOT_TOKEN
@@ -802,6 +810,79 @@ async function sendTelegramMessageToChat(chatId, text, options = {}) {
   const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
   if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
   return result.message_id;
+}
+
+function hslTelegramOptions() {
+  return { apiKey: DIGITRANSIT_API_KEY };
+}
+
+async function sendHslStopDepartures(chatId, stopCode) {
+  const stop = await departuresByStopCode(stopCode, hslTelegramOptions());
+  if (!stop) {
+    await sendTelegramMessageToChat(chatId, `Остановка ${stopCode} не найдена в HSL. Проверьте номер на табличке.`);
+    return;
+  }
+  await sendTelegramMessageToChat(chatId, formatStopDepartures(stop));
+}
+
+async function handleHslTelegramMessage(message) {
+  const chatId = message?.chat?.id;
+  if (!chatId) return false;
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  const command = /^\/hsl(?:@[A-Za-z0-9_]{5,32})?(?:\s+([A-ZÅÄÖ]{0,2}\d{3,7}))?$/iu.exec(text);
+  const plainCode = /^([A-ZÅÄÖ]{0,2}\d{3,7})$/iu.exec(text);
+
+  if (command && !command[1]) {
+    await sendTelegramMessageToChat(chatId, [
+      '🚌 Расписание транспорта HSL',
+      'Напишите номер остановки, сфотографируйте табличку или отправьте геопозицию кнопкой ниже.',
+    ].join('\n\n'), {
+      reply_markup: {
+        keyboard: [[{ text: '📍 Найти остановки рядом', request_location: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+    return true;
+  }
+
+  const stopCode = command?.[1] || plainCode?.[1];
+  if (stopCode) {
+    await sendHslStopDepartures(chatId, stopCode);
+    return true;
+  }
+
+  if (message.location) {
+    const stops = await departuresNearLocation(message.location.latitude, message.location.longitude, hslTelegramOptions());
+    await sendTelegramMessageToChat(chatId, formatNearbyDepartures(stops), { reply_markup: { remove_keyboard: true } });
+    return true;
+  }
+
+  if (Array.isArray(message.photo) && message.photo.length) {
+    if (!process.env.OPENAI_API_KEY) {
+      await sendTelegramMessageToChat(chatId, 'Распознавание фото пока не настроено. Отправьте номер остановки текстом.');
+      return true;
+    }
+    await sendTelegramMessageToChat(chatId, '🔎 Читаю номер остановки на фотографии…');
+    const photo = message.photo[message.photo.length - 1];
+    const image = await downloadTelegramPhoto(photo.file_id, {
+      botToken: TELEGRAM_BOT_TOKEN,
+      apiBaseUrl: TELEGRAM_API_BASE_URL,
+      callTelegramMethod: callTelegramBotMethod,
+    });
+    const recognizedCode = await recognizeHslStopCode(image, {
+      apiKey: process.env.OPENAI_API_KEY,
+      model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-5-nano',
+    });
+    if (!recognizedCode) {
+      await sendTelegramMessageToChat(chatId, 'Не удалось уверенно прочитать номер. Сфотографируйте табличку ближе или напишите номер остановки текстом.');
+      return true;
+    }
+    await sendTelegramMessageToChat(chatId, `Распознал остановку ${recognizedCode}. Показываю отправления:`);
+    await sendHslStopDepartures(chatId, recognizedCode);
+    return true;
+  }
+  return false;
 }
 
 async function sendAdminTelegramNotification(event, title, lines = []) {
@@ -1853,6 +1934,8 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   }
   if (chatId && TELEGRAM_BOT_TOKEN) {
     try {
+      const hslHandled = await handleHslTelegramMessage(message);
+      if (hslHandled) return res.status(200).json({ ok: true });
       await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
         accountUrl: SITE_URL,
         linkSucceeded,
@@ -1860,6 +1943,17 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
       }));
     } catch (error) {
       console.error('[telegram webhook] не удалось отправить ответ:', error.message);
+      const wasHslRequest = Boolean(message?.location || message?.photo?.length
+        || /^\/hsl\b/iu.test(text) || /^[A-ZÅÄÖ]{0,2}\d{3,7}$/iu.test(text));
+      if (!wasHslRequest) return res.status(200).json({ ok: true });
+      try {
+        const messageText = error.code === 'missing_api_key'
+          ? 'Расписание HSL пока не настроено администратором. Нужно добавить ключ Digitransit.'
+          : 'Не удалось получить расписание HSL. Попробуйте ещё раз немного позже.';
+        await sendTelegramMessageToChat(chatId, messageText);
+      } catch (sendError) {
+        console.error('[telegram webhook] не удалось сообщить об ошибке:', sendError.message);
+      }
     }
   }
   return res.status(200).json({ ok: true });

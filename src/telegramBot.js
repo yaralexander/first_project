@@ -1,16 +1,17 @@
 const RUSSIAN_BOT_COMMANDS = Object.freeze([
   { command: 'start', description: 'Подключить персональную рассылку' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
+  { command: 'hsl', description: 'Расписание транспорта HSL' },
   { command: 'chatid', description: 'Показать ID этого Telegram-чата' },
   { command: 'help', description: 'Показать инструкцию' },
 ]);
 
 const RUSSIAN_BOT_DESCRIPTION = [
-  'Персональная рассылка «Финских Новостей».',
-  'Подключите аккаунт и получайте выбранные новости Финляндии на русском языке.',
+  'Персональная рассылка «Финских Новостей» и расписание транспорта HSL.',
+  'Получайте выбранные новости или найдите отправления по остановке, фото и геопозиции.',
 ].join(' ');
 
-const RUSSIAN_BOT_SHORT_DESCRIPTION = 'Новости Финляндии на русском языке — по вашим темам и расписанию.';
+const RUSSIAN_BOT_SHORT_DESCRIPTION = 'Новости Финляндии и расписание транспорта HSL на русском языке.';
 
 async function configureRussianTelegramBot(callMethod) {
   const localizedSettings = [
@@ -76,6 +77,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
     return [
       'Здравствуйте! Это бот «Финские Новости». 🇫🇮',
       'Он отправляет персональную подборку новостей на русском языке.',
+      'Команда /hsl показывает расписание транспорта по остановке, фотографии или геопозиции.',
       'Чтобы подключить рассылку, войдите в личный кабинет и нажмите «Подключить Telegram». Имя канала вводить не нужно.',
       accountLink,
     ].join('\n\n');
@@ -89,10 +91,18 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
     return `ID этого Telegram-чата: ${chatId || 'не определён'}`;
   }
 
+  if (/^\/hsl(?:@[A-Za-z0-9_]{5,32})?(?:\s.*)?$/i.test(normalizedText)) {
+    return [
+      '🚌 Расписание транспорта HSL',
+      'Отправьте номер остановки, например H1234. Можно также прислать фотографию таблички остановки или геопозицию.',
+    ].join('\n\n');
+  }
+
   return [
     'Я понимаю команды:',
     '/start — подключить персональную рассылку',
     '/settings — открыть настройки',
+    '/hsl — расписание транспорта HSL',
     '/chatid — показать ID этого чата',
     '/help — показать инструкцию',
   ].join('\n');
