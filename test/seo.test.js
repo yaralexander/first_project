@@ -65,6 +65,11 @@ test('listing page has CollectionPage and searchable website metadata', () => {
   assert.match(html, /"@type":"CollectionPage"/);
   assert.match(html, /"@type":"ItemList"/);
   assert.match(html, /https:\/\/finskienovosti\.fi\/search\?q=\{search_term_string\}/);
+  assert.match(html, /О приложении/);
+  assert.match(html, /Персональные новости Финляндии и транспорт HSL в одном сервисе/);
+  assert.match(html, /входа через Google/);
+  assert.match(html, /href="\/privacy"/);
+  assert.match(html, /href="\/terms"/);
 });
 
 test('sitemap keeps permanent article and archive URLs indexable', () => {
