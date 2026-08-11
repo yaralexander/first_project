@@ -248,7 +248,7 @@ function renderListPage({ title, description, canonicalPath, siteUrl, articles, 
   const pagination = previousPath || nextPath ? `<nav class="pagination" aria-label="Страницы">${previousPath ? `<a href="${previousPath}">← Новее</a>` : '<span></span>'}${nextPath ? `<a href="${nextPath}">Старее →</a>` : '<span></span>'}</nav>` : '';
   const headline = isHome ? 'Новости Финляндии на русском' : title;
   const bento = isHome && hero ? `<section class="bento" aria-label="Главные новости">${renderHeroCard(hero, categoryToSlug)}<div class="bento-side">${miniOne ? renderMiniCard(miniOne, categoryToSlug) : ''}${miniTwo ? renderMiniCard(miniTwo, categoryToSlug, true) : ''}</div></section>` : '';
-  const appPurpose = isHome ? `<section class="app-purpose" aria-labelledby="app-purpose-title"><div class="app-purpose-mark">${brandMark}</div><div><p class="eyebrow">О приложении</p><h2 id="app-purpose-title">Персональные новости Финляндии и транспорт HSL в одном сервисе</h2><p>«Финские Новости» переводят и кратко пересказывают новости финских источников на русском языке. После входа через Google пользователь может выбрать темы и источники, подключить личную доставку новостей в Telegram и смотреть ближайшие отправления HSL по номеру остановки или геопозиции.</p><div class="app-purpose-links"><a class="app-purpose-primary" href="/account/login">Войти и настроить приложение</a><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a></div></div></section>` : '';
+  const appPurpose = isHome ? `<section class="app-purpose" aria-labelledby="app-purpose-title"><div class="app-purpose-mark">${brandMark}</div><div><p class="eyebrow">О приложении</p><h2 id="app-purpose-title">Персональные новости Финляндии и транспорт HSL в одном сервисе</h2><p>«Финские Новости» переводят и кратко пересказывают новости финских источников на русском языке. После входа через Google пользователь может выбрать темы и источники, подключить личную доставку в Telegram, обсуждать материалы с новостным помощником и смотреть ближайшие отправления HSL по номеру остановки или геопозиции.</p><div class="app-purpose-links"><a class="app-purpose-primary" href="/account/login">Войти и настроить приложение</a><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a></div></div></section>` : '';
   const searchLead = `<section class="page-top search-page-head"><p class="eyebrow">Архив и поиск</p><h1 class="page-heading">Поиск по статьям</h1><p class="page-intro">Ищем в русских и финских заголовках и текстах всех опубликованных материалов.</p><form class="search-page-form" action="/search" method="get" role="search"><label for="archive-search">Запрос</label><div><input id="archive-search" name="q" type="search" value="${escapeHtml(searchQuery || '')}" placeholder="Например: Хельсинки" minlength="2" maxlength="120" required><button type="submit">Найти</button></div></form>${searchQuery ? `<p class="search-result-note">По запросу «${escapeHtml(searchQuery)}» найдено: ${total}</p>` : ''}</section>`;
   const homeLead = isHome ? '' : isSearch ? searchLead : `<section class="page-top"><p class="eyebrow">Лента новостей</p><h1 class="page-heading">${escapeHtml(headline)}</h1><p class="page-intro">${escapeHtml(description)}</p></section>${renderCategoryNavigation(articles, categoryToSlug)}`;
   const sourceOptions = [['', 'Все'], ['yle', 'YLE'], ['hs', 'HS'], ['il', 'Iltalehti'], ['is', 'Ilta-Sanomat']];
@@ -911,13 +911,13 @@ function renderAboutPage({ siteUrl }) {
 
 function renderPrivacyPage({ siteUrl }) {
   const content = `<article class="legal-page">
-    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Политика конфиденциальности</h1><p>Как сервис «Финские Новости» получает, использует и защищает данные пользователей.</p><small>Последнее обновление: 10 августа 2026 года</small></header>
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Политика конфиденциальности</h1><p>Как сервис «Финские Новости» получает, использует и защищает данные пользователей.</p><small>Последнее обновление: 11 августа 2026 года</small></header>
     <nav class="legal-summary" aria-label="Содержание"><strong>Кратко</strong><a href="#privacy-data">Какие данные собираются</a><a href="#privacy-use">Как они используются</a><a href="#privacy-sharing">Передача данных</a><a href="#privacy-rights">Ваши права</a></nav>
     <div class="legal-content">
       <section><h2>1. О сервисе</h2><p>«Финские Новости» (Finskie Novosti) — русскоязычный информационный сервис о Финляндии. Эта политика относится к сайту <a href="${escapeHtml(siteUrl)}">${escapeHtml(siteUrl)}</a>, личному кабинету и связанному Telegram-боту. По вопросам конфиденциальности можно обратиться через <a href="/contact">форму связи</a>.</p></section>
-      <section id="privacy-data"><h2>2. Какие данные мы получаем</h2><p>При входе через Google сервис получает только данные, необходимые для идентификации аккаунта: уникальный идентификатор Google, адрес электронной почты и отображаемое имя. Пароль Google сервису не передаётся и не хранится.</p><p>Если вы подключаете Telegram, сохраняются идентификатор связанного Telegram-чата, дата подключения и выбранные настройки рассылки: темы, источники, регионы, частота, время и тихие часы.</p><p>Для защиты и статистики могут обрабатываться технические данные запроса. Публичные просмотры учитываются с помощью необратимого дневного идентификатора; исходный IP-адрес и User-Agent в аналитической записи не сохраняются. Сообщение через форму связи содержит имя, email и текст, которые вы вводите самостоятельно.</p></section>
+      <section id="privacy-data"><h2>2. Какие данные мы получаем</h2><p>При входе через Google сервис получает только данные, необходимые для идентификации аккаунта: уникальный идентификатор Google, адрес электронной почты и отображаемое имя. Пароль Google сервису не передаётся и не хранится.</p><p>Если вы подключаете Telegram, сохраняются идентификатор связанного Telegram-чата, дата подключения и выбранные настройки рассылки: темы, источники, регионы, частота, время и тихие часы. Для персонального помощника пользователь может добровольно указать город, жизненную ситуацию, наличие детей, тип жилья, транспорт, интересы и специальные режимы. Также могут храниться выбранная для разговора статья, черновик комментария, сохранённые статьи, отслеживаемые темы, созданные напоминания и сообщения редакции об ошибках.</p><p>Для защиты и статистики могут обрабатываться технические данные запроса. Публичные просмотры учитываются с помощью необратимого дневного идентификатора; исходный IP-адрес и User-Agent в аналитической записи не сохраняются. Сообщение через форму связи содержит имя, email и текст, которые вы вводите самостоятельно.</p></section>
       <section id="privacy-use"><h2>3. Для чего используются данные</h2><ul><li>для входа и поддержания защищённой сессии;</li><li>для сохранения настроек личного кабинета;</li><li>для подключения Telegram и доставки выбранных материалов;</li><li>для предотвращения злоупотреблений, диагностики и агрегированной статистики;</li><li>для ответа на обращения пользователей.</li></ul><p>Данные Google используются исключительно для предоставления этих функций и в соответствии с настройками пользователя.</p></section>
-      <section id="privacy-sharing"><h2>4. Передача и внешние сервисы</h2><p>Мы не продаём персональные данные. Они могут технически обрабатываться поставщиками, необходимыми для работы сервиса: Google — для авторизации, Telegram — для доставки сообщений, Digitransit/HSL — для запросов расписания транспорта, а также инфраструктурным хостингом. В запросы расписания HSL не добавляются данные Google-аккаунта.</p><p>Данные могут быть раскрыты, если это необходимо для исполнения обязательного требования закона или защиты безопасности сервиса и пользователей.</p></section>
+      <section id="privacy-sharing"><h2>4. Передача и внешние сервисы</h2><p>Мы не продаём персональные данные. Они могут технически обрабатываться поставщиками, необходимыми для работы сервиса: Google — для авторизации, Telegram — для доставки сообщений, Digitransit/HSL — для запросов расписания транспорта, OpenAI — для ответов новостного помощника и распознавания голосовых вопросов, а также инфраструктурным хостингом. В запросы расписания HSL не добавляются данные Google-аккаунта. Помощнику передаются вопрос, добровольно заполненный профиль и тексты выбранных опубликованных материалов.</p><p>Данные могут быть раскрыты, если это необходимо для исполнения обязательного требования закона или защиты безопасности сервиса и пользователей.</p></section>
       <section><h2>5. Хранение и безопасность</h2><p>Сессионные токены хранятся только в виде хеша и имеют ограниченный срок действия. Настройки аккаунта и Telegram-связка хранятся, пока они нужны для работы выбранных функций. Анонимная аналитика хранится ограниченный период, установленный настройками сервера. Применяются разумные технические и организационные меры защиты, однако ни один интернет-сервис не может гарантировать абсолютную безопасность.</p></section>
       <section id="privacy-rights"><h2>6. Ваши права и удаление данных</h2><p>Вы можете изменить или отключить рассылку в личном кабинете. Вы также можете запросить доступ, исправление или удаление связанных с аккаунтом данных через <a href="/contact">форму связи</a>, указав email Google-аккаунта. Перед выполнением запроса может потребоваться подтверждение личности.</p></section>
       <section><h2>7. Изменения политики</h2><p>Политика может обновляться при изменении функций или требований. Актуальная версия всегда публикуется на этой странице с датой обновления.</p></section>
@@ -928,10 +928,10 @@ function renderPrivacyPage({ siteUrl }) {
 
 function renderTermsPage({ siteUrl }) {
   const content = `<article class="legal-page">
-    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Условия использования</h1><p>Правила использования сайта, личного кабинета и Telegram-бота «Финские Новости».</p><small>Последнее обновление: 10 августа 2026 года</small></header>
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Условия использования</h1><p>Правила использования сайта, личного кабинета и Telegram-бота «Финские Новости».</p><small>Последнее обновление: 11 августа 2026 года</small></header>
     <div class="legal-content">
       <section><h2>1. Принятие условий</h2><p>Используя сайт ${escapeHtml(siteUrl)}, личный кабинет или Telegram-бот, вы соглашаетесь с настоящими условиями и <a href="/privacy">Политикой конфиденциальности</a>. Если вы не согласны, прекратите использование сервиса.</p></section>
-      <section><h2>2. Назначение сервиса</h2><p>Сервис публикует краткие русскоязычные пересказы открытых новостных анонсов, ссылки на первоисточники, редакционные материалы, пользовательские комментарии и вспомогательные функции, включая персональную Telegram-ленту и расписание HSL.</p></section>
+      <section><h2>2. Назначение сервиса</h2><p>Сервис публикует краткие русскоязычные пересказы новостей, ссылки на первоисточники, редакционные материалы, пользовательские комментарии и вспомогательные функции, включая персональную Telegram-ленту, новостного помощника и расписание HSL. Ответы помощника носят информационный характер: возможное влияние и прогнозы могут быть неполными и не являются юридической, медицинской или финансовой консультацией.</p></section>
       <section><h2>3. Информационный характер</h2><p>Материалы предоставляются для общего информирования и могут содержать задержки, неточности или ошибки автоматического пересказа. Они не являются юридической, медицинской, финансовой или иной профессиональной консультацией. Для полного контекста следует обращаться к указанному первоисточнику.</p><p>Расписание транспорта поступает из Digitransit/HSL и может меняться в реальном времени. Перед поездкой проверяйте критически важную информацию в официальных сервисах HSL.</p></section>
       <section><h2>4. Аккаунт и безопасность</h2><p>Вход выполняется через Google. Пользователь отвечает за безопасность своего Google- и Telegram-аккаунта и за действия, совершённые через них. Запрещено пытаться получить доступ к чужому аккаунту, обходить ограничения, нарушать работу сервиса или использовать автоматизированные запросы, создающие чрезмерную нагрузку.</p></section>
       <section><h2>5. Комментарии и пользовательский контент</h2><p>Запрещены незаконные материалы, угрозы, травля, спам, публикация чужих персональных данных и нарушение авторских прав. Комментарии проходят модерацию и могут быть отклонены или удалены. Отправляя комментарий, пользователь разрешает показать введённые имя и текст на соответствующей странице новости.</p></section>
@@ -964,6 +964,12 @@ function renderTelegramInfoPage({ siteUrl }) {
       <div class="telegram-hsl-brand"><img src="/assets/hsl-logo.png" alt="Логотип HSL"><span>HSL</span></div>
       <div class="telegram-hsl-copy"><p class="eyebrow">Новая функция бота</p><h2 id="telegram-hsl-title">Расписание транспорта HSL прямо в Telegram</h2><p>Не нужно отдельно искать остановку в браузере. Откройте в боте команду <strong>/hsl</strong> и получите ближайшие отправления с отметкой времени в реальном времени.</p><div class="telegram-hsl-methods"><span>⌨️ Номер остановки</span><span>📍 Геопозиция</span></div><small>Расписание предоставляется на основе данных Digitransit/HSL.</small></div>
       <a class="telegram-hsl-button" href="/account">Подключить бота →</a>
+    </section>
+
+    <section class="telegram-hsl" aria-labelledby="telegram-assistant-title">
+      <div class="telegram-hsl-brand"><span>🤖</span></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Персональный помощник</p><h2 id="telegram-assistant-title">Обсуждайте новости с ботом</h2><p>Спросите, какие новости сегодня важны, как событие может затронуть вас или цены, попросите объяснить статью простыми словами, сравнить источники либо подобрать финские слова. Под каждой персональной новостью доступны кнопки вопросов, комментариев, сохранения и отслеживания темы.</p><div class="telegram-hsl-methods"><span>💬 Вопросы текстом и голосом</span><span>👤 Ответы с учётом профиля</span><span>✍️ Комментарии с модерацией</span></div><small>Бот отделяет факты от возможного влияния и показывает использованные статьи.</small></div>
+      <a class="telegram-hsl-button" href="/account#assistant-profile">Настроить помощника →</a>
     </section>
 
     <section class="telegram-benefits" aria-labelledby="telegram-benefits-title">
@@ -1029,6 +1035,7 @@ function renderAccountPage({
   siteUrl,
   user,
   subscription,
+  assistantProfile = {},
   categories = defaultCategories,
   sources = [],
   taxonomy = { tags: [], regions: [], audiences: [] },
@@ -1038,9 +1045,13 @@ function renderAccountPage({
   telegramLinkCode = '',
 }) {
   const selectedCategories = Array.isArray(subscription.categories) ? subscription.categories : [];
+  const assistantInterests = Array.isArray(assistantProfile.interests) ? assistantProfile.interests.join(', ') : '';
+  const assistantModes = new Set(Array.isArray(assistantProfile.modes) ? assistantProfile.modes : []);
   const selectedSources = Array.isArray(subscription.sourceIds) ? subscription.sourceIds : [];
   const selectedContentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
-  const selectedWordLevel = ['A1-A2', 'B1-B2', 'C1-C2'].includes(subscription.wordLevel) ? subscription.wordLevel : 'A1-A2';
+  const selectedWordLevels = new Set(Array.isArray(subscription.wordLevels) && subscription.wordLevels.length
+    ? subscription.wordLevels
+    : [['A1-A2', 'B1-B2', 'C1-C2'].includes(subscription.wordLevel) ? subscription.wordLevel : 'A1-A2']);
   const selectedExcludedCategories = Array.isArray(subscription.excludedCategories) ? subscription.excludedCategories : [];
   const selectedTagIds = new Set((subscription.tagIds || []).map(String));
   const selectedRegions = new Set(subscription.regionCodes || []);
@@ -1080,6 +1091,26 @@ function renderAccountPage({
       <div><dt>Частота</dt><dd>${subscription.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</dd></div>
       <div><dt>Лимит</dt><dd>${subscription.maxPostsPerDay} в день</dd></div>
     </dl>
+    <section class="account-card" id="assistant-profile">
+      <div class="account-section-head"><div><p class="eyebrow">Персональный помощник</p><h2>Что учитывать в ответах бота</h2></div><span>AI</span></div>
+      <p class="account-muted">Заполнять необязательно. Бот использует эти сведения только для выбора более полезных новостей и объяснения возможного влияния.</p>
+      <form class="account-form" method="post" action="/account/assistant-profile">
+        <div class="account-form-grid">
+          <label class="account-field"><span>Город</span><input name="city" maxlength="80" value="${escapeHtml(assistantProfile.city || '')}" placeholder="Например, Эспоо"></label>
+          <label class="account-field"><span>Ваша ситуация</span><select name="life_status"><option value="">Не указывать</option>${[['work','Работаю'],['study','Учусь'],['business','Предприниматель'],['jobseeker','Ищу работу'],['pension','Пенсионер']].map(([value,label]) => `<option value="${value}"${assistantProfile.lifeStatus === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+          <label class="account-field"><span>Жильё</span><select name="housing"><option value="">Не указывать</option><option value="rent"${assistantProfile.housing === 'rent' ? ' selected' : ''}>Арендую</option><option value="owner"${assistantProfile.housing === 'owner' ? ' selected' : ''}>Собственное жильё</option></select></label>
+          <label class="account-field"><span>Основной транспорт</span><select name="transport"><option value="">Не указывать</option><option value="hsl"${assistantProfile.transport === 'hsl' ? ' selected' : ''}>HSL</option><option value="car"${assistantProfile.transport === 'car' ? ' selected' : ''}>Автомобиль</option><option value="bike"${assistantProfile.transport === 'bike' ? ' selected' : ''}>Велосипед/пешком</option></select></label>
+        </div>
+        <label class="account-toggle account-toggle--compact"><input type="checkbox" name="has_children"${assistantProfile.hasChildren ? ' checked' : ''}><span><strong>У меня есть дети</strong><small>Учитывать новости школ, детских услуг и семейных пособий</small></span></label>
+        <fieldset class="account-fieldset"><legend>Специальные режимы помощника</legend><div class="account-choices">
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="family"${assistantModes.has('family') ? ' checked' : ''}><span>👨‍👩‍👧 Семья</span></label>
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="entrepreneur"${assistantModes.has('entrepreneur') ? ' checked' : ''}><span>💼 Предприниматель</span></label>
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="newcomer"${assistantModes.has('newcomer') ? ' checked' : ''}><span>🧭 Новый житель Финляндии</span></label>
+        </div></fieldset>
+        <label class="account-field"><span>Особые интересы через запятую</span><input name="interests" maxlength="500" value="${escapeHtml(assistantInterests)}" placeholder="Kela, налоги, иммиграция, образование"></label>
+        <div class="account-actions"><button class="account-button" type="submit">Сохранить профиль помощника</button></div>
+      </form>
+    </section>
     <div class="account-layout">
       <section class="account-card account-card--settings">
         <div class="account-section-head"><div><p class="eyebrow">Настройки</p><h2>Ваша новостная лента</h2></div><span>01</span></div>
@@ -1115,8 +1146,12 @@ function renderAccountPage({
               <label class="account-choice"><input type="checkbox" name="content_types" value="flag_days"${selectedContentTypes.includes('flag_days') ? ' checked' : ''}><span>🇫🇮 Дни флага</span></label>
               <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня</span></label>
             </div>
-            <label class="account-field"><span>Уровень финского для слова дня</span><select name="word_level"><option value="A1-A2"${selectedWordLevel === 'A1-A2' ? ' selected' : ''}>A1–A2 — начинающий</option><option value="B1-B2"${selectedWordLevel === 'B1-B2' ? ' selected' : ''}>B1–B2 — средний</option><option value="C1-C2"${selectedWordLevel === 'C1-C2' ? ' selected' : ''}>C1–C2 — продвинутый</option></select></label>
-            <small class="account-muted">Слово дня приходит ежедневно в выбранное время. Праздники и дни флага — только в соответствующие календарные даты.</small>
+            <fieldset class="account-fieldset"><legend>Уровни финского для слов дня</legend><div class="account-choices">
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="A1-A2"${selectedWordLevels.has('A1-A2') ? ' checked' : ''}><span>A1–A2 — начинающий</span></label>
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="B1-B2"${selectedWordLevels.has('B1-B2') ? ' checked' : ''}><span>B1–B2 — средний</span></label>
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="C1-C2"${selectedWordLevels.has('C1-C2') ? ' checked' : ''}><span>C1–C2 — продвинутый</span></label>
+            </div></fieldset>
+            <small class="account-muted">Ежедневно приходят три новых слова, три слова со вчерашнего дня для повторения и фраза дня. Можно выбрать один, два или все три уровня. Праздники и дни флага приходят только в соответствующие даты.</small>
           </fieldset>
           <fieldset class="account-fieldset account-quiet">
             <legend>Не беспокоить</legend>

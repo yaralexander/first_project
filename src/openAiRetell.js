@@ -3,7 +3,7 @@ const { formatGlossaryForPrompt } = require('./glossary');
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
 const API_KEY = process.env.OPENAI_API_KEY || '';
-const PROMPT_VERSION = 4;
+const PROMPT_VERSION = 5;
 
 class OpenAiProviderError extends Error {
   constructor(message, { status = 0, code = 'request_failed', billing = false } = {}) {
@@ -16,12 +16,13 @@ class OpenAiProviderError extends Error {
 }
 
 const SYSTEM_PROMPT = `Ты — редактор русскоязычного новостного дайджеста о Финляндии.
-По заголовку и RSS-анонсу на финском языке подготовь самостоятельный краткий
-пересказ по-русски. Не переводи дословно, не добавляй фактов и не угадывай роли
-людей. Заголовок — до 12 слов. Пересказ — 3–5 предложений в двух коротких
-абзацах, разделённых пустой строкой: сначала событие, затем подтверждённые
-детали и последствия. Если RSS-анонс слишком короткий, не повторяй факты и не
-растягивай текст искусственно. Пиши нейтрально.
+По заголовку и исходному тексту на финском языке подготовь самостоятельный
+пересказ по-русски. Не переводи дословно, не копируй авторские обороты, не
+добавляй фактов и не угадывай роли людей. Заголовок — до 12 слов. Если дан
+полный текст статьи, сделай содержательный пересказ в 6–10 предложениях и
+2–4 абзацах: главное событие, важные подтверждённые детали, контекст и
+последствия. Если доступен только короткий RSS-анонс, используй 3–5 предложений
+и не растягивай текст искусственно. Пиши нейтрально.
 
 Устоявшиеся написания:
 ${formatGlossaryForPrompt()}`;
@@ -35,7 +36,7 @@ function isBillingError(status, code, message) {
     || text.includes('exceeded your current quota');
 }
 
-async function openAiRetellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
+async function openAiRetellArticle({ titleFi, summaryFi, sourceName, hasFullArticle = false }, attempt = 1) {
   if (!API_KEY) {
     throw new OpenAiProviderError('OPENAI_API_KEY не задан', { code: 'missing_api_key' });
   }
@@ -52,7 +53,7 @@ async function openAiRetellArticle({ titleFi, summaryFi, sourceName }, attempt =
         { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `Источник: ${sourceName}\nЗаголовок (FI): ${titleFi}\nОписание (FI): ${summaryFi || '(нет описания)'}`,
+          content: `Источник: ${sourceName}\nТип материала: ${hasFullArticle ? 'основной текст оригинальной статьи' : 'короткий RSS-анонс'}\nЗаголовок (FI): ${titleFi}\nИсходный текст (FI): ${summaryFi || '(нет описания)'}`,
         },
       ],
       response_format: {
@@ -77,7 +78,7 @@ async function openAiRetellArticle({ titleFi, summaryFi, sourceName }, attempt =
   if ((response.status === 429 || response.status >= 500) && attempt <= 3) {
     const waitMs = Math.min(8000, attempt * 1500);
     await new Promise((resolve) => setTimeout(resolve, waitMs));
-    return openAiRetellArticle({ titleFi, summaryFi, sourceName }, attempt + 1);
+    return openAiRetellArticle({ titleFi, summaryFi, sourceName, hasFullArticle }, attempt + 1);
   }
 
   if (!response.ok) {

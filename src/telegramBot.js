@@ -1,5 +1,17 @@
 const RUSSIAN_BOT_COMMANDS = Object.freeze([
   { command: 'hsl', description: 'Расписание транспорта HSL' },
+  { command: 'today', description: 'Главные новости сегодня' },
+  { command: 'forme', description: 'Новости, важные лично для меня' },
+  { command: 'week', description: 'Итоги недели' },
+  { command: 'morning', description: 'Утренний дайджест' },
+  { command: 'evening', description: 'Вечерние итоги' },
+  { command: 'changes', description: 'Что изменилось со вчера' },
+  { command: 'calendar', description: 'Календарь изменений и напоминаний' },
+  { command: 'reminders', description: 'Мои напоминания' },
+  { command: 'saved', description: 'Сохранённые статьи' },
+  { command: 'follows', description: 'Темы, за которыми я слежу' },
+  { command: 'profile', description: 'Настроить личный профиль' },
+  { command: 'forget', description: 'Забыть текущий разговор' },
   { command: 'start', description: 'Подключить персональную рассылку' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
   { command: 'chatid', description: 'Показать ID этого Telegram-чата' },
@@ -44,7 +56,7 @@ async function configureTelegramWebhook(callMethod, { siteUrl, secret = '' } = {
 
   const body = {
     url,
-    allowed_updates: ['message'],
+    allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: false,
   };
   if (secret) body.secret_token = secret;
@@ -78,6 +90,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
       'Здравствуйте! Это бот «Финские Новости». 🇫🇮',
       'Он отправляет персональную подборку новостей на русском языке.',
       'Команда /hsl показывает расписание транспорта по номеру остановки или геопозиции.',
+      'Можно спросить: «Какие сегодня важные новости?», «Как это повлияет на меня?» или «Что будет с ценами?».',
       'Чтобы подключить рассылку, войдите в личный кабинет и нажмите «Подключить Telegram». Имя канала вводить не нужно.',
       accountLink,
     ].join('\n\n');
@@ -103,6 +116,18 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
     '/start — подключить персональную рассылку',
     '/settings — открыть настройки',
     '/hsl — расписание транспорта HSL',
+    '/today — главные новости сегодня',
+    '/forme — новости с учётом вашего профиля',
+    '/week — итоги недели',
+    '/morning — утренний дайджест',
+    '/evening — вечерние итоги',
+    '/changes — что изменилось со вчера',
+    '/calendar — календарь и напоминания',
+    '/reminders — ваши напоминания',
+    '/saved — сохранённые статьи',
+    '/follows — отслеживаемые темы',
+    '/profile — настроить персонализацию',
+    '/forget — забыть текущий разговор',
     '/chatid — показать ID этого чата',
     '/help — показать инструкцию',
   ].join('\n');

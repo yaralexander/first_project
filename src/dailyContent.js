@@ -140,19 +140,40 @@ function movableDays(year) {
   ]);
 }
 
-function contentForDate(now = new Date(), { wordLevel = 'A1-A2' } = {}) {
+function normalizeWordLevels(wordLevels, wordLevel) {
+  const requested = Array.isArray(wordLevels) ? wordLevels : [wordLevel];
+  const normalized = [...new Set(requested.filter((level) => WORD_LEVELS.has(level)))];
+  return normalized.length ? normalized : ['A1-A2'];
+}
+
+function wordsForDay(dayNumber, levels) {
+  return Array.from({ length: 3 }, (_, index) => {
+    const level = levels[index % levels.length];
+    const words = WORDS_BY_LEVEL[level];
+    const wordIndex = ((dayNumber * 3 + index) % words.length + words.length) % words.length;
+    return { level, word: words[wordIndex] };
+  });
+}
+
+function formatWords(items, { numbered = true } = {}) {
+  return items.map(({ level, word }, index) => `${numbered ? `${index + 1}. ` : ''}<b>${word[0]}</b> (${level}) — ${word[1]}`).join('\n');
+}
+
+function contentForDate(now = new Date(), { wordLevels, wordLevel = 'A1-A2' } = {}) {
   const parts = helsinkiDateParts(now);
   const key = dateKey(parts);
   const md = monthDay(parts);
   const dayNumber = Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day) / 86400000);
-  const normalizedWordLevel = WORD_LEVELS.has(wordLevel) ? wordLevel : 'A1-A2';
-  const words = WORDS_BY_LEVEL[normalizedWordLevel];
-  const word = words[((dayNumber % words.length) + words.length) % words.length];
+  const normalizedWordLevels = normalizeWordLevels(wordLevels, wordLevel);
+  const todayWords = wordsForDay(dayNumber, normalizedWordLevels);
+  const yesterdayWords = wordsForDay(dayNumber - 1, normalizedWordLevels);
+  const phrase = todayWords[0].word;
+  const levelLabel = normalizedWordLevels.join(' + ');
   const content = [{
     type: 'word',
-    key: `word:${key}:${normalizedWordLevel}`,
-    title: `💬 Слово дня (${normalizedWordLevel}): ${word[0]}`,
-    message: `${word[0]} — ${word[1]}.\n\n🇫🇮 ${word[2]}\n🇷🇺 ${word[3]}`,
+    key: `word:${key}:${normalizedWordLevels.join('+')}`,
+    title: `💬 Три финских слова дня (${levelLabel})`,
+    message: `🆕 <b>Три новых слова</b>\n${formatWords(todayWords)}\n\n🔁 <b>Повторяем вчерашние</b>\n${formatWords(yesterdayWords)}\n\n💡 <b>Фраза дня</b>\n🇫🇮 ${phrase[2]}\n🇷🇺 ${phrase[3]}`,
   }];
   const flagName = FLAG_DAYS.get(md)
     || (key === nthWeekdayOfMonth(parts.year, 5, 0, 2) ? 'День матери' : '')
@@ -191,4 +212,6 @@ module.exports = {
   contentForDate,
   easterSunday,
   helsinkiDateParts,
+  normalizeWordLevels,
+  wordsForDay,
 };

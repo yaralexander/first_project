@@ -8,8 +8,10 @@ const { fetchAllNews } = require('./fetchNews');
 const { getRussianVersion } = require('./russianVersion');
 const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
+const { googleTranslateFree } = require('./freeTranslate');
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
+  articleMatchesFollowedTopics,
   countLinks,
   createContactFormToken,
   createSlidingWindowRateLimiter,
@@ -31,6 +33,7 @@ const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
   buildTelegramMessage,
+  escapeTelegramHtml,
   canDeliverArticleNow,
   isDailyContentDue,
   isDeliveryScheduleDue,
@@ -42,6 +45,13 @@ const {
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
 const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
+const {
+  detectAssistantIntent,
+  extractFinnishWords,
+  generateGroundedAnswer,
+  parseReminderDate,
+  selectRelevantArticles,
+} = require('./telegramAssistant');
 const {
   createGoogleAuthProvider,
   createPkcePair,
@@ -111,12 +121,14 @@ const {
   getRelatedArticles,
   getAnalyticsSecret,
   getApprovedComments,
+  getCommentById,
   getLatestApprovedComments,
   getCategories,
   getNews,
   getOperationalMetrics,
   getRecentDuplicateArticles,
   getDuplicateArticleById,
+  getArticleSourceMentions,
   getHomeArticles,
   articleExists,
   cleanupAnalytics,
@@ -135,6 +147,22 @@ const {
   upsertUserSubscription,
   createTelegramLinkCode,
   getTelegramUserLink,
+  getTelegramUserByChatId,
+  getTelegramAssistantProfile,
+  saveTelegramAssistantProfile,
+  getTelegramConversation,
+  saveTelegramConversation,
+  clearTelegramConversation,
+  toggleTelegramTopicFollow,
+  getTelegramTopicFollows,
+  toggleTelegramSavedArticle,
+  getTelegramSavedArticles,
+  createTelegramReminder,
+  getTelegramReminders,
+  getDueTelegramReminders,
+  markTelegramReminderSent,
+  cancelTelegramReminder,
+  createArticleIssueReport,
   linkTelegramUser,
   deleteAdminSession,
   getAdminSession,
@@ -571,6 +599,7 @@ async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') 
       siteUrl: SITE_URL,
       user,
       subscription: sub,
+      assistantProfile: getTelegramAssistantProfile(user.googleSub),
       categories: managedCategories(),
       sources: getAdminSources().filter((source) => source.enabled),
       taxonomy: getManagedTaxonomy(),
@@ -813,6 +842,282 @@ async function sendTelegramMessageToChat(chatId, text, options = {}) {
   return result.message_id;
 }
 
+function personalArticleTelegramOptions(article) {
+  return {
+    parse_mode: 'HTML',
+    link_preview_options: { is_disabled: false },
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '🧩 Объяснить', callback_data: `news:explain:${article.id}` },
+          { text: '👤 Для меня', callback_data: `news:impact:${article.id}` },
+        ],
+        [
+          { text: '💬 Задать вопрос', callback_data: `news:ask:${article.id}` },
+          { text: '✍️ Комментировать', callback_data: `news:comment:${article.id}` },
+        ],
+        [
+          { text: '🔔 Следить', callback_data: `news:follow:${article.id}` },
+          { text: '🔖 Сохранить', callback_data: `news:save:${article.id}` },
+        ],
+        [
+          { text: '🗞 Источники', callback_data: `news:sources:${article.id}` },
+          { text: '🇫🇮 Финский', callback_data: `news:language:${article.id}` },
+        ],
+        [
+          { text: '⏰ Напомнить', callback_data: `news:remind:${article.id}` },
+          { text: '⚠️ Сообщить об ошибке', callback_data: `news:report:${article.id}` },
+        ],
+      ],
+    },
+  };
+}
+
+async function answerTelegramCallback(callbackId, text = '') {
+  if (!callbackId) return;
+  await callTelegramBotMethod('answerCallbackQuery', { callback_query_id: callbackId, text: String(text).slice(0, 180) });
+}
+
+function telegramArticleContext(article) {
+  return article ? `${article.titleRu || article.titleFi}\n\n${article.summaryRu || article.summaryFi || ''}` : '';
+}
+
+async function sendAssistantAnswer(chatId, user, question, { article = null } = {}) {
+  const profile = user ? getTelegramAssistantProfile(user.userId) : {};
+  const sourceArticles = article ? [article] : getArticles({ limit: 150 });
+  const relevant = article ? [article] : selectRelevantArticles(sourceArticles, question, { profile, limit: 5 });
+  const answer = await generateGroundedAnswer(question, relevant, { siteUrl: SITE_URL, profile });
+  await sendTelegramMessageToChat(chatId, answer, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+}
+
+async function handleTelegramCallbackQuery(callback) {
+  const chatId = callback?.message?.chat?.id;
+  const data = String(callback?.data || '');
+  if (!chatId || !data.startsWith('news:')) return false;
+  const [, action, rawArticleId] = data.split(':');
+  const articleId = Number.parseInt(rawArticleId, 10);
+  const article = articleId ? getArticleById(articleId) : null;
+  const user = getTelegramUserByChatId(chatId);
+  if (!user) {
+    await answerTelegramCallback(callback.id, 'Сначала подключите бота в личном кабинете');
+    await sendTelegramMessageToChat(chatId, `Для персональных функций подключите Telegram: ${SITE_URL}/account`);
+    return true;
+  }
+  if (!article) {
+    await answerTelegramCallback(callback.id, 'Статья больше недоступна');
+    return true;
+  }
+  await answerTelegramCallback(callback.id);
+  if (action === 'commentconfirm' || action === 'commentcancel') {
+    const conversation = getTelegramConversation(chatId);
+    if (action === 'commentconfirm' && conversation?.pendingAction === 'comment_confirm' && conversation.draftText) {
+      createComment({ articleId, authorName: user.displayName || 'Пользователь Telegram', body: conversation.draftText.slice(0, 1500), telegramChatId: chatId });
+      queueAdminTelegramNotification('comment_created', 'Новый комментарий из Telegram', [article.titleRu || article.titleFi, user.displayName || user.email || user.userId]);
+      await sendTelegramMessageToChat(chatId, '✅ Комментарий отправлен на модерацию. После одобрения он появится на странице статьи.');
+    } else {
+      await sendTelegramMessageToChat(chatId, 'Отправка комментария отменена.');
+    }
+    clearTelegramConversation(chatId);
+  } else if (action === 'ask') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'article_question' });
+    await sendTelegramMessageToChat(chatId, `Задайте вопрос по статье «${article.titleRu || article.titleFi}».`);
+  } else if (action === 'comment') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'comment_text' });
+    await sendTelegramMessageToChat(chatId, 'Напишите комментарий одним сообщением. Перед отправкой на модерацию я попрошу подтверждение.');
+  } else if (action === 'follow') {
+    const followed = toggleTelegramTopicFollow(user.userId, article.titleRu || article.titleFi);
+    await sendTelegramMessageToChat(chatId, followed ? '🔔 Я буду отслеживать продолжение этой темы.' : '🔕 Отслеживание этой темы выключено.');
+  } else if (action === 'save') {
+    const saved = toggleTelegramSavedArticle(user.userId, articleId);
+    await sendTelegramMessageToChat(chatId, saved ? '🔖 Статья сохранена.' : 'Статья удалена из сохранённых.');
+  } else if (action === 'remind') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'reminder_time' });
+    await sendTelegramMessageToChat(chatId, 'Когда напомнить? Напишите, например: «через 30 минут», «через 2 часа», «завтра» или «через неделю».');
+  } else if (action === 'report') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'issue_report' });
+    await sendTelegramMessageToChat(chatId, 'Опишите ошибку: неверный перевод, факт, имя, дата или другая проблема. Сообщение получит редакция.');
+  } else if (action === 'sources') {
+    const sources = getArticleSourceMentions(articleId);
+    await sendTelegramMessageToChat(chatId, sources.length > 1
+      ? `🗞 Эту тему упоминали несколько источников:\n\n${sources.map((source) => `• <a href="${escapeTelegramHtml(source.url)}">${escapeTelegramHtml(source.sourceName)}</a>${source.similarity < 1 ? ` — сходство ${Math.round(source.similarity * 100)}%` : ''}`).join('\n')}`
+      : 'Пока в базе есть только один источник этой новости.', { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  } else if (action === 'language') {
+    const words = extractFinnishWords(article, 5);
+    let vocabulary = words.map((word) => ({ word, translation: '' }));
+    try {
+      vocabulary = await Promise.all(words.map(async (word) => ({ word, translation: await googleTranslateFree(word) })));
+    } catch (error) {
+      console.warn('[telegram assistant] перевод слов недоступен:', error.message);
+    }
+    await sendTelegramMessageToChat(chatId, words.length
+      ? `🇫🇮 Слова из оригинала:\n\n${vocabulary.map(({ word, translation }, index) => `${index + 1}. ${word}${translation ? ` — ${translation}` : ''}`).join('\n')}\n\nНапишите, какое слово или предложение нужно объяснить.`
+      : 'В RSS-анонсе этой статьи недостаточно финского текста для упражнения.');
+  } else {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId });
+    const questions = {
+      explain: `Объясни простыми словами эту новость: ${telegramArticleContext(article)}`,
+      impact: `Как эта новость может повлиять на меня? ${telegramArticleContext(article)}`,
+      prices: `Как эта новость может отразиться на ценах? ${telegramArticleContext(article)}`,
+    };
+    await sendAssistantAnswer(chatId, user, questions[action] || `Расскажи об этой новости: ${telegramArticleContext(article)}`, { article });
+  }
+  return true;
+}
+
+async function handleTelegramAssistantMessage(message) {
+  const chatId = message?.chat?.id;
+  if (chatId && message?.voice) {
+    if (!process.env.OPENAI_API_KEY) {
+      await sendTelegramMessageToChat(chatId, 'Голосовые вопросы пока недоступны: на сервере не настроено распознавание речи. Напишите вопрос текстом.');
+      return true;
+    }
+    try {
+      if (Number(message.voice.file_size || 0) > 10 * 1024 * 1024) throw new Error('voice_too_large');
+      const file = await callTelegramBotMethod('getFile', { file_id: message.voice.file_id });
+      if (!file?.file_path) throw new Error('voice_file_missing');
+      const audioResponse = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(15000) });
+      if (!audioResponse.ok) throw new Error('voice_download_failed');
+      const form = new FormData();
+      form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
+      form.append('file', new Blob([await audioResponse.arrayBuffer()], { type: 'audio/ogg' }), 'question.ogg');
+      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: form, signal: AbortSignal.timeout(30000),
+      });
+      if (!transcriptionResponse.ok) throw new Error('voice_transcription_failed');
+      const transcript = String((await transcriptionResponse.json())?.text || '').trim();
+      if (!transcript) throw new Error('voice_empty');
+      await sendTelegramMessageToChat(chatId, `🎙 Я услышал: «${transcript}»`);
+      await sendAssistantAnswer(chatId, getTelegramUserByChatId(chatId), transcript);
+    } catch (error) {
+      console.error('[telegram voice] ошибка:', error.message);
+      await sendTelegramMessageToChat(chatId, 'Не удалось распознать голосовой вопрос. Попробуйте ещё раз или напишите его текстом.');
+    }
+    return true;
+  }
+  const text = typeof message?.text === 'string' ? message.text.trim() : '';
+  if (!chatId || !text) return false;
+  const user = getTelegramUserByChatId(chatId);
+  const conversation = getTelegramConversation(chatId);
+  if (/^\/forget\b/i.test(text)) {
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, 'Текущий разговор и выбранная статья забыты.');
+    return true;
+  }
+  if (/^\/profile\b/i.test(text)) {
+    await sendTelegramMessageToChat(chatId, user
+      ? `Настройте город, жизненную ситуацию и интересы в личном кабинете: ${SITE_URL}/account#assistant-profile`
+      : `Сначала подключите Telegram в личном кабинете: ${SITE_URL}/account`);
+    return true;
+  }
+  if (/^\/saved\b/i.test(text)) {
+    if (!user) return false;
+    const saved = getTelegramSavedArticles(user.userId);
+    await sendTelegramMessageToChat(chatId, saved.length ? `🔖 Сохранённые статьи:\n\n${saved.map((article) => `• <a href="${SITE_URL}/news/${encodeURIComponent(article.slug)}">${escapeTelegramHtml(article.titleRu || article.titleFi)}</a>`).join('\n')}` : 'Сохранённых статей пока нет.', { parse_mode: 'HTML' });
+    return true;
+  }
+  if (/^\/follows\b/i.test(text)) {
+    if (!user) return false;
+    const follows = getTelegramTopicFollows(user.userId);
+    await sendTelegramMessageToChat(chatId, follows.length ? `🔔 Вы следите за темами:\n\n${follows.map((topic) => `• ${topic}`).join('\n')}` : 'Вы пока не отслеживаете отдельные темы.');
+    return true;
+  }
+  if (/^\/(calendar|reminders)\b/i.test(text)) {
+    if (!user) return false;
+    const reminders = getTelegramReminders(user.userId);
+    const format = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Helsinki', dateStyle: 'short', timeStyle: 'short' });
+    await sendTelegramMessageToChat(chatId, reminders.length
+      ? `📅 Ваши ближайшие напоминания:\n\n${reminders.map((item) => `• #${item.id} · ${format.format(new Date(item.remindAt))}\n${item.reminderText}`).join('\n\n')}\n\nЧтобы отменить: /cancelreminder НОМЕР`
+      : 'Напоминаний пока нет. Нажмите «⏰ Напомнить» под нужной новостью.');
+    return true;
+  }
+  const cancelReminderMatch = /^\/cancelreminder\s+(\d+)\b/i.exec(text);
+  if (cancelReminderMatch && user) {
+    const cancelled = cancelTelegramReminder(user.userId, Number(cancelReminderMatch[1]));
+    await sendTelegramMessageToChat(chatId, cancelled ? 'Напоминание отменено.' : 'Активное напоминание с таким номером не найдено.');
+    return true;
+  }
+  if (/^\/changes\b/i.test(text)) {
+    await sendAssistantAnswer(chatId, user, 'Что изменилось со вчера? Покажи только новые события, решения и продолжения тем за последние сутки.');
+    return true;
+  }
+  if (conversation?.pendingAction === 'reminder_time' && conversation.articleId) {
+    const remindAt = parseReminderDate(text);
+    if (!remindAt) {
+      await sendTelegramMessageToChat(chatId, 'Не понял время. Напишите: «через 30 минут», «через 2 часа», «завтра» или «через неделю».');
+      return true;
+    }
+    const article = getArticleById(conversation.articleId);
+    createTelegramReminder({
+      userId: user.userId, chatId, articleId: conversation.articleId,
+      reminderText: article?.titleRu || article?.titleFi || 'Вернуться к статье',
+      remindAt: remindAt.toISOString(),
+    });
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, `⏰ Напоминание установлено на ${new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Helsinki', dateStyle: 'short', timeStyle: 'short' }).format(remindAt)}.`);
+    return true;
+  }
+  if (conversation?.pendingAction === 'issue_report' && conversation.articleId) {
+    const article = getArticleById(conversation.articleId);
+    createArticleIssueReport({ articleId: conversation.articleId, userId: user?.userId, reportType: 'reader_report', body: text });
+    createAdminNotification({ notificationKey: `article-report-${conversation.articleId}-${Date.now()}`, level: 'warning', title: 'Читатель сообщил об ошибке в статье', body: `${article?.titleRu || article?.titleFi || 'Статья'}\n\n${text}` });
+    queueAdminTelegramNotification('subscription_changed', 'Читатель сообщил об ошибке в статье', [article?.titleRu || article?.titleFi || '', text.slice(0, 500)]);
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, 'Спасибо! Сообщение отправлено редакции на проверку.');
+    return true;
+  }
+  if (conversation?.pendingAction === 'comment_text') {
+    saveTelegramConversation({ ...conversation, chatId, draftText: text, pendingAction: 'comment_confirm' });
+    await sendTelegramMessageToChat(chatId, `Комментарий перед отправкой:\n\n${text}\n\nОтправить на модерацию?`, {
+      reply_markup: { inline_keyboard: [[
+        { text: '✅ Отправить', callback_data: `news:commentconfirm:${conversation.articleId}` },
+        { text: '✖ Отмена', callback_data: `news:commentcancel:${conversation.articleId}` },
+      ]] },
+    });
+    return true;
+  }
+  if (conversation?.pendingAction === 'article_question' && conversation.articleId) {
+    const article = getArticleById(conversation.articleId);
+    saveTelegramConversation({ ...conversation, chatId, pendingAction: '' });
+    await sendAssistantAnswer(chatId, user, text, { article });
+    return true;
+  }
+  if (conversation?.articleId && !text.startsWith('/')
+    && ['impact', 'prices', 'explain', 'language', 'verify'].includes(detectAssistantIntent(text))) {
+    const article = getArticleById(conversation.articleId);
+    await sendAssistantAnswer(chatId, user, text, { article });
+    return true;
+  }
+  if (/^\/(today|forme|week|morning|evening)\b/i.test(text) || !text.startsWith('/')) {
+    const command = /^\/(today|forme|week|morning|evening)\b/i.exec(text)?.[1];
+    const question = command === 'today' ? 'Какие сегодня самые важные новости?'
+      : command === 'forme' ? 'Какие новости могут повлиять лично на меня?'
+        : command === 'week' ? 'Какие главные новости были за неделю?'
+          : command === 'morning' ? 'Сделай короткий утренний дайджест важных новостей и того, что стоит учитывать сегодня.'
+            : command === 'evening' ? 'Подведи итоги сегодняшнего дня и выдели важное на завтра.' : text;
+    await sendAssistantAnswer(chatId, user, question);
+    return true;
+  }
+  return false;
+}
+
+async function deliverDueTelegramReminders(now = new Date()) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, failed: 0 };
+  const reminders = getDueTelegramReminders(now.toISOString());
+  let delivered = 0;
+  let failed = 0;
+  for (const reminder of reminders) {
+    try {
+      const link = reminder.articleSlug ? `\n\n${SITE_URL}/news/${encodeURIComponent(reminder.articleSlug)}` : '';
+      await sendTelegramMessageToChat(reminder.chatId, `⏰ Напоминание\n\n${reminder.reminderText}${link}`);
+      if (markTelegramReminderSent(reminder.id)) delivered += 1;
+    } catch (error) {
+      failed += 1;
+      console.error('[telegram reminder] ошибка доставки:', error.message);
+    }
+  }
+  return { delivered, failed };
+}
+
 function hslTelegramOptions() {
   return { apiKey: DIGITRANSIT_API_KEY };
 }
@@ -1038,8 +1343,9 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       skipped += 1;
       continue;
     }
+    const followedTopics = getTelegramTopicFollows(subscription.userId);
     const eligible = articles.filter((article) => (
-      articleMatchesSubscription(article, subscription)
+      (articleMatchesSubscription(article, subscription) || articleMatchesFollowedTopics(article, followedTopics))
       && canDeliverArticleNow(article, subscription)
       && !isArticleSuppressedByQuietHours(article, subscription)
       && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })
@@ -1062,7 +1368,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
               siteUrl: SITE_URL,
               includeOriginal: subscription.includeOriginal !== false,
             }),
-            { parse_mode: 'HTML', link_preview_options: { is_disabled: false } },
+            personalArticleTelegramOptions(article),
           );
           if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
             delivered += 1;
@@ -1088,7 +1394,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
         const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
           siteUrl: SITE_URL,
           includeOriginal: subscription.includeOriginal !== false,
-        }), { parse_mode: 'HTML', link_preview_options: { is_disabled: false } });
+        }), personalArticleTelegramOptions(article));
         if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
           delivered += 1;
           sentToday += 1;
@@ -1116,7 +1422,7 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
-    const items = contentForDate(now, { wordLevel: subscription.wordLevel });
+    const items = contentForDate(now, { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel });
     const selected = new Set(subscription.contentTypes || []);
     if (!isDailyContentDue(subscription, now)
       || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
@@ -1132,6 +1438,7 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
         const messageId = await sendTelegramMessageToChat(
           subscription.telegramChatId,
           buildDailyContentMessage(item, SITE_URL),
+          item.type === 'word' ? { parse_mode: 'HTML' } : {},
         );
         if (recordTelegramContentDelivery({
           userId: subscription.userId,
@@ -1162,7 +1469,7 @@ async function processTelegramRetryQueue() {
       articleId: task.payload.articleId,
     });
     const suppressedBySettings = subscription && article && (
-      !articleMatchesSubscription(article, subscription)
+      !(articleMatchesSubscription(article, subscription) || articleMatchesFollowedTopics(article, getTelegramTopicFollows(subscription.userId)))
       || !canDeliverArticleNow(article, subscription)
       || isArticleSuppressedByQuietHours(article, subscription)
     );
@@ -1175,7 +1482,7 @@ async function processTelegramRetryQueue() {
       const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
         siteUrl: SITE_URL,
         includeOriginal: subscription.includeOriginal !== false,
-      }), { parse_mode: 'HTML', link_preview_options: { is_disabled: false } });
+      }), personalArticleTelegramOptions(article));
       recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId });
       recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'sent', telegramMessageId });
       completeTask(task.id);
@@ -1807,6 +2114,26 @@ app.get('/account/auth/google/callback', async (req, res) => {
   try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); const created = createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); if (created.isNew) queueAdminTelegramNotification('user_registered', 'Новый пользователь зарегистрирован', [identity.displayName || '', identity.email]); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
 });
 app.get('/account', async (req, res) => simpleAccountPage(req, res));
+app.post('/account/assistant-profile', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const allowedStatuses = new Set(['work', 'study', 'business', 'jobseeker', 'pension']);
+  const allowedHousing = new Set(['rent', 'owner']);
+  const allowedTransport = new Set(['hsl', 'car', 'bike']);
+  const interests = String(req.body.interests || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 20);
+  const requestedModes = Array.isArray(req.body.assistant_modes) ? req.body.assistant_modes : (req.body.assistant_modes ? [req.body.assistant_modes] : []);
+  const allowedModes = new Set(['family', 'entrepreneur', 'newcomer']);
+  saveTelegramAssistantProfile(user.googleSub, {
+    city: String(req.body.city || '').trim(),
+    lifeStatus: allowedStatuses.has(req.body.life_status) ? req.body.life_status : '',
+    hasChildren: req.body.has_children === 'on',
+    housing: allowedHousing.has(req.body.housing) ? req.body.housing : '',
+    transport: allowedTransport.has(req.body.transport) ? req.body.transport : '',
+    interests,
+    modes: requestedModes.filter((mode) => allowedModes.has(mode)),
+  });
+  return simpleAccountPage(req, res, 'Профиль персонального помощника сохранён.');
+});
 app.post('/account/subscription', async (req, res) => {
   const user = getUserAuth(req);
   if (!user) return res.redirect(303, '/account/login');
@@ -1818,6 +2145,7 @@ app.post('/account/subscription', async (req, res) => {
   const requestedAudiences = Array.isArray(req.body.audience_codes) ? req.body.audience_codes : (req.body.audience_codes ? [req.body.audience_codes] : []);
   const requestedDeliveryWeekdays = Array.isArray(req.body.delivery_weekdays) ? req.body.delivery_weekdays : (req.body.delivery_weekdays ? [req.body.delivery_weekdays] : []);
   const requestedQuietWeekdays = Array.isArray(req.body.quiet_weekdays) ? req.body.quiet_weekdays : (req.body.quiet_weekdays ? [req.body.quiet_weekdays] : []);
+  const requestedWordLevels = Array.isArray(req.body.word_levels) ? req.body.word_levels : (req.body.word_levels ? [req.body.word_levels] : []);
   const taxonomy = getManagedTaxonomy();
   const allowedSourceIds = new Set(getAdminSources().filter((source) => source.enabled).map((source) => source.sourceId));
   const allowedTagIds = new Set(taxonomy.tags.filter((tag) => tag.isVisible).map((tag) => String(tag.id)));
@@ -1842,7 +2170,7 @@ app.post('/account/subscription', async (req, res) => {
     quietEnd,
     timezone: 'Europe/Helsinki',
     contentTypes: normalizeContentTypes(req.body.content_types),
-    wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(req.body.word_level) ? req.body.word_level : 'A1-A2',
+    wordLevels: requestedWordLevels.filter((level) => ['A1-A2', 'B1-B2', 'C1-C2'].includes(level)),
     excludedCategories: requestedExcludedCategories.filter((category) => managedCategories().includes(category)),
     tagIds: requestedTags.map(String).filter((id) => allowedTagIds.has(id)),
     regionCodes: requestedRegions.filter((code) => allowedRegionCodes.has(code)),
@@ -1903,6 +2231,15 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   if (TELEGRAM_WEBHOOK_SECRET && req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) {
     return res.status(403).json({ ok: false });
   }
+  const callbackQuery = req.body && req.body.callback_query;
+  if (callbackQuery) {
+    try {
+      await handleTelegramCallbackQuery(callbackQuery);
+    } catch (error) {
+      console.error('[telegram callback] ошибка:', error.message);
+    }
+    return res.status(200).json({ ok: true });
+  }
   const message = req.body && req.body.message;
   const text = message && typeof message.text === 'string' ? message.text.trim() : '';
   const chatId = message && message.chat && message.chat.id;
@@ -1921,6 +2258,8 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
     try {
       const hslHandled = await handleHslTelegramMessage(message);
       if (hslHandled) return res.status(200).json({ ok: true });
+      const assistantHandled = await handleTelegramAssistantMessage(message);
+      if (assistantHandled) return res.status(200).json({ ok: true });
       await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
         accountUrl: SITE_URL,
         linkSucceeded,
@@ -2539,9 +2878,19 @@ app.post('/admin/comments/:id', requireAdminOrigin, (req, res) => {
   return res.redirect(303, '/admin');
 });
 
-app.post('/admin/comments/:id/approve', requireAdminOrigin, (req, res) => {
+app.post('/admin/comments/:id/approve', requireAdminOrigin, async (req, res) => {
   const id = parseCommentId(req.params.id);
-  if (id && updateCommentStatus(id, 'approved')) auditAdminAction(req, 'comment.approve', 'comment', id);
+  const comment = id ? getCommentById(id) : null;
+  if (id && updateCommentStatus(id, 'approved')) {
+    auditAdminAction(req, 'comment.approve', 'comment', id);
+    if (comment?.telegramChatId) {
+      try {
+        await sendTelegramMessageToChat(comment.telegramChatId, `✅ Ваш комментарий опубликован.\n\n${SITE_URL}/news/${encodeURIComponent(comment.articleSlug)}#comments-heading`);
+      } catch (error) {
+        console.error('[telegram comment approval] уведомление не отправлено:', error.message);
+      }
+    }
+  }
   res.redirect(303, '/admin');
 });
 
@@ -2566,6 +2915,7 @@ app.listen(PORT, () => {
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
   runScheduledPublishing().catch((error) => console.error('[startup scheduled publish] ошибка:', error.message));
   deliverDailyContentToSubscriptions().catch((error) => console.error('[startup telegram daily content] ошибка:', error.message));
+  deliverDueTelegramReminders().catch((error) => console.error('[startup telegram reminders] ошибка:', error.message));
   safeRefresh();
   cleanupAnalytics(ANALYTICS_RETENTION_DAYS);
   cleanupAdminAuthData();
@@ -2601,6 +2951,10 @@ cron.schedule('* * * * *', () => deliverDailyContentToSubscriptions().catch((err
   name: 'telegram-daily-content',
   noOverlap: true,
   timezone: 'Europe/Helsinki',
+});
+cron.schedule('* * * * *', () => deliverDueTelegramReminders().catch((error) => console.error('[telegram-reminders] ошибка:', error.message)), {
+  name: 'telegram-reminders',
+  noOverlap: true,
 });
 cron.schedule('0 10 * * *', () => runDailyTelegramDigest({ retryOnly: true }).catch((error) => console.error('[telegram-digest-retry] ошибка:', error.message)), {
   name: 'telegram-digest-retry',

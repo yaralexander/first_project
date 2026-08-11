@@ -6,10 +6,27 @@ const path = require('node:path');
 const databasePath = path.join(os.tmpdir(), `finskienovosti-fetch-dedupe-${process.pid}-${Date.now()}.db`);
 process.env.DATABASE_PATH = databasePath;
 const {
+  fetchArticleText,
   findPendingSimilarArticle,
   rememberPendingArticle,
   resetPendingArticles,
 } = require('../src/fetchNews');
+
+test('uses the main article text when the source page is readable', async () => {
+  const paragraph = 'Это содержательный абзац оригинальной новости. '.repeat(12);
+  const text = await fetchArticleText('https://example.com/news', {
+    fetcher: async () => ({ html: `<title>Новость</title><article>${paragraph}</article>` }),
+  });
+  assert.ok(text.length >= 300);
+  assert.match(text, /содержательный абзац/);
+});
+
+test('falls back to RSS when the source page cannot be read', async () => {
+  const text = await fetchArticleText('https://example.com/closed', {
+    fetcher: async () => { throw new Error('blocked'); },
+  });
+  assert.equal(text, '');
+});
 
 test.after(() => {
   for (const suffix of ['', '-wal', '-shm']) {

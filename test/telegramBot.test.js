@@ -78,7 +78,7 @@ test('configures a secure Telegram webhook for the personal bot', async () => {
     method: 'setWebhook',
     body: {
       url: 'https://finskienovosti.fi/telegram/webhook',
-      allowed_updates: ['message'],
+        allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: false,
       secret_token: 'safe_webhook_secret',
     },

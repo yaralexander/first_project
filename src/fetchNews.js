@@ -15,6 +15,7 @@ const {
 } = require('./db');
 const { slugify } = require('./slugify');
 const { compareArticles } = require('./articleSimilarity');
+const { extractArticleContent, fetchExternalHtml } = require('./importArticle');
 
 const parser = new Parser({
   timeout: 15000,
@@ -79,6 +80,21 @@ function stripHtml(html = '') {
     .trim();
 }
 
+async function fetchArticleText(originalUrl, {
+  fetcher = fetchExternalHtml,
+  extractor = extractArticleContent,
+} = {}) {
+  try {
+    const { html } = await fetcher(originalUrl);
+    const { text } = extractor(html);
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    return normalized.length >= 300 ? normalized.slice(0, 12000) : '';
+  } catch (error) {
+    console.warn(`[fetchSource] полный текст недоступен (${originalUrl}): ${error.message}`);
+    return '';
+  }
+}
+
 async function fetchSource(source) {
   let inserted = 0;
   let skipped = 0;
@@ -128,10 +144,15 @@ async function fetchSource(source) {
 
       rememberPendingArticle({ sourceId: source.id, sourceName: source.name, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
 
+      const articleTextFi = await fetchArticleText(originalUrl);
+      const translationSourceFi = articleTextFi.length > summaryFi.length ? articleTextFi : summaryFi;
+      const usesFullArticle = translationSourceFi === articleTextFi && Boolean(articleTextFi);
+
       const result = await limitAiCalls(() => getRussianVersion({
         titleFi,
-        summaryFi: summaryFi.slice(0, 800),
+        summaryFi: translationSourceFi,
         sourceName: source.name,
+        hasFullArticle: usesFullArticle,
       }));
 
       if (result.method === 'fallback-original') {
@@ -147,6 +168,8 @@ async function fetchSource(source) {
         slug: slugify(result.titleRu || titleFi, originalUrl || entry.guid),
         category,
         titleFi,
+        // Keep only the public RSS excerpt in our database. The source page text
+        // is used transiently to create the Russian retelling and is not republished.
         summaryFi,
         titleRu: result.titleRu,
         summaryRu: result.summaryRu,
@@ -195,4 +218,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { fetchAllNews, findPendingSimilarArticle, getCachedNews, rememberPendingArticle, resetPendingArticles };
+module.exports = { fetchAllNews, fetchArticleText, findPendingSimilarArticle, getCachedNews, rememberPendingArticle, resetPendingArticles };

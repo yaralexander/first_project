@@ -11,19 +11,21 @@ const { formatGlossaryForPrompt } = require('./glossary');
 
 // Увеличивайте это число при каждом смысловом изменении SYSTEM_PROMPT или
 // glossary.js — версия сохраняется у каждой новой статьи в SQLite.
-const PROMPT_VERSION = 3;
+const PROMPT_VERSION = 4;
 
 const SYSTEM_PROMPT = `Ты — редактор русскоязычного новостного дайджеста о Финляндии.
-Тебе присылают заголовок и краткое описание новости на финском языке (взятые из
-публичного RSS-анонса финского СМИ). Твоя задача — НЕ переводить дословно, а
-кратко и своими словами пересказать суть по-русски.
+Тебе присылают заголовок и исходный текст новости на финском языке. Это может
+быть основной текст статьи или короткий RSS-анонс. Твоя задача — НЕ переводить
+дословно и не копировать авторские обороты, а своими словами пересказать суть
+по-русски.
 
 Правила:
 1. titleRu — короткий заголовок на русском (до 12 слов), передающий суть, но
    сформулированный самостоятельно, а не как калька финской фразы.
-2. summaryRu — пересказ в 3–5 своих предложениях и двух коротких абзацах,
-   разделённых символами \\n\\n. Первый абзац сообщает, что произошло; второй
-   объясняет подтверждённые детали и последствия. Только факты, которые
+2. summaryRu — если дан основной текст статьи, содержательный пересказ в 6–10
+   своих предложениях и 2–4 абзацах, разделённых символами \\n\\n. Если дан
+   лишь RSS-анонс — 3–5 предложений. Сообщи событие, важные подтверждённые
+   детали, контекст и последствия. Только факты, которые
    действительно есть в исходном тексте. Ничего не выдумывай и не добавляй
    деталей, которых нет в оригинале. Если RSS-анонс слишком короткий для двух
    содержательных абзацев, не растягивай его искусственно и не повторяй факты.
@@ -65,14 +67,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
+async function retellArticle({ titleFi, summaryFi, sourceName, hasFullArticle = false }, attempt = 1) {
   if (!ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY не задан в .env');
   }
 
   const userMessage = `Источник: ${sourceName}
 Заголовок (FI): ${titleFi}
-Описание (FI): ${summaryFi || '(описание отсутствует в RSS)'}`;
+Тип материала: ${hasFullArticle ? 'основной текст оригинальной статьи' : 'короткий RSS-анонс'}
+Исходный текст (FI): ${summaryFi || '(описание отсутствует)'}`;
 
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -83,7 +86,7 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 500,
+      max_tokens: 900,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -97,7 +100,7 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
     const waitMs = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : attempt * 1500;
     console.warn(`[aiRetell] ${res.status} — повтор через ${Math.round(waitMs)}мс (попытка ${attempt}/4): "${titleFi.slice(0, 50)}..."`);
     await sleep(waitMs);
-    return retellArticle({ titleFi, summaryFi, sourceName }, attempt + 1);
+    return retellArticle({ titleFi, summaryFi, sourceName, hasFullArticle }, attempt + 1);
   }
 
   if (!res.ok) {

@@ -6,6 +6,10 @@ test('слово дня создаётся каждый день и имеет �
   const items = contentForDate(new Date('2026-07-29T09:00:00Z'));
   assert.equal(items[0].type, 'word');
   assert.equal(items[0].key, 'word:2026-07-29:A1-A2');
+  assert.match(items[0].title, /Три финских слова/);
+  assert.match(items[0].message, /Три новых слова/);
+  assert.match(items[0].message, /Повторяем вчерашние/);
+  assert.match(items[0].message, /Фраза дня/);
   assert.match(items[0].message, /🇫🇮/);
   assert.match(items[0].message, /🇷🇺/);
 });
@@ -20,6 +24,16 @@ test('слово дня соответствует выбранному уров
   assert.match(advanced.title, /C1-C2/);
   assert.notEqual(beginner.message, intermediate.message);
   assert.notEqual(intermediate.message, advanced.message);
+});
+
+test('можно одновременно выбрать несколько уровней слова дня', () => {
+  const item = contentForDate(new Date('2026-07-29T09:00:00Z'), {
+    wordLevels: ['A1-A2', 'B1-B2', 'C1-C2'],
+  })[0];
+  assert.equal(item.key, 'word:2026-07-29:A1-A2+B1-B2+C1-C2');
+  assert.match(item.message, /\(A1-A2\)/);
+  assert.match(item.message, /\(B1-B2\)/);
+  assert.match(item.message, /\(C1-C2\)/);
 });
 
 test('официальный день флага и праздник определяются по календарю', () => {

@@ -49,6 +49,7 @@ function createDatabase() {
       article_id INTEGER NOT NULL,
       author_name TEXT NOT NULL,
       body TEXT NOT NULL,
+      telegram_chat_id TEXT,
       status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
@@ -225,6 +226,7 @@ function createDatabase() {
       timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki',
       content_types TEXT NOT NULL DEFAULT 'news',
       word_level TEXT NOT NULL DEFAULT 'A1-A2',
+      word_levels TEXT NOT NULL DEFAULT 'A1-A2',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS telegram_user_deliveries (
@@ -245,6 +247,61 @@ function createDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_content_deliveries_user_day
       ON telegram_content_deliveries (user_id, sent_at DESC);
+    CREATE TABLE IF NOT EXISTS telegram_assistant_profiles (
+      user_id TEXT PRIMARY KEY,
+      city TEXT NOT NULL DEFAULT '',
+      life_status TEXT NOT NULL DEFAULT '',
+      has_children INTEGER NOT NULL DEFAULT 0,
+      housing TEXT NOT NULL DEFAULT '',
+      transport TEXT NOT NULL DEFAULT '',
+      interests TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS telegram_conversations (
+      chat_id TEXT PRIMARY KEY,
+      user_id TEXT,
+      article_id INTEGER,
+      pending_action TEXT NOT NULL DEFAULT '',
+      draft_text TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS telegram_topic_follows (
+      user_id TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(user_id, topic)
+    );
+    CREATE TABLE IF NOT EXISTS telegram_saved_articles (
+      user_id TEXT NOT NULL,
+      article_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(user_id, article_id),
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS telegram_reminders (
+      id INTEGER PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      article_id INTEGER,
+      reminder_text TEXT NOT NULL,
+      remind_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','cancelled')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      sent_at TEXT,
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_reminders_due ON telegram_reminders(status, remind_at);
+    CREATE TABLE IF NOT EXISTS article_issue_reports (
+      id INTEGER PRIMARY KEY,
+      article_id INTEGER NOT NULL,
+      user_id TEXT,
+      report_type TEXT NOT NULL DEFAULT 'other',
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','reviewed','closed')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
   `);
 
   const articleColumns = new Set(db.prepare('PRAGMA table_info(articles)').all().map((column) => column.name));
@@ -265,6 +322,12 @@ function createDatabase() {
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_articles_editorial_order ON articles (pinned_until, editorial_status, published_at DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_articles_scheduled_publish ON articles (publication_status, scheduled_publish_at)');
+
+  const commentColumns = new Set(db.prepare('PRAGMA table_info(comments)').all().map((column) => column.name));
+  if (!commentColumns.has('telegram_chat_id')) db.exec('ALTER TABLE comments ADD COLUMN telegram_chat_id TEXT');
+
+  const assistantProfileColumns = new Set(db.prepare('PRAGMA table_info(telegram_assistant_profiles)').all().map((column) => column.name));
+  if (!assistantProfileColumns.has('modes')) db.exec("ALTER TABLE telegram_assistant_profiles ADD COLUMN modes TEXT NOT NULL DEFAULT ''");
 
   const duplicateColumns = new Set(db.prepare('PRAGMA table_info(article_duplicate_log)').all().map((column) => column.name));
   if (!duplicateColumns.has('summary_fi')) db.exec('ALTER TABLE article_duplicate_log ADD COLUMN summary_fi TEXT');
@@ -297,6 +360,10 @@ function createDatabase() {
   if (!userSubscriptionColumns.has('timezone')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Europe/Helsinki'");
   if (!userSubscriptionColumns.has('content_types')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN content_types TEXT NOT NULL DEFAULT 'news'");
   if (!userSubscriptionColumns.has('word_level')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN word_level TEXT NOT NULL DEFAULT 'A1-A2'");
+  if (!userSubscriptionColumns.has('word_levels')) {
+    db.exec("ALTER TABLE user_subscriptions ADD COLUMN word_levels TEXT NOT NULL DEFAULT 'A1-A2'");
+    db.exec("UPDATE user_subscriptions SET word_levels = word_level WHERE word_level IN ('A1-A2','B1-B2','C1-C2')");
+  }
   if (!userSubscriptionColumns.has('importance_filter')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN importance_filter TEXT NOT NULL DEFAULT 'all'");
   if (!userSubscriptionColumns.has('updated_at')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
@@ -732,6 +799,19 @@ function getDuplicateArticleById(id) {
     similarity: row.similarity,
     resolution: row.resolution,
   } : null;
+}
+
+function getArticleSourceMentions(articleId) {
+  const article = db.prepare('SELECT source_name, original_url, title_ru, title_fi FROM articles WHERE id = ?').get(articleId);
+  if (!article) return [];
+  const duplicates = db.prepare(`
+    SELECT source_name, original_url, title_fi, similarity
+    FROM article_duplicate_log
+    WHERE matched_article_id = ? AND resolution <> 'dismissed'
+    ORDER BY similarity DESC, last_seen_at DESC
+  `).all(articleId);
+  return [{ sourceName: article.source_name, url: article.original_url, title: article.title_ru || article.title_fi, similarity: 1 },
+    ...duplicates.map((row) => ({ sourceName: row.source_name, url: row.original_url, title: row.title_fi, similarity: row.similarity }))];
 }
 
 function resolveDuplicateArticle({ id, resolution, resolvedBy }) {
@@ -1666,6 +1746,7 @@ function getUserSubscription(userId) {
     timezone: 'Europe/Helsinki',
     contentTypes: ['news'],
     wordLevel: 'A1-A2',
+    wordLevels: ['A1-A2'],
     excludedCategories: [],
     tagIds: [],
     regionCodes: ['finland'],
@@ -1696,6 +1777,7 @@ function getUserSubscription(userId) {
       quietEnd: row.quiet_end || defaults.quietEnd,
       timezone: row.timezone || defaults.timezone,
       contentTypes: csvValues(row.content_types, defaults.contentTypes),
+      wordLevels: csvValues(row.word_levels || row.word_level, defaults.wordLevels).filter((level) => ['A1-A2', 'B1-B2', 'C1-C2'].includes(level)),
       wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(row.word_level) ? row.word_level : defaults.wordLevel,
       excludedCategories: csvValues(row.excluded_categories),
       tagIds: csvValues(row.tag_ids),
@@ -1720,7 +1802,7 @@ function getActiveUserSubscriptions() {
       subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
       subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
       subscriptions.timezone, subscriptions.content_types, subscriptions.excluded_categories,
-      subscriptions.word_level,
+      subscriptions.word_level, subscriptions.word_levels,
       subscriptions.tag_ids, subscriptions.region_codes, subscriptions.audience_codes,
       subscriptions.minimum_importance, subscriptions.delivery_times,
       subscriptions.delivery_weekdays, subscriptions.quiet_weekdays,
@@ -1745,6 +1827,7 @@ function getActiveUserSubscriptions() {
     quietEnd: row.quiet_end || '07:00',
     timezone: row.timezone || 'Europe/Helsinki',
     contentTypes: csvValues(row.content_types, ['news']),
+    wordLevels: csvValues(row.word_levels || row.word_level, ['A1-A2']).filter((level) => ['A1-A2', 'B1-B2', 'C1-C2'].includes(level)),
     wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(row.word_level) ? row.word_level : 'A1-A2',
     excludedCategories: csvValues(row.excluded_categories),
     tagIds: csvValues(row.tag_ids),
@@ -1775,6 +1858,7 @@ function upsertUserSubscription({
   timezone = 'Europe/Helsinki',
   contentTypes = ['news'],
   wordLevel = 'A1-A2',
+  wordLevels,
   excludedCategories = [],
   tagIds = [],
   regionCodes = ['finland'],
@@ -1799,6 +1883,7 @@ function upsertUserSubscription({
     quietEnd,
     timezone,
     contentTypes,
+    wordLevels: [...new Set((Array.isArray(wordLevels) ? wordLevels : [wordLevel]).filter((level) => ['A1-A2', 'B1-B2', 'C1-C2'].includes(level)))],
     wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(wordLevel) ? wordLevel : 'A1-A2',
     excludedCategories,
     tagIds,
@@ -1810,15 +1895,16 @@ function upsertUserSubscription({
     quietWeekdays,
     allowCriticalDuringQuiet: Boolean(allowCriticalDuringQuiet),
   };
+  if (!settings.wordLevels.length) settings.wordLevels = ['A1-A2'];
   const save = db.transaction(() => {
     db.prepare(`
       INSERT INTO user_subscriptions (
         user_id, enabled, frequency, categories, scope, importance, importance_filter, source_ids,
         max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
-        quiet_end, timezone, content_types, word_level, excluded_categories, tag_ids,
+        quiet_end, timezone, content_types, word_level, word_levels, excluded_categories, tag_ids,
         region_codes, audience_codes, minimum_importance, delivery_times,
         delivery_weekdays, quiet_weekdays, allow_critical_during_quiet, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         enabled=excluded.enabled,
         frequency=excluded.frequency,
@@ -1835,6 +1921,7 @@ function upsertUserSubscription({
         timezone=excluded.timezone,
         content_types=excluded.content_types,
         word_level=excluded.word_level,
+        word_levels=excluded.word_levels,
         excluded_categories=excluded.excluded_categories,
         tag_ids=excluded.tag_ids,
         region_codes=excluded.region_codes,
@@ -1850,7 +1937,7 @@ function upsertUserSubscription({
       settings.importance === 'urgent' ? 'important' : settings.importance, settings.importance,
       sourceIds.join(','), maxPostsPerDay, settings.includeOriginal ? 1 : 0,
       settings.quietHoursEnabled ? 1 : 0, quietStart, quietEnd, timezone,
-      contentTypes.join(','), settings.wordLevel, excludedCategories.join(','), tagIds.join(','),
+      contentTypes.join(','), settings.wordLevels[0] || settings.wordLevel, settings.wordLevels.join(','), excludedCategories.join(','), tagIds.join(','),
       regionCodes.join(','), audienceCodes.join(','), settings.minimumImportance,
       deliveryTimes.join(','), deliveryWeekdays.join(','), quietWeekdays.join(','),
       settings.allowCriticalDuringQuiet ? 1 : 0,
@@ -1877,6 +1964,146 @@ function getTelegramUserLink(userId) {
     if (process.env.NODE_ENV !== 'test') console.error('[db] failed to load telegram user link', error);
     return null;
   }
+}
+function getTelegramUserByChatId(chatId) {
+  const row = db.prepare(`
+    SELECT links.user_id, users.email, users.display_name
+    FROM telegram_user_links AS links
+    LEFT JOIN users ON users.google_sub = links.user_id
+    WHERE links.telegram_chat_id = ?
+  `).get(String(chatId));
+  return row ? { userId: row.user_id, email: row.email || '', displayName: row.display_name || '' } : null;
+}
+
+function getTelegramAssistantProfile(userId) {
+  const row = db.prepare('SELECT * FROM telegram_assistant_profiles WHERE user_id = ?').get(userId);
+  return row ? {
+    city: row.city,
+    lifeStatus: row.life_status,
+    hasChildren: Boolean(row.has_children),
+    housing: row.housing,
+    transport: row.transport,
+    interests: csvValues(row.interests),
+    modes: csvValues(row.modes),
+  } : { city: '', lifeStatus: '', hasChildren: false, housing: '', transport: '', interests: [], modes: [] };
+}
+
+function saveTelegramAssistantProfile(userId, profile = {}) {
+  const interests = Array.isArray(profile.interests) ? profile.interests : [];
+  const modes = Array.isArray(profile.modes) ? profile.modes : [];
+  return db.prepare(`
+    INSERT INTO telegram_assistant_profiles
+      (user_id, city, life_status, has_children, housing, transport, interests, modes, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET city=excluded.city, life_status=excluded.life_status,
+      has_children=excluded.has_children, housing=excluded.housing, transport=excluded.transport,
+      interests=excluded.interests, modes=excluded.modes, updated_at=CURRENT_TIMESTAMP
+  `).run(userId, String(profile.city || '').slice(0, 80), String(profile.lifeStatus || '').slice(0, 80),
+    profile.hasChildren ? 1 : 0, String(profile.housing || '').slice(0, 80),
+    String(profile.transport || '').slice(0, 80), interests.join(','), modes.join(',')).changes > 0;
+}
+
+function getTelegramConversation(chatId) {
+  const row = db.prepare('SELECT * FROM telegram_conversations WHERE chat_id = ?').get(String(chatId));
+  return row ? { chatId: row.chat_id, userId: row.user_id, articleId: row.article_id, pendingAction: row.pending_action, draftText: row.draft_text } : null;
+}
+
+function saveTelegramConversation({ chatId, userId = null, articleId = null, pendingAction = '', draftText = '' }) {
+  return db.prepare(`
+    INSERT INTO telegram_conversations (chat_id, user_id, article_id, pending_action, draft_text, updated_at)
+    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(chat_id) DO UPDATE SET user_id=excluded.user_id, article_id=excluded.article_id,
+      pending_action=excluded.pending_action, draft_text=excluded.draft_text, updated_at=CURRENT_TIMESTAMP
+  `).run(String(chatId), userId, articleId, pendingAction, String(draftText || '').slice(0, 3000)).changes > 0;
+}
+
+function clearTelegramConversation(chatId) {
+  return db.prepare('DELETE FROM telegram_conversations WHERE chat_id = ?').run(String(chatId)).changes > 0;
+}
+
+function toggleTelegramTopicFollow(userId, topic) {
+  const normalized = String(topic || '').trim().slice(0, 120);
+  if (!normalized) return false;
+  const existing = db.prepare('SELECT 1 FROM telegram_topic_follows WHERE user_id = ? AND topic = ?').get(userId, normalized);
+  if (existing) {
+    db.prepare('DELETE FROM telegram_topic_follows WHERE user_id = ? AND topic = ?').run(userId, normalized);
+    return false;
+  }
+  db.prepare('INSERT INTO telegram_topic_follows (user_id, topic) VALUES (?, ?)').run(userId, normalized);
+  return true;
+}
+
+function getTelegramTopicFollows(userId) {
+  return db.prepare('SELECT topic FROM telegram_topic_follows WHERE user_id = ? ORDER BY created_at DESC').all(userId).map((row) => row.topic);
+}
+
+function toggleTelegramSavedArticle(userId, articleId) {
+  const existing = db.prepare('SELECT 1 FROM telegram_saved_articles WHERE user_id = ? AND article_id = ?').get(userId, articleId);
+  if (existing) {
+    db.prepare('DELETE FROM telegram_saved_articles WHERE user_id = ? AND article_id = ?').run(userId, articleId);
+    return false;
+  }
+  db.prepare('INSERT INTO telegram_saved_articles (user_id, article_id) VALUES (?, ?)').run(userId, articleId);
+  return true;
+}
+
+function getTelegramSavedArticles(userId, limit = 20) {
+  return db.prepare(`
+    SELECT articles.* FROM telegram_saved_articles
+    JOIN articles ON articles.id = telegram_saved_articles.article_id
+    WHERE telegram_saved_articles.user_id = ? AND articles.publication_status = 'published'
+    ORDER BY telegram_saved_articles.created_at DESC LIMIT ?
+  `).all(userId, Math.min(50, Math.max(1, Number(limit) || 20))).map(toArticle);
+}
+
+function createTelegramReminder({ userId, chatId, articleId = null, reminderText, remindAt }) {
+  return db.prepare(`
+    INSERT INTO telegram_reminders (user_id, chat_id, article_id, reminder_text, remind_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(userId, String(chatId), articleId, String(reminderText || '').slice(0, 500), remindAt).lastInsertRowid;
+}
+
+function getTelegramReminders(userId, { pendingOnly = true, limit = 30 } = {}) {
+  return db.prepare(`
+    SELECT reminders.*, articles.slug, articles.title_ru, articles.title_fi
+    FROM telegram_reminders AS reminders
+    LEFT JOIN articles ON articles.id = reminders.article_id
+    WHERE reminders.user_id = ? ${pendingOnly ? "AND reminders.status = 'pending'" : ''}
+    ORDER BY reminders.remind_at ASC LIMIT ?
+  `).all(userId, Math.min(100, Math.max(1, Number(limit) || 30))).map((row) => ({
+    id: row.id, userId: row.user_id, chatId: row.chat_id, articleId: row.article_id,
+    reminderText: row.reminder_text, remindAt: row.remind_at, status: row.status,
+    articleSlug: row.slug, articleTitle: row.title_ru || row.title_fi || '',
+  }));
+}
+
+function getDueTelegramReminders(now = new Date().toISOString(), limit = 50) {
+  return db.prepare(`
+    SELECT reminders.*, articles.slug, articles.title_ru, articles.title_fi
+    FROM telegram_reminders AS reminders
+    LEFT JOIN articles ON articles.id = reminders.article_id
+    WHERE reminders.status = 'pending' AND datetime(reminders.remind_at) <= datetime(?)
+    ORDER BY reminders.remind_at ASC LIMIT ?
+  `).all(now, Math.min(100, Math.max(1, Number(limit) || 50))).map((row) => ({
+    id: row.id, userId: row.user_id, chatId: row.chat_id, articleId: row.article_id,
+    reminderText: row.reminder_text, remindAt: row.remind_at,
+    articleSlug: row.slug, articleTitle: row.title_ru || row.title_fi || '',
+  }));
+}
+
+function markTelegramReminderSent(id) {
+  return db.prepare("UPDATE telegram_reminders SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(id).changes === 1;
+}
+
+function cancelTelegramReminder(userId, id) {
+  return db.prepare("UPDATE telegram_reminders SET status = 'cancelled' WHERE id = ? AND user_id = ? AND status = 'pending'").run(id, userId).changes === 1;
+}
+
+function createArticleIssueReport({ articleId, userId = null, reportType = 'other', body }) {
+  return db.prepare(`
+    INSERT INTO article_issue_reports (article_id, user_id, report_type, body)
+    VALUES (?, ?, ?, ?)
+  `).run(articleId, userId, String(reportType || 'other').slice(0, 40), String(body || '').slice(0, 2000)).lastInsertRowid;
 }
 function countTelegramUserDeliveries({ userId, day }) {
   const row = db.prepare(`
@@ -1999,11 +2226,22 @@ function getOperationalMetrics() {
   return { queue, delivery, searches };
 }
 
-function createComment({ articleId, authorName, body }) {
+function createComment({ articleId, authorName, body, telegramChatId = null }) {
   return db.prepare(`
-    INSERT INTO comments (article_id, author_name, body, status)
-    VALUES (?, ?, ?, 'pending')
-  `).run(articleId, authorName, body).lastInsertRowid;
+    INSERT INTO comments (article_id, author_name, body, telegram_chat_id, status)
+    VALUES (?, ?, ?, ?, 'pending')
+  `).run(articleId, authorName, body, telegramChatId ? String(telegramChatId) : null).lastInsertRowid;
+}
+
+function getCommentById(commentId) {
+  const row = db.prepare(`
+    SELECT comments.id, comments.article_id, comments.author_name, comments.body,
+      comments.status, comments.telegram_chat_id, articles.slug, articles.title_ru, articles.title_fi
+    FROM comments JOIN articles ON articles.id = comments.article_id WHERE comments.id = ?
+  `).get(commentId);
+  return row ? { id: row.id, articleId: row.article_id, authorName: row.author_name, body: row.body,
+    status: row.status, telegramChatId: row.telegram_chat_id, articleSlug: row.slug,
+    articleTitle: row.title_ru || row.title_fi } : null;
 }
 
 function getApprovedComments(articleId) {
@@ -2366,6 +2604,7 @@ module.exports = {
   getRelatedArticles,
   getHomeArticles,
   getApprovedComments,
+  getCommentById,
   getLatestApprovedComments,
   getCategories,
   getNews,
@@ -2381,6 +2620,7 @@ module.exports = {
   getRecentDuplicateArticles,
   getArticleRankingSignals,
   getDuplicateArticleById,
+  getArticleSourceMentions,
   getSourceCounts,
   getSitemapArticles,
   getTelegramPublication,
@@ -2402,6 +2642,22 @@ module.exports = {
   createTelegramLinkCode,
   linkTelegramUser,
   getTelegramUserLink,
+  getTelegramUserByChatId,
+  getTelegramAssistantProfile,
+  saveTelegramAssistantProfile,
+  getTelegramConversation,
+  saveTelegramConversation,
+  clearTelegramConversation,
+  toggleTelegramTopicFollow,
+  getTelegramTopicFollows,
+  toggleTelegramSavedArticle,
+  getTelegramSavedArticles,
+  createTelegramReminder,
+  getTelegramReminders,
+  getDueTelegramReminders,
+  markTelegramReminderSent,
+  cancelTelegramReminder,
+  createArticleIssueReport,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,

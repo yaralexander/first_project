@@ -203,12 +203,12 @@ test('user statistics render persisted users and subscription topics', () => {
     enabled: true,
     categories: ['Экономика', 'Работа'],
     sourceIds: ['yle'],
-    wordLevel: 'B1-B2',
+    wordLevels: ['B1-B2', 'C1-C2'],
   });
   const statistics = db.getUserStatistics();
   assert.equal(statistics.totals.registered, 1);
   assert.equal(statistics.users[0].email, 'reader@example.com');
   assert.deepEqual(statistics.users[0].categories, ['Экономика', 'Работа']);
-  assert.equal(db.getUserSubscription('reader-google-sub').wordLevel, 'B1-B2');
+  assert.deepEqual(db.getUserSubscription('reader-google-sub').wordLevels, ['B1-B2', 'C1-C2']);
   assert.equal(statistics.topics.find((topic) => topic.name === 'Экономика').count, 1);
 });
