@@ -27,7 +27,9 @@ test('configures Russian Telegram commands and descriptions for default and ru l
   assert.equal(calls[4].body.language_code, 'ru');
   assert.equal(calls[5].body.language_code, 'ru');
   assert.ok(calls.every(({ body }) => JSON.stringify(body).match(/[А-Яа-яЁё]/)));
-  assert.equal(RUSSIAN_BOT_COMMANDS[0].command, 'hsl');
+  assert.deepEqual(RUSSIAN_BOT_COMMANDS.map(({ command }) => command), [
+    'today', 'forme', 'hsl', 'offers', 'settings', 'help',
+  ]);
 });
 
 test('returns clear Russian replies for linking, help and settings', () => {

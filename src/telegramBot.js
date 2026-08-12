@@ -1,9 +1,8 @@
 const RUSSIAN_BOT_COMMANDS = Object.freeze([
-  { command: 'hsl', description: 'Расписание транспорта HSL' },
-  { command: 'offers', description: 'Акции магазинов рядом' },
   { command: 'today', description: 'Главные новости сегодня' },
   { command: 'forme', description: 'Новости, важные лично для меня' },
-  { command: 'saved', description: 'Сохранённые статьи' },
+  { command: 'hsl', description: 'Расписание транспорта HSL' },
+  { command: 'offers', description: 'Акции магазинов рядом' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
   { command: 'help', description: 'Показать инструкцию' },
 ]);
