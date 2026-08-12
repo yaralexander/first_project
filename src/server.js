@@ -49,6 +49,7 @@ const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = requir
 const {
   detectAssistantIntent,
   extractFinnishWords,
+  fallbackAnswer,
   generateGroundedAnswer,
   parseReminderDate,
   selectRelevantArticles,
@@ -871,12 +872,32 @@ function telegramArticleContext(article) {
   return article ? `${article.titleRu || article.titleFi}\n\n${article.summaryRu || article.summaryFi || ''}` : '';
 }
 
-async function sendAssistantAnswer(chatId, user, question, { article = null } = {}) {
+async function sendAssistantAnswer(chatId, user, question, { article = null, fast = false, announce = false } = {}) {
   const profile = user ? getTelegramAssistantProfile(user.userId) : {};
   const sourceArticles = article ? [article] : getArticles({ limit: 150 });
   const relevant = article ? [article] : selectRelevantArticles(sourceArticles, question, { profile, limit: 5 });
-  const answer = await generateGroundedAnswer(question, relevant, { siteUrl: SITE_URL, profile });
-  await sendTelegramMessageToChat(chatId, answer, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  let pendingMessageId = null;
+  if (announce) {
+    pendingMessageId = await sendTelegramMessageToChat(chatId, '⏳ Собираю и проверяю свежие новости…');
+  }
+  const answer = fast
+    ? fallbackAnswer(question, relevant, { siteUrl: SITE_URL, intent: detectAssistantIntent(question), profile })
+    : await generateGroundedAnswer(question, relevant, { siteUrl: SITE_URL, profile });
+  const options = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
+  if (pendingMessageId) {
+    try {
+      await callTelegramBotMethod('editMessageText', {
+        chat_id: chatId,
+        message_id: pendingMessageId,
+        text: answer,
+        ...options,
+      });
+      return;
+    } catch (error) {
+      console.warn('[telegram assistant] не удалось заменить сообщение ожидания:', error.message);
+    }
+  }
+  await sendTelegramMessageToChat(chatId, answer, options);
 }
 
 async function handleTelegramCallbackQuery(callback) {
@@ -1083,7 +1104,10 @@ async function handleTelegramAssistantMessage(message) {
         : command === 'week' ? 'Какие главные новости были за неделю?'
           : command === 'morning' ? 'Сделай короткий утренний дайджест важных новостей и того, что стоит учитывать сегодня.'
             : command === 'evening' ? 'Подведи итоги сегодняшнего дня и выдели важное на завтра.' : text;
-    await sendAssistantAnswer(chatId, user, question);
+    await sendAssistantAnswer(chatId, user, question, {
+      fast: ['today', 'forme'].includes(command),
+      announce: ['today', 'forme', 'week', 'morning', 'evening'].includes(command),
+    });
     return true;
   }
   return false;

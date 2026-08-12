@@ -1174,7 +1174,7 @@ function renderAccountPage({
             <small class="account-muted">Часовой пояс: Финляндия (Europe/Helsinki), с автоматическим переходом на летнее время.</small>
           </fieldset>
           <label class="account-toggle account-toggle--compact"><input type="checkbox" name="include_original"${subscription.includeOriginal ? ' checked' : ''}><span><strong>Добавлять ссылку на оригинал</strong><small>Можно прочитать полный материал у источника</small></span></label>
-          <div class="account-actions"><button class="account-button" type="submit">Сохранить настройки</button><a class="account-button account-button--ghost" href="/account">Обновить</a></div>
+          <div class="account-actions"><button class="account-button" type="submit">Сохранить настройки</button></div>
         </form>
       </section>
       <aside class="account-side">
