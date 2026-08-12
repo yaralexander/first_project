@@ -25,8 +25,11 @@ function assertSharedSiteShell(html) {
   assert.match(html, /\.article-navigation a\{[^}]*color:var\(--ink\)/);
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
-  assert.match(html, /class="utility-theme-status"/);
-  assert.match(html, /prefers-color-scheme/);
+  assert.match(html, /class="utility-button utility-theme-status"[^>]*data-theme-toggle/);
+  assert.match(html, /localStorage\.getItem\(themeKey\)/);
+  assert.match(html, /savedTheme='light'/);
+  assert.match(html, /localStorage\.getItem\(themeKey\)==='dark'\?'dark':'light'/);
+  assert.doesNotMatch(html, /prefers-color-scheme:\s*dark/);
   assert.match(html, /class="telegram-promo"/);
   assert.match(html, /href="\/telegram"/);
 }
