@@ -11,19 +11,24 @@ const { formatGlossaryForPrompt } = require('./glossary');
 
 // Увеличивайте это число при каждом смысловом изменении SYSTEM_PROMPT или
 // glossary.js — версия сохраняется у каждой новой статьи в SQLite.
-const PROMPT_VERSION = 2;
+const PROMPT_VERSION = 4;
 
 const SYSTEM_PROMPT = `Ты — редактор русскоязычного новостного дайджеста о Финляндии.
-Тебе присылают заголовок и краткое описание новости на финском языке (взятые из
-публичного RSS-анонса финского СМИ). Твоя задача — НЕ переводить дословно, а
-кратко и своими словами пересказать суть по-русски.
+Тебе присылают заголовок и исходный текст новости на финском языке. Это может
+быть основной текст статьи или короткий RSS-анонс. Твоя задача — НЕ переводить
+дословно и не копировать авторские обороты, а своими словами пересказать суть
+по-русски.
 
 Правила:
 1. titleRu — короткий заголовок на русском (до 12 слов), передающий суть, но
    сформулированный самостоятельно, а не как калька финской фразы.
-2. summaryRu — пересказ в 2–3 своих предложениях. Только факты, которые
+2. summaryRu — если дан основной текст статьи, содержательный пересказ в 6–10
+   своих предложениях и 2–4 абзацах, разделённых символами \\n\\n. Если дан
+   лишь RSS-анонс — 3–5 предложений. Сообщи событие, важные подтверждённые
+   детали, контекст и последствия. Только факты, которые
    действительно есть в исходном тексте. Ничего не выдумывай и не добавляй
-   деталей, которых нет в оригинале.
+   деталей, которых нет в оригинале. Если RSS-анонс слишком короткий для двух
+   содержательных абзацев, не растягивай его искусственно и не повторяй факты.
 3. КРИТИЧЕСКИ ВАЖНО: если в тексте упоминается имя человека, но его роль,
    профессия или должность явно не указаны — НЕ придумывай и не угадывай,
    кем он является. Не пиши "основатель компании", "хакер", "директор" и
@@ -62,14 +67,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
+async function retellArticle({ titleFi, summaryFi, sourceName, hasFullArticle = false }, attempt = 1) {
   if (!ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY не задан в .env');
   }
 
   const userMessage = `Источник: ${sourceName}
 Заголовок (FI): ${titleFi}
-Описание (FI): ${summaryFi || '(описание отсутствует в RSS)'}`;
+Тип материала: ${hasFullArticle ? 'основной текст оригинальной статьи' : 'короткий RSS-анонс'}
+Исходный текст (FI): ${summaryFi || '(описание отсутствует)'}`;
 
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -80,7 +86,7 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 300,
+      max_tokens: 900,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -94,7 +100,7 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
     const waitMs = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : attempt * 1500;
     console.warn(`[aiRetell] ${res.status} — повтор через ${Math.round(waitMs)}мс (попытка ${attempt}/4): "${titleFi.slice(0, 50)}..."`);
     await sleep(waitMs);
-    return retellArticle({ titleFi, summaryFi, sourceName }, attempt + 1);
+    return retellArticle({ titleFi, summaryFi, sourceName, hasFullArticle }, attempt + 1);
   }
 
   if (!res.ok) {
@@ -113,4 +119,14 @@ async function retellArticle({ titleFi, summaryFi, sourceName }, attempt = 1) {
   return { titleRu: parsed.titleRu.trim(), summaryRu: parsed.summaryRu.trim() };
 }
 
-module.exports = { retellArticle, PROMPT_VERSION };
+async function generateEditorialDiscussions({ titleRu, summaryRu, category }, attempt = 1) {
+  if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY не задан в .env');
+  const response = await fetch(API_URL, { method:'POST', headers:{'x-api-key':ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01','Content-Type':'application/json'}, body:JSON.stringify({ model:MODEL, max_tokens:900, system:'Ты редактор русскоязычного новостного сайта. Создай 3–5 вариантов редакционных начал дискуссии. Это не пользовательские комментарии и не отзывы. Каждый вариант: note — 2–5 нейтральных предложений по фактам статьи; question — один ясный вопрос читателям. Не выдумывай факты. Ответ строго JSON: {"items":[{"note":"...","question":"..."}]}', messages:[{role:'user',content:`Категория: ${category}\nЗаголовок: ${titleRu}\nПересказ: ${summaryRu}`}]} )});
+  if ((response.status === 429 || response.status >= 500) && attempt < 3) { await sleep(attempt * 1200); return generateEditorialDiscussions({titleRu,summaryRu,category}, attempt+1); }
+  if (!response.ok) throw new Error(`Anthropic API error ${response.status}`);
+  const data = await response.json(); const block = (data.content||[]).find((b)=>b.type==='text'); if (!block) throw new Error('Пустой ответ');
+  const parsed = extractJson(block.text); if (!Array.isArray(parsed.items)) throw new Error('Неверный формат дискуссии');
+  return parsed.items.slice(0,5).filter((x)=>x && x.note && x.question).map((x)=>({note:String(x.note).trim(),question:String(x.question).trim()}));
+}
+
+module.exports = { retellArticle, generateEditorialDiscussions, PROMPT_VERSION };

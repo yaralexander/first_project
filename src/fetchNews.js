@@ -4,8 +4,18 @@ const Parser = require('rss-parser');
 const { SOURCES, categorize } = require('./config');
 const { getRussianVersion } = require('./russianVersion');
 const { PROMPT_VERSION } = require('./aiRetell');
-const { articleExists, getNews, insertArticle } = require('./db');
+const {
+  articleExists,
+  findSimilarArticle,
+  getArticleById,
+  getNews,
+  insertArticle,
+  recordDuplicateArticle,
+  isNewsSourceEnabled,
+} = require('./db');
 const { slugify } = require('./slugify');
+const { compareArticles } = require('./articleSimilarity');
+const { extractArticleContent, fetchExternalHtml } = require('./importArticle');
 
 const parser = new Parser({
   timeout: 15000,
@@ -25,6 +35,39 @@ function createLimiter(concurrency) {
 }
 
 const limitAiCalls = createLimiter(parseInt(process.env.AI_CONCURRENCY || '3', 10));
+let pendingArticles = [];
+
+function publicationDay(value) {
+  const date = new Date(value || '');
+  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function rememberPendingArticle({ sourceId, sourceName, titleFi, summaryFi, publishedAt }) {
+  pendingArticles.push({
+    id: null, sourceId, sourceName, titleFi, summaryFi,
+    day: publicationDay(publishedAt),
+  });
+}
+
+function resetPendingArticles() {
+  pendingArticles = [];
+}
+
+function findPendingSimilarArticle({ sourceId, titleFi, summaryFi, publishedAt }) {
+  const day = publicationDay(publishedAt);
+  let best = null;
+  for (const candidate of pendingArticles) {
+    if (candidate.sourceId === sourceId || candidate.day !== day) continue;
+    const comparison = compareArticles(
+      { title: titleFi, summary: summaryFi },
+      { title: candidate.titleFi, summary: candidate.summaryFi },
+    );
+    if (comparison.isDuplicate && (!best || comparison.score > best.similarity)) {
+      best = { ...candidate, similarity: comparison.score };
+    }
+  }
+  return best;
+}
 
 function stripHtml(html = '') {
   return html
@@ -37,15 +80,36 @@ function stripHtml(html = '') {
     .trim();
 }
 
+async function fetchArticleText(originalUrl, {
+  fetcher = fetchExternalHtml,
+  extractor = extractArticleContent,
+} = {}) {
+  try {
+    const { html } = await fetcher(originalUrl);
+    const { text } = extractor(html);
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    return normalized.length >= 300 ? normalized.slice(0, 12000) : '';
+  } catch (error) {
+    console.warn(`[fetchSource] полный текст недоступен (${originalUrl}): ${error.message}`);
+    return '';
+  }
+}
+
 async function fetchSource(source) {
   let inserted = 0;
   let skipped = 0;
+  const insertedArticles = [];
   try {
     const feed = await parser.parseURL(source.url);
     for (const entry of feed.items || []) {
+      if (source.creator && String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') !== source.creator) {
+        continue;
+      }
       const titleFi = (entry.title || '').trim();
       const summaryFi = stripHtml(entry.contentSnippet || entry.content || entry.summary || '');
       const originalUrl = entry.link || entry.guid;
+      const publishedAt = entry.isoDate || entry.pubDate || null;
+      const category = categorize(titleFi, summaryFi);
       if (!titleFi || !originalUrl) {
         skipped += 1;
         continue;
@@ -54,11 +118,41 @@ async function fetchSource(source) {
         skipped += 1;
         continue;
       }
+      const similarArticle = findSimilarArticle({
+        sourceId: source.id,
+        titleFi,
+        summaryFi: summaryFi.slice(0, 800),
+        publishedAt,
+      }) || findPendingSimilarArticle({ sourceId: source.id, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
+      if (similarArticle) {
+        recordDuplicateArticle({
+          originalUrl,
+          sourceId: source.id,
+          sourceName: source.name,
+          titleFi,
+          summaryFi: summaryFi.slice(0, 800),
+          externalGuid: entry.guid || null,
+          category,
+          publishedAt,
+          matchedArticleId: similarArticle.id || null,
+          similarity: similarArticle.similarity,
+        });
+        skipped += 1;
+        console.log(`[fetchSource] похожая тема пропущена: ${source.name} → ${similarArticle.sourceName} (${Math.round(similarArticle.similarity * 100)}%)`);
+        continue;
+      }
+
+      rememberPendingArticle({ sourceId: source.id, sourceName: source.name, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
+
+      const articleTextFi = await fetchArticleText(originalUrl);
+      const translationSourceFi = articleTextFi.length > summaryFi.length ? articleTextFi : summaryFi;
+      const usesFullArticle = translationSourceFi === articleTextFi && Boolean(articleTextFi);
 
       const result = await limitAiCalls(() => getRussianVersion({
         titleFi,
-        summaryFi: summaryFi.slice(0, 800),
+        summaryFi: translationSourceFi,
         sourceName: source.name,
+        hasFullArticle: usesFullArticle,
       }));
 
       if (result.method === 'fallback-original') {
@@ -66,36 +160,49 @@ async function fetchSource(source) {
         continue;
       }
 
-      if (insertArticle({
+      const article = {
         sourceId: source.id,
         sourceName: source.name,
         originalUrl,
         externalGuid: entry.guid || null,
         slug: slugify(result.titleRu || titleFi, originalUrl || entry.guid),
-        category: categorize(titleFi, summaryFi),
+        category,
         titleFi,
+        // Keep only the public RSS excerpt in our database. The source page text
+        // is used transiently to create the Russian retelling and is not republished.
         summaryFi,
         titleRu: result.titleRu,
         summaryRu: result.summaryRu,
         translationMethod: result.method,
         promptVersion: PROMPT_VERSION,
-        publishedAt: entry.isoDate || entry.pubDate || null,
-      })) inserted += 1;
-      else skipped += 1;
+        publishedAt,
+        editorialStatus: 'normal',
+      };
+
+      const articleId = insertArticle(article);
+      if (articleId) {
+        inserted += 1;
+        const storedArticle = getArticleById(articleId);
+        if (storedArticle) insertedArticles.push(storedArticle);
+      } else {
+        skipped += 1;
+      }
     }
   } catch (err) {
     console.error(`[fetchSource] ${source.name} (${source.url}) — ошибка:`, err.message);
   }
-  return { inserted, skipped };
+  return { inserted, skipped, insertedArticles };
 }
 
 async function fetchAllNews() {
   console.log('[fetchAllNews] старт обновления —', new Date().toISOString());
-  const results = await Promise.all(SOURCES.map(fetchSource));
+  resetPendingArticles();
+  const results = await Promise.all(SOURCES.filter((source) => isNewsSourceEnabled(source.id)).map(fetchSource));
   const inserted = results.reduce((sum, result) => sum + result.inserted, 0);
   const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
+  const insertedArticles = results.flatMap((result) => result.insertedArticles || []);
   console.log(`[fetchAllNews] добавлено: ${inserted}, пропущено: ${skipped}`);
-  return getNews().items;
+  return insertedArticles;
 }
 
 function getCachedNews() {
@@ -111,4 +218,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { fetchAllNews, getCachedNews };
+module.exports = { fetchAllNews, fetchArticleText, findPendingSimilarArticle, getCachedNews, rememberPendingArticle, resetPendingArticles };

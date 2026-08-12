@@ -6,56 +6,241 @@ const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
 const { getRussianVersion } = require('./russianVersion');
-const { PROMPT_VERSION } = require('./aiRetell');
+const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
+const { googleTranslateFree } = require('./freeTranslate');
+const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
+const {
+  articleMatchesFollowedTopics,
+  countLinks,
+  createContactFormToken,
+  createSlidingWindowRateLimiter,
+  normalizeContactText,
+  verifyContactFormToken,
+} = require('./contactSpam');
+const {
+  configureRussianTelegramBot,
+  configureTelegramWebhook,
+  getRussianTelegramReply,
+} = require('./telegramBot');
+const {
+  departuresByStopCode,
+  departuresNearLocation,
+  formatNearbyDepartures,
+  formatStopDepartures,
+} = require('./hslTransit');
+const {
+  DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
+  articleMatchesSubscription,
+  buildTelegramMessage,
+  escapeTelegramHtml,
+  canDeliverArticleNow,
+  isDailyContentDue,
+  isDeliveryScheduleDue,
+  isArticleSuppressedByQuietHours,
+  isQuietTime,
+  isTelegramChannelIntervalDue,
+  normalizeContentTypes,
+  renderTelegramChannelTemplate,
+  validateTelegramChannelTemplate,
+} = require('./telegramDelivery');
+const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
+const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
+const {
+  detectAssistantIntent,
+  extractFinnishWords,
+  fallbackAnswer,
+  generateGroundedAnswer,
+  parseReminderDate,
+  selectRelevantArticles,
+} = require('./telegramAssistant');
+const {
+  createGoogleAuthProvider,
+  createPkcePair,
+  findGoogleAdminAccount,
+  parseGoogleAdminAccounts,
+  randomBase64Url,
+  sha256,
+} = require('./googleAdminAuth');
+const { categorize } = require('./config');
+const {
+  DEFAULT_PUBLIC_CHANNEL_SCORE,
+  calculateArticleRanking,
+  meetsPublicChannelThreshold,
+} = require('./articleRanking');
 const {
   countArticles,
+  claimDueTasks,
+  completeTask,
+  countUntranslatedArticles,
   countArticlesByCategory,
+  countArticlesByRegionCode,
+  countArticlesByTagSlug,
+  countPublishedSearchResults,
   createComment,
+  createContactMessage,
+  countTelegramChannelPublicationsToday,
+  countUnreadAdminNotifications,
   createManualArticle,
   createImportedDraft,
+  enqueueTask,
+  failTask,
   deleteArticle,
+  deleteUntranslatedArticles,
   deleteComment,
+  findSimilarArticle,
+  getAdminAuditLog,
+  getAdminComments,
+  getContactMessages,
+  hasRecentContactMessage,
+  getAdminNotifications,
+  createAdminNotification,
+  getUnreadContactMessageCount,
+  getManagedTaxonomy,
+  getVisibleManagedCategories,
+  resolveManagedCategorySlug,
+  getManagedCategoryByName,
+  createManagedTaxonomyItem,
+  updateManagedTaxonomyItem,
+  setManagedTaxonomyVisibility,
+  deleteManagedTaxonomyItem,
+  mergeManagedCategories,
+  getAdminSources,
+  setNewsSourceEnabled,
   getAdminStatistics,
   getArticleBySlug,
   getArticleById,
+  getArticleClassification,
+  getArticleRankingSignals,
+  getQualityReviewQueue,
+  countQualityReviewQueue,
+  reviewArticleQuality,
   getArticles,
   getArticlesByCategory,
+  getArticlesByRegionCode,
+  getArticlesByTagSlug,
+  getAdjacentArticles,
+  getRelatedArticles,
   getAnalyticsSecret,
   getApprovedComments,
+  getCommentById,
+  getLatestApprovedComments,
   getCategories,
   getNews,
-  getPendingComments,
+  getOperationalMetrics,
+  getRecentDuplicateArticles,
+  getDuplicateArticleById,
+  getArticleSourceMentions,
   getHomeArticles,
   articleExists,
   cleanupAnalytics,
+  cleanupAdminAuthData,
+  consumeAdminOAuthState,
+  createAdminOAuthState,
+  createAdminSession,
+  createUserOAuthState,
+  consumeUserOAuthState,
+  createUserSession,
+  getUserStatistics,
+  getUserSession,
+  deleteUserSession,
+  getUserSubscription,
+  getActiveUserSubscriptions,
+  upsertUserSubscription,
+  createTelegramLinkCode,
+  getTelegramUserLink,
+  getTelegramUserByChatId,
+  getTelegramAssistantProfile,
+  saveTelegramAssistantProfile,
+  getTelegramConversation,
+  saveTelegramConversation,
+  clearTelegramConversation,
+  toggleTelegramTopicFollow,
+  getTelegramTopicFollows,
+  toggleTelegramSavedArticle,
+  getTelegramSavedArticles,
+  createTelegramReminder,
+  getTelegramReminders,
+  getDueTelegramReminders,
+  markTelegramReminderSent,
+  cancelTelegramReminder,
+  createArticleIssueReport,
+  linkTelegramUser,
+  deleteAdminSession,
+  getAdminSession,
   recordView,
+  recordDuplicateArticle,
   searchArticles,
+  searchPublishedArticles,
   getSourceCounts,
   getSitemapArticles,
   getTelegramPublication,
+  getTelegramChannelPublication,
+  getLastTelegramChannelPublication,
+  getTelegramChannelSettings,
+  insertArticle,
+  classifyAndStoreArticle,
+  classifyUnclassifiedArticles,
+  getPublishedArticlesSince,
   getReactionTotals,
   recordArticleReaction,
+  recordAdminAction,
   recordTelegramPublication,
+  recordTelegramChannelPublication,
+  recordTelegramDeliveryAttempt,
+  recordSearchQuery,
+  countTelegramUserDeliveries,
+  recordTelegramUserDelivery,
+  hasTelegramUserDelivery,
+  hasTelegramContentDelivery,
+  recordTelegramContentDelivery,
   publishArticle,
+  publishScheduledArticles,
+  resolveDuplicateArticle,
   updateCommentStatus,
+  updateComment,
+  updateContactMessageStatus,
+  markAdminNotificationRead,
+  saveTelegramChannelSettings,
+  getAdminTelegramNotificationSettings,
+  saveAdminTelegramNotificationSettings,
   updateArticleEditorial,
+  createEditorialDiscussion,
+  getEditorialDiscussions,
+  updateEditorialDiscussion,
 } = require('./db');
-const { categories, categoryFromSlug, categoryToSlug } = require('./categories');
+const {
+  categories: fallbackCategories,
+  categoryFromSlug: fallbackCategoryFromSlug,
+  categoryToSlug: fallbackCategoryToSlug,
+} = require('./categories');
 const { slugify } = require('./slugify');
 const {
+  renderAccountErrorPage,
+  renderAccountLoginPage,
+  renderAccountPage,
   renderArticlePage,
   renderAdminPage,
+  renderAdminLoginPage,
   renderAdminArticleDeletePage,
   renderListPage,
   renderNotFound,
   renderAboutPage,
+  renderPrivacyPage,
+  renderTermsPage,
+  renderContactPage,
+  renderTelegramInfoPage,
+  renderRssFeed,
   renderRobots,
   renderSitemap,
 } = require('./render');
 
 const PORT = process.env.PORT || 3000;
-const REFRESH_MIN = parseInt(process.env.REFRESH_INTERVAL_MINUTES || '15', 10);
+const configuredRefreshMinutes = Number.parseInt(process.env.REFRESH_INTERVAL_MINUTES || '15', 10);
+const REFRESH_MIN = Number.isInteger(configuredRefreshMinutes)
+  && configuredRefreshMinutes >= 1 && configuredRefreshMinutes <= 59
+  ? configuredRefreshMinutes
+  : 15;
 const CORS_ORIGINS = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -68,6 +253,26 @@ const REFRESH_COOLDOWN_SECONDS = Number.isInteger(configuredCooldown) && configu
 const REFRESH_COOLDOWN_MS = REFRESH_COOLDOWN_SECONDS * 1000;
 const ADMIN_USER = process.env.ADMIN_USER || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_ACCOUNTS = parseAdminAccounts({
+  accountsJson: process.env.ADMIN_ACCOUNTS_JSON || '',
+  legacyUser: ADMIN_USER,
+  legacyPassword: ADMIN_PASSWORD,
+});
+const GOOGLE_OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
+const GOOGLE_OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
+const GOOGLE_ADMIN_ACCOUNTS = parseGoogleAdminAccounts({
+  accountsJson: process.env.ADMIN_GOOGLE_ACCOUNTS_JSON || '',
+  allowedEmails: process.env.ADMIN_GOOGLE_EMAILS || '',
+});
+const configuredAdminSessionHours = Number.parseInt(process.env.ADMIN_SESSION_HOURS || '12', 10);
+const ADMIN_SESSION_HOURS = Number.isInteger(configuredAdminSessionHours)
+  ? Math.min(Math.max(configuredAdminSessionHours, 1), 168)
+  : 12;
+const ADMIN_SESSION_COOKIE = 'fn_admin_session';
+const ADMIN_OAUTH_STATE_COOKIE = 'fn_admin_oauth_state';
+const USER_SESSION_COOKIE = 'fn_user_session';
+const USER_OAUTH_STATE_COOKIE = 'fn_user_oauth_state';
+const ADMIN_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 const configuredCommentWindow = Number.parseInt(process.env.COMMENT_RATE_LIMIT_WINDOW_SECONDS || '600', 10);
 const COMMENT_RATE_LIMIT_WINDOW_SECONDS = Number.isInteger(configuredCommentWindow) && configuredCommentWindow > 0
@@ -80,6 +285,30 @@ const COMMENT_RATE_LIMIT_MAX = Number.isInteger(configuredCommentLimit) && confi
 const COMMENT_RATE_LIMIT_WINDOW_MS = COMMENT_RATE_LIMIT_WINDOW_SECONDS * 1000;
 const COMMENT_NAME_MAX_LENGTH = 80;
 const COMMENT_BODY_MAX_LENGTH = 1500;
+const configuredContactWindow = Number.parseInt(process.env.CONTACT_RATE_LIMIT_WINDOW_SECONDS || '3600', 10);
+const CONTACT_RATE_LIMIT_WINDOW_MS = (Number.isInteger(configuredContactWindow) && configuredContactWindow > 0
+  ? configuredContactWindow
+  : 3600) * 1000;
+const configuredContactLimit = Number.parseInt(process.env.CONTACT_RATE_LIMIT_MAX || '3', 10);
+const CONTACT_RATE_LIMIT_MAX = Number.isInteger(configuredContactLimit) && configuredContactLimit > 0
+  ? configuredContactLimit
+  : 3;
+const configuredContactMinFill = Number.parseInt(process.env.CONTACT_MIN_FILL_SECONDS || '2', 10);
+const CONTACT_MIN_FILL_MS = (Number.isInteger(configuredContactMinFill) && configuredContactMinFill >= 0
+  ? configuredContactMinFill
+  : 2) * 1000;
+const configuredContactTtl = Number.parseInt(process.env.CONTACT_FORM_TTL_SECONDS || '7200', 10);
+const CONTACT_FORM_TTL_MS = (Number.isInteger(configuredContactTtl) && configuredContactTtl > 0
+  ? configuredContactTtl
+  : 7200) * 1000;
+const configuredContactDuplicateHours = Number.parseInt(process.env.CONTACT_DUPLICATE_WINDOW_HOURS || '24', 10);
+const CONTACT_DUPLICATE_WINDOW_HOURS = Number.isInteger(configuredContactDuplicateHours) && configuredContactDuplicateHours > 0
+  ? configuredContactDuplicateHours
+  : 24;
+const configuredContactMaxLinks = Number.parseInt(process.env.CONTACT_MAX_LINKS || '3', 10);
+const CONTACT_MAX_LINKS = Number.isInteger(configuredContactMaxLinks) && configuredContactMaxLinks >= 0
+  ? configuredContactMaxLinks
+  : 3;
 const REACTION_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const REACTION_RATE_LIMIT_MAX = 10;
 const REACTION_TYPES = new Set(['like', 'important', 'sad']);
@@ -87,6 +316,7 @@ const PAGE_SIZE = 50;
 const ARTICLE_TITLE_MAX_LENGTH = 300;
 const ARTICLE_BODY_MAX_LENGTH = 20000;
 const EDITORIAL_STATUSES = new Set(['normal', 'important', 'urgent']);
+const TAXONOMY_TYPES = new Set(['categories', 'tags', 'regions', 'audiences']);
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10000;
 const RUSSIAN_PROVIDER = (process.env.RUSSIAN_PROVIDER || 'claude').toLowerCase();
 const configuredAnalyticsRetention = Number.parseInt(process.env.ANALYTICS_RETENTION_DAYS || '90', 10);
@@ -105,9 +335,47 @@ function getSiteUrl() {
 }
 
 const SITE_URL = getSiteUrl();
+const GOOGLE_AUTH_ENABLED = Boolean(
+  GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET && GOOGLE_ADMIN_ACCOUNTS.length,
+);
+const GOOGLE_USER_AUTH_ENABLED = Boolean(GOOGLE_OAUTH_CLIENT_ID && GOOGLE_OAUTH_CLIENT_SECRET);
+
+function getRequestOrigin(req) {
+  try {
+    const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+    const forwardedHost = String(req.get('x-forwarded-host') || '').split(',')[0].trim();
+    const host = forwardedHost || req.get('host') || '';
+    const protocol = forwardedProto || (req.secure ? 'https' : 'http');
+    const origin = new URL(`${protocol}://${host}`).origin;
+    return origin === 'null' ? SITE_URL : origin;
+  } catch {
+    return SITE_URL;
+  }
+}
+
+function getAdminGoogleAuthProvider(req) {
+  return createGoogleAuthProvider({
+    clientId: GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri: `${getRequestOrigin(req)}/admin/auth/google/callback`,
+  });
+}
+
+function getUserGoogleAuthProvider(req) {
+  return createGoogleAuthProvider({
+    clientId: GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri: `${getRequestOrigin(req)}/account/auth/google/callback`,
+  });
+}
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const DIGITRANSIT_API_KEY = process.env.DIGITRANSIT_API_KEY || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET
+  || (process.env.TELEGRAM_BOT_TOKEN
+    ? crypto.createHash('sha256').update(`finskienovosti-webhook:${process.env.TELEGRAM_BOT_TOKEN}`).digest('hex')
+    : '');
 
 function getTelegramApiBaseUrl() {
   try {
@@ -120,10 +388,106 @@ function getTelegramApiBaseUrl() {
 }
 
 const TELEGRAM_API_BASE_URL = getTelegramApiBaseUrl();
+const TELEGRAM_BOT_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN);
 const TELEGRAM_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
+const TELEGRAM_BOT_USERNAME = String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
+let telegramBotProfileCache = null;
+let telegramBotProfileCacheExpiresAt = 0;
+let telegramBotProfileRequest = null;
+
+function normalizeTelegramBotProfile(result) {
+  if (!result || typeof result !== 'object') return null;
+  const username = String(result.username || '').replace(/^@/, '').trim();
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) return null;
+  return {
+    username,
+    displayName: String(result.first_name || 'Финские Новости').trim() || 'Финские Новости',
+  };
+}
+
+async function getTelegramBotProfile() {
+  if (TELEGRAM_BOT_USERNAME) {
+    return normalizeTelegramBotProfile({
+      username: TELEGRAM_BOT_USERNAME,
+      first_name: 'Финские Новости',
+    });
+  }
+  if (!TELEGRAM_BOT_TOKEN) return null;
+  if (Date.now() < telegramBotProfileCacheExpiresAt) return telegramBotProfileCache;
+  if (telegramBotProfileRequest) return telegramBotProfileRequest;
+
+  telegramBotProfileRequest = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/getMe`, {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(`telegram getMe failed: ${response.status}`);
+      const payload = await response.json();
+      const profile = payload && payload.ok ? normalizeTelegramBotProfile(payload.result) : null;
+      telegramBotProfileCache = profile;
+      telegramBotProfileCacheExpiresAt = Date.now() + (profile ? 6 * 60 * 60 * 1000 : 60 * 1000);
+      return profile;
+    } catch (error) {
+      telegramBotProfileCache = null;
+      telegramBotProfileCacheExpiresAt = Date.now() + 60 * 1000;
+      console.error('[telegram] failed to load bot profile', error.message);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+      telegramBotProfileRequest = null;
+    }
+  })();
+
+  return telegramBotProfileRequest;
+}
+
+async function callTelegramBotMethod(method, body) {
+  if (!TELEGRAM_BOT_TOKEN) throw new Error('telegram bot token is not configured');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload || payload.ok !== true) {
+      throw new Error(`telegram ${method} failed`);
+    }
+    return payload.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function configureTelegramBotInterface() {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  await configureRussianTelegramBot(callTelegramBotMethod);
+  const webhook = await configureTelegramWebhook(callTelegramBotMethod, {
+    siteUrl: SITE_URL,
+    secret: TELEGRAM_WEBHOOK_SECRET,
+  });
+  console.log('[telegram] русское меню и описание бота настроены');
+  if (webhook.configured) {
+    console.log(`[telegram] webhook подключён: ${webhook.url}`);
+  } else {
+    console.warn('[telegram] webhook не подключён: SITE_URL должен использовать HTTPS');
+  }
+}
 
 function isImportProviderConfigured() {
   if (RUSSIAN_PROVIDER === 'mock') return true;
+  if (RUSSIAN_PROVIDER === 'openai') return Boolean(process.env.OPENAI_API_KEY);
   if (RUSSIAN_PROVIDER === 'claude') return Boolean(process.env.ANTHROPIC_API_KEY);
   if (RUSSIAN_PROVIDER === 'deepl') return Boolean(process.env.DEEPL_API_KEY);
   if (RUSSIAN_PROVIDER === 'libretranslate') return Boolean(process.env.LIBRETRANSLATE_URL);
@@ -145,12 +509,17 @@ app.use((req, res, next) => {
   next();
 });
 if (CORS_ORIGINS.length) app.use(cors({ origin: CORS_ORIGINS }));
+app.use('/assets', express.static('public/assets', { fallthrough: false, maxAge: '7d' }));
 app.use(express.urlencoded({ extended: false }));
 
 let isRefreshing = false;
 let lastManualRefreshAt = 0;
 const commentRequestsByIp = new Map();
 const reactionRequestsByIp = new Map();
+const contactRateLimiter = createSlidingWindowRateLimiter({
+  windowMs: CONTACT_RATE_LIMIT_WINDOW_MS,
+  max: CONTACT_RATE_LIMIT_MAX,
+});
 const telegramSendingArticleIds = new Set();
 
 function hasValidRefreshToken(authorization) {
@@ -161,36 +530,178 @@ function hasValidRefreshToken(authorization) {
   return provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
 }
 
-function hasValidAdminCredentials(authorization) {
-  const match = typeof authorization === 'string' && /^Basic (.+)$/.exec(authorization);
-  if (!match) return false;
-  let credentials;
-  try {
-    credentials = Buffer.from(match[1], 'base64').toString('utf8');
-  } catch {
-    return false;
+function getCookie(req, name) {
+  const header = req.get('cookie') || '';
+  for (const part of header.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0) continue;
+    const key = part.slice(0, separator).trim();
+    if (key !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return '';
+    }
   }
-  const separator = credentials.indexOf(':');
-  if (separator < 0) return false;
-  const providedUser = Buffer.from(credentials.slice(0, separator));
-  const providedPassword = Buffer.from(credentials.slice(separator + 1));
-  const expectedUser = Buffer.from(ADMIN_USER);
-  const expectedPassword = Buffer.from(ADMIN_PASSWORD);
-  return providedUser.length === expectedUser.length
-    && providedPassword.length === expectedPassword.length
-    && crypto.timingSafeEqual(providedUser, expectedUser)
-    && crypto.timingSafeEqual(providedPassword, expectedPassword);
+  return '';
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getGoogleAdminSession(req) {
+  if (!GOOGLE_AUTH_ENABLED) return null;
+  const token = getCookie(req, ADMIN_SESSION_COOKIE);
+  if (!token || token.length > 300) return null;
+  const tokenHash = sha256(token);
+  const session = getAdminSession(tokenHash);
+  if (!session) return null;
+  const configuredAccount = findGoogleAdminAccount(GOOGLE_ADMIN_ACCOUNTS, session.email);
+  if (!configuredAccount) {
+    deleteAdminSession(tokenHash);
+    return null;
+  }
+  return {
+    session: { ...session, role: configuredAccount.role },
+    tokenHash,
+  };
+}
+
+function getUserAuth(req) {
+  const token = getCookie(req, USER_SESSION_COOKIE);
+  if (!token || token.length > 300) return null;
+  const tokenHash = sha256(token);
+  const session = getUserSession(tokenHash);
+  return session ? { ...session, tokenHash } : null;
+}
+function setUserSessionCookie(res, token) {
+  const parts = [`${USER_SESSION_COOKIE}=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=43200'];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+function clearUserSessionCookie(res) { res.append('Set-Cookie', `${USER_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`); }
+async function simpleAccountPage(req, res, message = '', telegramLinkCode = '') {
+  try {
+    const user = getUserAuth(req);
+    if (!user) return res.redirect(303, '/account/login');
+    const link = getTelegramUserLink(user.googleSub);
+    let sub = getUserSubscription(user.googleSub);
+    if (link?.telegramChatId && !sub.persisted) {
+      upsertUserSubscription({ ...sub, enabled: true });
+      sub = getUserSubscription(user.googleSub);
+    }
+    const botProfile = await getTelegramBotProfile();
+    return res.type('html').send(renderAccountPage({
+      siteUrl: SITE_URL,
+      user,
+      subscription: sub,
+      assistantProfile: getTelegramAssistantProfile(user.googleSub),
+      categories: managedCategories(),
+      sources: getAdminSources().filter((source) => source.enabled),
+      taxonomy: getManagedTaxonomy(),
+      telegramLink: link,
+      botProfile,
+      message,
+      telegramLinkCode,
+    }));
+  } catch (error) {
+    console.error('[account] failed to render account page', error);
+    return res.status(500).type('html').send(renderAccountErrorPage({ siteUrl: SITE_URL }));
+  }
+}
+
+function setAdminSessionCookie(res, token) {
+  const parts = [
+    `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/admin',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${ADMIN_SESSION_HOURS * 60 * 60}`,
+  ];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+
+function clearAdminSessionCookie(res) {
+  const parts = [`${ADMIN_SESSION_COOKIE}=`, 'Path=/admin', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+
+function setAdminOAuthStateCookie(res, state) {
+  const parts = [
+    `${ADMIN_OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}`,
+    'Path=/admin/auth/google/callback',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(ADMIN_OAUTH_STATE_TTL_MS / 1000)}`,
+  ];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+
+function clearAdminOAuthStateCookie(res) {
+  const parts = [
+    `${ADMIN_OAUTH_STATE_COOKIE}=`,
+    'Path=/admin/auth/google/callback',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+  ];
+  if (SITE_URL.startsWith('https://')) parts.push('Secure');
+  res.append('Set-Cookie', parts.join('; '));
+}
+
+function safelyMatches(value, expected) {
+  const providedBuffer = Buffer.from(value || '');
+  const expectedBuffer = Buffer.from(expected || '');
+  return providedBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
 function requireAdmin(req, res, next) {
-  if (!ADMIN_USER || !ADMIN_PASSWORD) {
+  const googleSession = getGoogleAdminSession(req);
+  if (googleSession) {
+    req.adminSessionTokenHash = googleSession.tokenHash;
+    req.adminAccount = {
+      username: googleSession.session.email,
+      displayName: googleSession.session.displayName,
+      role: googleSession.session.role,
+      authMethod: 'google',
+    };
+    return next();
+  }
+  if (!ADMIN_ACCOUNTS.length && !GOOGLE_AUTH_ENABLED) {
     return res.status(503).type('text').send('Административная модерация отключена.');
   }
-  if (!hasValidAdminCredentials(req.get('authorization'))) {
-    res.set('WWW-Authenticate', 'Basic realm="Finskie Novosti Admin"');
+  const account = verifyAdminAuthorization(req.get('authorization'), ADMIN_ACCOUNTS);
+  if (!account) {
+    if (req.method === 'GET' && (req.get('accept') || '').includes('text/html')) {
+      return res.redirect(303, '/admin/login');
+    }
+    if (ADMIN_ACCOUNTS.length) res.set('WWW-Authenticate', 'Basic realm="Finskie Novosti Admin"');
     return res.status(401).type('text').send('Требуется авторизация.');
   }
+  req.adminAccount = { ...account, authMethod: 'basic' };
   return next();
+}
+
+function auditAdminAction(req, action, targetType, targetId, details = null) {
+  const account = req.adminAccount || { username: 'system', role: 'system' };
+  return recordAdminAction({
+    actorUsername: account.username,
+    actorRole: account.role,
+    action,
+    targetType,
+    targetId,
+    details,
+  });
 }
 
 function requireAdminOrigin(req, res, next) {
@@ -200,9 +711,66 @@ function requireAdminOrigin(req, res, next) {
   return next();
 }
 
+function requireAdministrator(req, res, next) {
+  if (req.adminAccount && req.adminAccount.role === 'admin') return next();
+  auditAdminAction(req, 'authorization.denied', 'route', req.path, {
+    method: req.method,
+    requiredRole: 'admin',
+  });
+  return res.status(403).type('text').send('Это действие доступно только администратору.');
+}
+
 function parseArticleId(value) {
   const id = Number.parseInt(value, 10);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function managedCategories() {
+  const names = getVisibleManagedCategories().map((category) => category.name);
+  return names.length ? names : fallbackCategories;
+}
+
+function categoryToSlug(category) {
+  return getManagedCategoryByName(category)?.slug || fallbackCategoryToSlug(category);
+}
+
+function categorySlugResolution(slug) {
+  const managed = resolveManagedCategorySlug(slug);
+  if (managed) return managed;
+  const category = fallbackCategoryFromSlug(slug);
+  return category ? {
+    category: { name: category, slug: fallbackCategoryToSlug(category) },
+    isAlias: false,
+    canonicalSlug: fallbackCategoryToSlug(category),
+  } : null;
+}
+
+function parseTaxonomyType(value) {
+  return TAXONOMY_TYPES.has(value) ? value : null;
+}
+
+function parseTaxonomyInput(body) {
+  return {
+    name: body.name,
+    code: body.code,
+    slug: body.slug,
+    emoji: body.emoji,
+    color: body.color,
+    description: body.description,
+    synonyms: body.synonyms,
+    keywords: body.keywords,
+    classificationRules: body.classification_rules,
+    aliases: body.aliases,
+    regionType: body.region_type,
+    parentCode: body.parent_code,
+    sortOrder: body.sort_order,
+  };
+}
+
+function taxonomyRedirect(status, type = '') {
+  const params = new URLSearchParams({ tab: 'taxonomy', taxonomy: status });
+  if (type) params.set('type', type);
+  return `/admin?${params.toString()}`;
 }
 
 function parseEditorialInput(body) {
@@ -211,16 +779,51 @@ function parseEditorialInput(body) {
   const category = typeof body.category === 'string' ? body.category.trim() : '';
   const editorialStatus = typeof body.editorial_status === 'string' ? body.editorial_status : 'normal';
   const pinnedValue = typeof body.pinned_until === 'string' ? body.pinned_until.trim() : '';
+  const scheduledValue = typeof body.scheduled_publish_at === 'string' ? body.scheduled_publish_at.trim() : '';
   let pinnedUntil = null;
+  let scheduledPublishAt = null;
   if (pinnedValue) {
     const date = new Date(pinnedValue);
     if (Number.isNaN(date.getTime())) return null;
     pinnedUntil = date.toISOString();
   }
-  if (!title || !text || !categories.includes(category)
+  if (scheduledValue) {
+    const date = new Date(scheduledValue);
+    if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) return null;
+    scheduledPublishAt = date.toISOString();
+  }
+  if (!title || !text || !managedCategories().includes(category)
     || title.length > ARTICLE_TITLE_MAX_LENGTH || text.length > ARTICLE_BODY_MAX_LENGTH
     || !EDITORIAL_STATUSES.has(editorialStatus)) return null;
-  return { title, text, category, editorialStatus, pinnedUntil };
+  return { title, text, category, editorialStatus, pinnedUntil, scheduledPublishAt };
+}
+
+function parseStatisticsFilters(query = {}) {
+  const category = managedCategories().includes(query.category) ? query.category : '';
+  const sourceId = typeof query.source === 'string' && /^[\w:-]{1,100}$/.test(query.source)
+    ? query.source
+    : '';
+  return {
+    from: typeof query.from === 'string' ? query.from : '',
+    to: typeof query.to === 'string' ? query.to : '',
+    category,
+    sourceId,
+  };
+}
+
+function csvCell(value) {
+  const text = String(value === null || value === undefined ? '' : value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function renderStatisticsCsv(statistics) {
+  const rows = [
+    ['Дата', 'Опубликовано статей', 'Уникальные читатели', 'Чтения статей', 'Комментарии', 'Реакции', 'Повторы'],
+    ...statistics.daily.slice().reverse().map((day) => [
+      day.day, day.articles, day.visitors, day.articleViews, day.comments, day.reactions, day.duplicates,
+    ]),
+  ];
+  return `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
 
 function recordPublicView(req, articleId = null) {
@@ -235,41 +838,715 @@ function getAnonymousVisitorHash(req, day) {
     .digest('hex');
 }
 
-function buildTelegramMessage(article) {
-  const editorialLabel = article.editorialStatus === 'urgent'
-    ? 'Срочно'
-    : article.editorialStatus === 'important'
-      ? 'Важно'
-      : '';
-  const title = article.titleRu || article.titleFi || '';
-  const text = article.summaryRu || article.summaryFi || '';
-  const url = `${SITE_URL}/news/${encodeURIComponent(article.slug)}`;
-  return [editorialLabel, title, text, url].filter(Boolean).join('\n\n');
+async function sendTelegramMessageToChat(chatId, text, options = {}) {
+  const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
+  if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
+  return result.message_id;
+}
+
+function personalArticleTelegramOptions(article) {
+  return {
+    parse_mode: 'HTML',
+    link_preview_options: { is_disabled: false },
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '🧩 Объяснить', callback_data: `news:explain:${article.id}` },
+          { text: '💬 Задать вопрос', callback_data: `news:ask:${article.id}` },
+        ],
+        [
+          { text: '✍️ Комментировать', callback_data: `news:comment:${article.id}` },
+          { text: '🔖 Сохранить', callback_data: `news:save:${article.id}` },
+        ],
+      ],
+    },
+  };
+}
+
+async function answerTelegramCallback(callbackId, text = '') {
+  if (!callbackId) return;
+  await callTelegramBotMethod('answerCallbackQuery', { callback_query_id: callbackId, text: String(text).slice(0, 180) });
+}
+
+function telegramArticleContext(article) {
+  return article ? `${article.titleRu || article.titleFi}\n\n${article.summaryRu || article.summaryFi || ''}` : '';
+}
+
+async function sendAssistantAnswer(chatId, user, question, { article = null, fast = false, announce = false } = {}) {
+  const profile = user ? getTelegramAssistantProfile(user.userId) : {};
+  const sourceArticles = article ? [article] : getArticles({ limit: 150 });
+  const relevant = article ? [article] : selectRelevantArticles(sourceArticles, question, { profile, limit: 5 });
+  let pendingMessageId = null;
+  if (announce) {
+    pendingMessageId = await sendTelegramMessageToChat(chatId, '⏳ Собираю и проверяю свежие новости…');
+  }
+  const answer = fast
+    ? fallbackAnswer(question, relevant, { siteUrl: SITE_URL, intent: detectAssistantIntent(question), profile })
+    : await generateGroundedAnswer(question, relevant, { siteUrl: SITE_URL, profile });
+  const options = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
+  if (pendingMessageId) {
+    try {
+      await callTelegramBotMethod('editMessageText', {
+        chat_id: chatId,
+        message_id: pendingMessageId,
+        text: answer,
+        ...options,
+      });
+      return;
+    } catch (error) {
+      console.warn('[telegram assistant] не удалось заменить сообщение ожидания:', error.message);
+    }
+  }
+  await sendTelegramMessageToChat(chatId, answer, options);
+}
+
+async function handleTelegramCallbackQuery(callback) {
+  const chatId = callback?.message?.chat?.id;
+  const data = String(callback?.data || '');
+  if (!chatId || !data.startsWith('news:')) return false;
+  const [, action, rawArticleId] = data.split(':');
+  const articleId = Number.parseInt(rawArticleId, 10);
+  const article = articleId ? getArticleById(articleId) : null;
+  const user = getTelegramUserByChatId(chatId);
+  if (!user) {
+    await answerTelegramCallback(callback.id, 'Сначала подключите бота в личном кабинете');
+    await sendTelegramMessageToChat(chatId, `Для персональных функций подключите Telegram: ${SITE_URL}/account`);
+    return true;
+  }
+  if (!article) {
+    await answerTelegramCallback(callback.id, 'Статья больше недоступна');
+    return true;
+  }
+  await answerTelegramCallback(callback.id);
+  if (action === 'commentconfirm' || action === 'commentcancel') {
+    const conversation = getTelegramConversation(chatId);
+    if (action === 'commentconfirm' && conversation?.pendingAction === 'comment_confirm' && conversation.draftText) {
+      createComment({ articleId, authorName: user.displayName || 'Пользователь Telegram', body: conversation.draftText.slice(0, 1500), telegramChatId: chatId });
+      queueAdminTelegramNotification('comment_created', 'Новый комментарий из Telegram', [article.titleRu || article.titleFi, user.displayName || user.email || user.userId]);
+      await sendTelegramMessageToChat(chatId, '✅ Комментарий отправлен на модерацию. После одобрения он появится на странице статьи.');
+    } else {
+      await sendTelegramMessageToChat(chatId, 'Отправка комментария отменена.');
+    }
+    clearTelegramConversation(chatId);
+  } else if (action === 'ask') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'article_question' });
+    await sendTelegramMessageToChat(chatId, `Задайте вопрос по статье «${article.titleRu || article.titleFi}».`);
+  } else if (action === 'comment') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'comment_text' });
+    await sendTelegramMessageToChat(chatId, 'Напишите комментарий одним сообщением. Перед отправкой на модерацию я попрошу подтверждение.');
+  } else if (action === 'follow') {
+    const followed = toggleTelegramTopicFollow(user.userId, article.titleRu || article.titleFi);
+    await sendTelegramMessageToChat(chatId, followed ? '🔔 Я буду отслеживать продолжение этой темы.' : '🔕 Отслеживание этой темы выключено.');
+  } else if (action === 'save') {
+    const saved = toggleTelegramSavedArticle(user.userId, articleId);
+    await sendTelegramMessageToChat(chatId, saved ? '🔖 Статья сохранена.' : 'Статья удалена из сохранённых.');
+  } else if (action === 'remind') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'reminder_time' });
+    await sendTelegramMessageToChat(chatId, 'Когда напомнить? Напишите, например: «через 30 минут», «через 2 часа», «завтра» или «через неделю».');
+  } else if (action === 'report') {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId, pendingAction: 'issue_report' });
+    await sendTelegramMessageToChat(chatId, 'Опишите ошибку: неверный перевод, факт, имя, дата или другая проблема. Сообщение получит редакция.');
+  } else if (action === 'sources') {
+    const sources = getArticleSourceMentions(articleId);
+    await sendTelegramMessageToChat(chatId, sources.length > 1
+      ? `🗞 Эту тему упоминали несколько источников:\n\n${sources.map((source) => `• <a href="${escapeTelegramHtml(source.url)}">${escapeTelegramHtml(source.sourceName)}</a>${source.similarity < 1 ? ` — сходство ${Math.round(source.similarity * 100)}%` : ''}`).join('\n')}`
+      : 'Пока в базе есть только один источник этой новости.', { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  } else if (action === 'language') {
+    const words = extractFinnishWords(article, 5);
+    let vocabulary = words.map((word) => ({ word, translation: '' }));
+    try {
+      vocabulary = await Promise.all(words.map(async (word) => ({ word, translation: await googleTranslateFree(word) })));
+    } catch (error) {
+      console.warn('[telegram assistant] перевод слов недоступен:', error.message);
+    }
+    await sendTelegramMessageToChat(chatId, words.length
+      ? `🇫🇮 Слова из оригинала:\n\n${vocabulary.map(({ word, translation }, index) => `${index + 1}. ${word}${translation ? ` — ${translation}` : ''}`).join('\n')}\n\nНапишите, какое слово или предложение нужно объяснить.`
+      : 'В RSS-анонсе этой статьи недостаточно финского текста для упражнения.');
+  } else {
+    saveTelegramConversation({ chatId, userId: user.userId, articleId });
+    const questions = {
+      explain: `Объясни простыми словами эту новость: ${telegramArticleContext(article)}`,
+      impact: `Как эта новость может повлиять на меня? ${telegramArticleContext(article)}`,
+      prices: `Как эта новость может отразиться на ценах? ${telegramArticleContext(article)}`,
+    };
+    await sendAssistantAnswer(chatId, user, questions[action] || `Расскажи об этой новости: ${telegramArticleContext(article)}`, { article });
+  }
+  return true;
+}
+
+async function handleTelegramAssistantMessage(message) {
+  const chatId = message?.chat?.id;
+  if (chatId && message?.voice) {
+    if (!process.env.OPENAI_API_KEY) {
+      await sendTelegramMessageToChat(chatId, 'Голосовые вопросы пока недоступны: на сервере не настроено распознавание речи. Напишите вопрос текстом.');
+      return true;
+    }
+    try {
+      if (Number(message.voice.file_size || 0) > 10 * 1024 * 1024) throw new Error('voice_too_large');
+      const file = await callTelegramBotMethod('getFile', { file_id: message.voice.file_id });
+      if (!file?.file_path) throw new Error('voice_file_missing');
+      const audioResponse = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(15000) });
+      if (!audioResponse.ok) throw new Error('voice_download_failed');
+      const form = new FormData();
+      form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
+      form.append('file', new Blob([await audioResponse.arrayBuffer()], { type: 'audio/ogg' }), 'question.ogg');
+      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: form, signal: AbortSignal.timeout(30000),
+      });
+      if (!transcriptionResponse.ok) throw new Error('voice_transcription_failed');
+      const transcript = String((await transcriptionResponse.json())?.text || '').trim();
+      if (!transcript) throw new Error('voice_empty');
+      await sendTelegramMessageToChat(chatId, `🎙 Я услышал: «${transcript}»`);
+      await sendAssistantAnswer(chatId, getTelegramUserByChatId(chatId), transcript);
+    } catch (error) {
+      console.error('[telegram voice] ошибка:', error.message);
+      await sendTelegramMessageToChat(chatId, 'Не удалось распознать голосовой вопрос. Попробуйте ещё раз или напишите его текстом.');
+    }
+    return true;
+  }
+  const text = typeof message?.text === 'string' ? message.text.trim() : '';
+  if (!chatId || !text) return false;
+  const user = getTelegramUserByChatId(chatId);
+  const conversation = getTelegramConversation(chatId);
+  if (/^\/forget\b/i.test(text)) {
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, 'Текущий разговор и выбранная статья забыты.');
+    return true;
+  }
+  if (/^\/profile\b/i.test(text)) {
+    await sendTelegramMessageToChat(chatId, user
+      ? `Настройте город, жизненную ситуацию и интересы в личном кабинете: ${SITE_URL}/account#assistant-profile`
+      : `Сначала подключите Telegram в личном кабинете: ${SITE_URL}/account`);
+    return true;
+  }
+  if (/^\/saved\b/i.test(text)) {
+    if (!user) return false;
+    const saved = getTelegramSavedArticles(user.userId);
+    await sendTelegramMessageToChat(chatId, saved.length ? `🔖 Сохранённые статьи:\n\n${saved.map((article) => `• <a href="${SITE_URL}/news/${encodeURIComponent(article.slug)}">${escapeTelegramHtml(article.titleRu || article.titleFi)}</a>`).join('\n')}` : 'Сохранённых статей пока нет.', { parse_mode: 'HTML' });
+    return true;
+  }
+  if (/^\/follows\b/i.test(text)) {
+    if (!user) return false;
+    const follows = getTelegramTopicFollows(user.userId);
+    await sendTelegramMessageToChat(chatId, follows.length ? `🔔 Вы следите за темами:\n\n${follows.map((topic) => `• ${topic}`).join('\n')}` : 'Вы пока не отслеживаете отдельные темы.');
+    return true;
+  }
+  if (/^\/(calendar|reminders)\b/i.test(text)) {
+    if (!user) return false;
+    const reminders = getTelegramReminders(user.userId);
+    const format = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Helsinki', dateStyle: 'short', timeStyle: 'short' });
+    await sendTelegramMessageToChat(chatId, reminders.length
+      ? `📅 Ваши ближайшие напоминания:\n\n${reminders.map((item) => `• #${item.id} · ${format.format(new Date(item.remindAt))}\n${item.reminderText}`).join('\n\n')}\n\nЧтобы отменить: /cancelreminder НОМЕР`
+      : 'Напоминаний пока нет. Нажмите «⏰ Напомнить» под нужной новостью.');
+    return true;
+  }
+  const cancelReminderMatch = /^\/cancelreminder\s+(\d+)\b/i.exec(text);
+  if (cancelReminderMatch && user) {
+    const cancelled = cancelTelegramReminder(user.userId, Number(cancelReminderMatch[1]));
+    await sendTelegramMessageToChat(chatId, cancelled ? 'Напоминание отменено.' : 'Активное напоминание с таким номером не найдено.');
+    return true;
+  }
+  if (/^\/changes\b/i.test(text)) {
+    await sendAssistantAnswer(chatId, user, 'Что изменилось со вчера? Покажи только новые события, решения и продолжения тем за последние сутки.');
+    return true;
+  }
+  if (conversation?.pendingAction === 'reminder_time' && conversation.articleId) {
+    const remindAt = parseReminderDate(text);
+    if (!remindAt) {
+      await sendTelegramMessageToChat(chatId, 'Не понял время. Напишите: «через 30 минут», «через 2 часа», «завтра» или «через неделю».');
+      return true;
+    }
+    const article = getArticleById(conversation.articleId);
+    createTelegramReminder({
+      userId: user.userId, chatId, articleId: conversation.articleId,
+      reminderText: article?.titleRu || article?.titleFi || 'Вернуться к статье',
+      remindAt: remindAt.toISOString(),
+    });
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, `⏰ Напоминание установлено на ${new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Helsinki', dateStyle: 'short', timeStyle: 'short' }).format(remindAt)}.`);
+    return true;
+  }
+  if (conversation?.pendingAction === 'issue_report' && conversation.articleId) {
+    const article = getArticleById(conversation.articleId);
+    createArticleIssueReport({ articleId: conversation.articleId, userId: user?.userId, reportType: 'reader_report', body: text });
+    createAdminNotification({ notificationKey: `article-report-${conversation.articleId}-${Date.now()}`, level: 'warning', title: 'Читатель сообщил об ошибке в статье', body: `${article?.titleRu || article?.titleFi || 'Статья'}\n\n${text}` });
+    queueAdminTelegramNotification('subscription_changed', 'Читатель сообщил об ошибке в статье', [article?.titleRu || article?.titleFi || '', text.slice(0, 500)]);
+    clearTelegramConversation(chatId);
+    await sendTelegramMessageToChat(chatId, 'Спасибо! Сообщение отправлено редакции на проверку.');
+    return true;
+  }
+  if (conversation?.pendingAction === 'comment_text') {
+    saveTelegramConversation({ ...conversation, chatId, draftText: text, pendingAction: 'comment_confirm' });
+    await sendTelegramMessageToChat(chatId, `Комментарий перед отправкой:\n\n${text}\n\nОтправить на модерацию?`, {
+      reply_markup: { inline_keyboard: [[
+        { text: '✅ Отправить', callback_data: `news:commentconfirm:${conversation.articleId}` },
+        { text: '✖ Отмена', callback_data: `news:commentcancel:${conversation.articleId}` },
+      ]] },
+    });
+    return true;
+  }
+  if (conversation?.pendingAction === 'article_question' && conversation.articleId) {
+    const article = getArticleById(conversation.articleId);
+    saveTelegramConversation({ ...conversation, chatId, pendingAction: '' });
+    await sendAssistantAnswer(chatId, user, text, { article });
+    return true;
+  }
+  if (conversation?.articleId && !text.startsWith('/')
+    && ['impact', 'prices', 'explain', 'language', 'verify'].includes(detectAssistantIntent(text))) {
+    const article = getArticleById(conversation.articleId);
+    await sendAssistantAnswer(chatId, user, text, { article });
+    return true;
+  }
+  if (/^\/(today|forme|week|morning|evening)\b/i.test(text) || !text.startsWith('/')) {
+    const command = /^\/(today|forme|week|morning|evening)\b/i.exec(text)?.[1];
+    const question = command === 'today' ? 'Какие сегодня самые важные новости?'
+      : command === 'forme' ? 'Какие новости могут повлиять лично на меня?'
+        : command === 'week' ? 'Какие главные новости были за неделю?'
+          : command === 'morning' ? 'Сделай короткий утренний дайджест важных новостей и того, что стоит учитывать сегодня.'
+            : command === 'evening' ? 'Подведи итоги сегодняшнего дня и выдели важное на завтра.' : text;
+    await sendAssistantAnswer(chatId, user, question, {
+      fast: ['today', 'forme'].includes(command),
+      announce: ['today', 'forme', 'week', 'morning', 'evening'].includes(command),
+    });
+    return true;
+  }
+  return false;
+}
+
+async function deliverDueTelegramReminders(now = new Date()) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, failed: 0 };
+  const reminders = getDueTelegramReminders(now.toISOString());
+  let delivered = 0;
+  let failed = 0;
+  for (const reminder of reminders) {
+    try {
+      const link = reminder.articleSlug ? `\n\n${SITE_URL}/news/${encodeURIComponent(reminder.articleSlug)}` : '';
+      await sendTelegramMessageToChat(reminder.chatId, `⏰ Напоминание\n\n${reminder.reminderText}${link}`);
+      if (markTelegramReminderSent(reminder.id)) delivered += 1;
+    } catch (error) {
+      failed += 1;
+      console.error('[telegram reminder] ошибка доставки:', error.message);
+    }
+  }
+  return { delivered, failed };
+}
+
+function hslTelegramOptions() {
+  return { apiKey: DIGITRANSIT_API_KEY };
+}
+
+async function sendHslStopDepartures(chatId, stopCode) {
+  const stop = await departuresByStopCode(stopCode, hslTelegramOptions());
+  if (!stop) {
+    await sendTelegramMessageToChat(chatId, `Остановка ${stopCode} не найдена в HSL. Проверьте введённый номер.`);
+    return;
+  }
+  await sendTelegramMessageToChat(chatId, formatStopDepartures(stop));
+}
+
+async function handleHslTelegramMessage(message) {
+  const chatId = message?.chat?.id;
+  if (!chatId) return false;
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  const command = /^\/hsl(?:@[A-Za-z0-9_]{5,32})?(?:\s+([A-ZÅÄÖ]{0,2}\d{3,7}))?$/iu.exec(text);
+  const plainCode = /^([A-ZÅÄÖ]{0,2}\d{3,7})$/iu.exec(text);
+
+  if (command && !command[1]) {
+    await sendTelegramMessageToChat(chatId, [
+      '🚌 Расписание транспорта HSL',
+      'Напишите номер остановки или отправьте геопозицию кнопкой ниже.',
+    ].join('\n\n'), {
+      reply_markup: {
+        keyboard: [[{ text: '📍 Найти остановки рядом', request_location: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+    return true;
+  }
+
+  const stopCode = command?.[1] || plainCode?.[1];
+  if (stopCode) {
+    await sendHslStopDepartures(chatId, stopCode);
+    return true;
+  }
+
+  if (message.location) {
+    const stops = await departuresNearLocation(message.location.latitude, message.location.longitude, hslTelegramOptions());
+    await sendTelegramMessageToChat(chatId, formatNearbyDepartures(stops), { reply_markup: { remove_keyboard: true } });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleGroceryTelegramMessage(message) {
+  const chatId = message?.chat?.id;
+  if (!chatId) return false;
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  const command = /^\/offers(?:@[A-Za-z0-9_]{5,32})?(?:\s+(.{1,80}))?$/iu.exec(text);
+  const conversation = getTelegramConversation(chatId);
+  const waitingForLocation = conversation?.pendingAction === 'grocery_location';
+  if (!command && !(waitingForLocation && message.location)) return false;
+
+  const user = getTelegramUserByChatId(chatId);
+  const profile = user ? getTelegramAssistantProfile(user.userId) : {};
+  if (command && !command[1]) {
+    saveTelegramConversation({ chatId, userId: user?.userId, pendingAction: 'grocery_location' });
+    await sendTelegramMessageToChat(chatId, [
+      '🛒 Акции продуктовых магазинов',
+      'Отправьте геопозицию кнопкой ниже или напишите команду с городом, например: /offers Espoo',
+    ].join('\n\n'), {
+      reply_markup: {
+        keyboard: [[{ text: '📍 Найти магазины и акции рядом', request_location: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+    return true;
+  }
+
+  const location = message.location
+    ? { latitude: message.location.latitude, longitude: message.location.longitude }
+    : { city: String(command?.[1] || profile.city || '').trim() };
+  clearTelegramConversation(chatId);
+  await sendTelegramMessageToChat(chatId, buildGroceryOffersMessage({
+    chainIds: profile.groceryChains,
+    ...location,
+  }), { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: { remove_keyboard: true } });
+  return true;
+}
+
+async function sendAdminTelegramNotification(event, title, lines = []) {
+  const settings = getAdminTelegramNotificationSettings();
+  const eventEnabled = event === 'user_registered' ? settings.userRegistered
+    : event === 'telegram_linked' ? settings.telegramLinked
+      : settings.subscriptionChanged;
+  if (!settings.enabled || !eventEnabled || !settings.chatId || !TELEGRAM_BOT_CONFIGURED) return false;
+  await sendTelegramMessageToChat(settings.chatId, [`🔔 ${title}`, ...lines].filter(Boolean).join('\n'));
+  return true;
+}
+
+function queueAdminTelegramNotification(event, title, lines) {
+  createAdminNotification({
+    notificationKey: `${event}:${Date.now()}:${crypto.randomBytes(4).toString('hex')}`,
+    level: 'info', title, body: lines.filter(Boolean).join(' · ') || title,
+  });
+  sendAdminTelegramNotification(event, title, lines).catch((error) => {
+    console.error('[admin-telegram-notification] ошибка:', error.message);
+  });
 }
 
 async function sendTelegramMessage(article) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: buildTelegramMessage(article) }),
-      signal: controller.signal,
-    });
-    let payload;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (!response.ok || !payload || payload.ok !== true || !payload.result || payload.result.message_id === undefined) {
-      throw new Error('telegram request failed');
-    }
-    return payload.result.message_id;
-  } finally {
-    clearTimeout(timeout);
+  return sendTelegramMessageToChat(
+    TELEGRAM_CHAT_ID,
+    buildTelegramMessage(article, { siteUrl: SITE_URL, includeOriginal: true }),
+    { parse_mode: 'HTML', link_preview_options: { is_disabled: false } },
+  );
+}
+
+function normalizeTelegramChannelSettings(input = {}) {
+  const legacyTemplate = '{label}\\n{category}\\n{title}\\n\\n{excerpt}\\n\\nЧитать далее: {article_url}';
+  const chatId = String(input.chatId || '@finskienovosti').trim();
+  const parsedMinimumScore = Number.parseInt(input.minimumScore, 10);
+  const importance = new Set(['all', 'important', 'urgent']).has(input.importance)
+    ? input.importance
+    : 'all';
+  const categories = Array.isArray(input.categories)
+    ? input.categories
+    : String(input.categories || '').split(',');
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const quietStart = timePattern.test(String(input.quietStart || '')) ? String(input.quietStart) : '22:00';
+  const quietEnd = timePattern.test(String(input.quietEnd || '')) ? String(input.quietEnd) : '07:00';
+  return {
+    enabled: input.enabled === true || input.enabled === '1' || input.enabled === 'on',
+    enabledSince: String(input.enabledSince || '').trim(),
+    chatId: /^@[A-Za-z0-9_]{5,32}$/.test(chatId) ? chatId : '@finskienovosti',
+    categories: categories.map((value) => String(value).trim()).filter((value) => managedCategories().includes(value)),
+    importance,
+    minimumScore: Math.min(
+      Math.max(Number.isInteger(parsedMinimumScore) ? parsedMinimumScore : DEFAULT_PUBLIC_CHANNEL_SCORE, 0),
+      100,
+    ),
+    intervalMinutes: Math.min(Math.max(Number.parseInt(input.intervalMinutes, 10) || 0, 0), 1440),
+    maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
+    quietHoursEnabled: input.quietHoursEnabled === true || input.quietHoursEnabled === '1' || input.quietHoursEnabled === 'on',
+    quietStart,
+    quietEnd,
+    timezone: 'Europe/Helsinki',
+    includeOriginal: input.includeOriginal === true || input.includeOriginal === '1' || input.includeOriginal === 'on',
+    template: String(!input.template || input.template === legacyTemplate
+      ? DEFAULT_TELEGRAM_CHANNEL_TEMPLATE
+      : input.template)
+      .trim()
+      .slice(0, 3000),
+  };
+}
+
+function articleMatchesTelegramChannel(article, settings, ranking) {
+  if (!article || article.publicationStatus !== 'published') return false;
+  if (settings.categories.length && !settings.categories.includes(article.category)) return false;
+  if (!meetsPublicChannelThreshold(ranking, settings.minimumScore)) return false;
+  const importanceLevel = Number(article.importanceLevel || 1);
+  if (settings.importance === 'urgent') {
+    return article.editorialStatus === 'urgent' || importanceLevel >= 5;
   }
+  if (settings.importance === 'important') {
+    return ['important', 'urgent'].includes(article.editorialStatus) || importanceLevel >= 4;
+  }
+  return true;
+}
+
+async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ignoreEnabled = false } = {}) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { sent: false, reason: 'not_configured' };
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  if (!ignoreEnabled && !settings.enabled) return { sent: false, reason: 'disabled' };
+  if (!ignoreEnabled && (isQuietTime(settings) || isArticleSuppressedByQuietHours(article, settings))) {
+    return { sent: false, reason: 'quiet_hours' };
+  }
+  const ranking = calculateArticleRanking(article, getArticleRankingSignals(article.id));
+  if (!articleMatchesTelegramChannel(article, settings, ranking)) {
+    return { sent: false, reason: 'filtered', ranking };
+  }
+  if (getTelegramChannelPublication(article.id)) return { sent: false, reason: 'already_sent' };
+  if (countTelegramChannelPublicationsToday(settings.chatId) >= settings.maxPostsPerDay) {
+    return { sent: false, reason: 'daily_limit' };
+  }
+  const lastPublication = getLastTelegramChannelPublication(settings.chatId);
+  if (!isTelegramChannelIntervalDue(lastPublication?.sent_at, settings.intervalMinutes)) {
+    return { sent: false, reason: 'interval' };
+  }
+  const telegramMessageId = await sendTelegramMessageToChat(
+    settings.chatId,
+    renderTelegramChannelTemplate(article, settings, { siteUrl: SITE_URL }),
+    {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: false },
+    },
+  );
+  recordTelegramChannelPublication({
+    articleId: article.id,
+    channelChatId: settings.chatId,
+    telegramMessageId,
+    deliveryType,
+  });
+  return { sent: true, telegramMessageId, ranking };
+}
+
+async function publishArticlesToTelegramChannel(articles) {
+  const results = { sent: 0, skipped: 0 };
+  for (const article of Array.isArray(articles) ? articles : []) {
+    try {
+      const result = await sendArticleToTelegramChannel(article);
+      if (result.sent) results.sent += 1;
+      else results.skipped += 1;
+    } catch (error) {
+      results.skipped += 1;
+      console.error('[telegram-channel] ошибка отправки:', error.message);
+    }
+  }
+  return results;
+}
+
+async function runTelegramChannelCatchup() {
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  if (!settings.enabled || !TELEGRAM_BOT_CONFIGURED) return { sent: 0, skipped: 0 };
+  const sinceIso = settings.enabledSince
+    || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { sent: 0, skipped: 0 };
+  return publishArticlesToTelegramChannel(articles);
+}
+
+function getTelegramTodayKey(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Helsinki' }).format(now);
+}
+
+async function notifyTelegramSubscribersForArticles(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
+  try {
+    return await deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso, retryOnly });
+  } catch (error) {
+    console.error('[telegram-notify] ошибка доставки:', error.message);
+    return { delivered: 0, skipped: 0 };
+  }
+}
+
+async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
+  if (!TELEGRAM_BOT_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
+  const subscriptions = getActiveUserSubscriptions().filter((subscription) => subscription.frequency === frequency);
+  if (!subscriptions.length) return { delivered: 0, skipped: 0 };
+  const today = getTelegramTodayKey();
+  let delivered = 0;
+  let skipped = 0;
+  for (const subscription of subscriptions) {
+    if (!retryOnly && !isDeliveryScheduleDue(subscription)) {
+      skipped += 1;
+      continue;
+    }
+    const quota = subscription.maxPostsPerDay || 5;
+    let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
+    if (retryOnly && sentToday > 0) {
+      skipped += 1;
+      continue;
+    }
+    if (sentToday >= quota) {
+      skipped += 1;
+      continue;
+    }
+    const followedTopics = getTelegramTopicFollows(subscription.userId);
+    const eligible = articles.filter((article) => (
+      (articleMatchesSubscription(article, subscription) || articleMatchesFollowedTopics(article, followedTopics))
+      && canDeliverArticleNow(article, subscription)
+      && !isArticleSuppressedByQuietHours(article, subscription)
+      && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })
+    ));
+    if (sinceIso) {
+      eligible.sort((a, b) => new Date(a.publishedAt || 0) - new Date(b.publishedAt || 0));
+    }
+    const remaining = quota - sentToday;
+    const batch = sinceIso ? eligible.slice(-remaining) : eligible.slice(0, remaining);
+    if (!batch.length) {
+      skipped += 1;
+      continue;
+    }
+    if (frequency === 'daily') {
+      for (const article of batch) {
+        try {
+          const telegramMessageId = await sendTelegramMessageToChat(
+            subscription.telegramChatId,
+            buildTelegramMessage(article, {
+              siteUrl: SITE_URL,
+              includeOriginal: subscription.includeOriginal !== false,
+            }),
+            personalArticleTelegramOptions(article),
+          );
+          if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
+            delivered += 1;
+            sentToday += 1;
+            recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'sent', telegramMessageId });
+          }
+        } catch (error) {
+          console.error('[telegram-digest] ошибка отправки:', error.message);
+          recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'failed', errorCode: error.message });
+          enqueueTask({
+            taskType: 'personal_telegram',
+            payload: { userId: subscription.userId, articleId: article.id },
+            idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
+          });
+          skipped += 1;
+        }
+        if (sentToday >= quota) break;
+      }
+      continue;
+    }
+    for (const article of batch) {
+      try {
+        const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
+          siteUrl: SITE_URL,
+          includeOriginal: subscription.includeOriginal !== false,
+        }), personalArticleTelegramOptions(article));
+        if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
+          delivered += 1;
+          sentToday += 1;
+          recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'instant', status: 'sent', telegramMessageId });
+        }
+      } catch (error) {
+        console.error('[telegram-instant] ошибка отправки:', error.message);
+        recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'instant', status: 'failed', errorCode: error.message });
+        enqueueTask({
+          taskType: 'personal_telegram',
+          payload: { userId: subscription.userId, articleId: article.id },
+          idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
+        });
+        skipped += 1;
+      }
+      if (sentToday >= quota) break;
+    }
+  }
+  return { delivered, skipped };
+}
+
+async function deliverDailyContentToSubscriptions(now = new Date()) {
+  if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, skipped: 0 };
+  const subscriptions = getActiveUserSubscriptions();
+  let delivered = 0;
+  let skipped = 0;
+  for (const subscription of subscriptions) {
+    const profile = getTelegramAssistantProfile(subscription.userId);
+    const items = contentForDate(now, { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel });
+    if (profile.groceryOffersEnabled) items.push(groceryOfferDigest(now, profile));
+    const selected = new Set(subscription.contentTypes || []);
+    if (profile.groceryOffersEnabled) selected.add('offers');
+    if (!isDailyContentDue(subscription, now)
+      || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
+      skipped += 1;
+      continue;
+    }
+    for (const item of items) {
+      if (!selected.has(item.type)
+        || hasTelegramContentDelivery({ userId: subscription.userId, contentKey: item.key })) {
+        continue;
+      }
+      try {
+        const messageId = await sendTelegramMessageToChat(
+          subscription.telegramChatId,
+          item.type === 'offers' ? item.text : buildDailyContentMessage(item, SITE_URL),
+          ['word', 'offers'].includes(item.type) ? { parse_mode: 'HTML', link_preview_options: { is_disabled: true } } : {},
+        );
+        if (recordTelegramContentDelivery({
+          userId: subscription.userId,
+          contentKey: item.key,
+          contentType: item.type,
+          telegramMessageId: messageId,
+        })) delivered += 1;
+      } catch (error) {
+        skipped += 1;
+        console.error('[telegram-daily-content] ошибка доставки:', error.message);
+      }
+    }
+  }
+  return { delivered, skipped };
+}
+
+async function processTelegramRetryQueue() {
+  if (!TELEGRAM_BOT_CONFIGURED) return { completed: 0, failed: 0 };
+  const subscriptions = new Map(getActiveUserSubscriptions().map((subscription) => [subscription.userId, subscription]));
+  const tasks = claimDueTasks('personal_telegram', 10);
+  let completed = 0;
+  let failed = 0;
+  for (const task of tasks) {
+    const subscription = subscriptions.get(task.payload.userId);
+    const article = getArticleById(task.payload.articleId);
+    const alreadyDelivered = hasTelegramUserDelivery({
+      userId: task.payload.userId,
+      articleId: task.payload.articleId,
+    });
+    const suppressedBySettings = subscription && article && (
+      !(articleMatchesSubscription(article, subscription) || articleMatchesFollowedTopics(article, getTelegramTopicFollows(subscription.userId)))
+      || !canDeliverArticleNow(article, subscription)
+      || isArticleSuppressedByQuietHours(article, subscription)
+    );
+    if (!subscription || !article || alreadyDelivered || suppressedBySettings) {
+      completeTask(task.id);
+      completed += 1;
+      continue;
+    }
+    try {
+      const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
+        siteUrl: SITE_URL,
+        includeOriginal: subscription.includeOriginal !== false,
+      }), personalArticleTelegramOptions(article));
+      recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId });
+      recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'sent', telegramMessageId });
+      completeTask(task.id);
+      completed += 1;
+    } catch (error) {
+      recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'failed', errorCode: error.message });
+      failTask(task.id, error.message);
+      failed += 1;
+    }
+  }
+  return { completed, failed };
 }
 
 function consumeCommentRateLimit(ip) {
@@ -283,6 +1560,22 @@ function consumeCommentRateLimit(ip) {
   previous.push(now);
   commentRequestsByIp.set(ip, previous);
   return true;
+}
+
+function contactVisitorKey(req) {
+  return crypto
+    .createHmac('sha256', ANALYTICS_SECRET)
+    .update(`${req.ip || ''}\n${req.get('user-agent') || ''}`)
+    .digest('hex');
+}
+
+function renderContactResponse(res, statusCode, status) {
+  res.set('Cache-Control', 'no-store');
+  return res.status(statusCode).type('html').send(renderContactPage({
+    siteUrl: SITE_URL,
+    status,
+    formToken: createContactFormToken(ANALYTICS_SECRET),
+  }));
 }
 
 function consumeReactionRateLimit(ip) {
@@ -336,12 +1629,53 @@ async function safeRefresh() {
   if (isRefreshing) return;
   isRefreshing = true;
   try {
-    await fetchAllNews();
+    const insertedArticles = await fetchAllNews();
+    if (insertedArticles.length) {
+      await Promise.all([
+        notifyTelegramSubscribersForArticles(insertedArticles, { frequency: 'instant' }),
+        publishArticlesToTelegramChannel(insertedArticles),
+      ]);
+    }
   } catch (err) {
     console.error('[safeRefresh] ошибка обновления:', err);
   } finally {
     isRefreshing = false;
   }
+}
+
+async function runScheduledPublishing() {
+  const published = publishScheduledArticles(new Date().toISOString());
+  for (const article of published) {
+    recordAdminAction({
+      actorUsername: 'system',
+      actorRole: 'system',
+      action: 'article.scheduled_publish',
+      targetType: 'article',
+      targetId: article.id,
+      details: { slug: article.slug, title: article.title },
+    });
+  }
+  if (published.length) {
+    await Promise.all([
+      notifyTelegramSubscribersForArticles(published, { frequency: 'instant' }),
+      publishArticlesToTelegramChannel(published),
+    ]);
+  }
+  return published;
+}
+
+async function runDailyTelegramDigest({ retryOnly = false } = {}) {
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { delivered: 0, skipped: 0 };
+  return notifyTelegramSubscribersForArticles(articles, { frequency: 'daily', sinceIso, retryOnly });
+}
+
+async function runInstantTelegramCatchup() {
+  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const articles = getPublishedArticlesSince(sinceIso);
+  if (!articles.length) return { delivered: 0, skipped: 0 };
+  return notifyTelegramSubscribersForArticles(articles, { frequency: 'instant', sinceIso });
 }
 
 // GET /api/news — вся лента, опционально ?category=Политика&source=yle&limit=50
@@ -379,12 +1713,48 @@ app.get('/about', (req, res) => {
   res.type('html').send(renderAboutPage({ siteUrl: SITE_URL }));
 });
 
+app.get('/privacy', (req, res) => {
+  res.type('html').send(renderPrivacyPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/terms', (req, res) => {
+  res.type('html').send(renderTermsPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/contact', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(renderContactPage({
+    siteUrl: SITE_URL,
+    status: typeof req.query.contact === 'string' ? req.query.contact : '',
+    formToken: createContactFormToken(ANALYTICS_SECRET),
+  }));
+});
+
+app.get('/telegram', (req, res) => {
+  res.type('html').send(renderTelegramInfoPage({ siteUrl: SITE_URL }));
+});
+
+app.get('/rss.xml', (req, res) => {
+  res.type('application/rss+xml').send(renderRssFeed({
+    siteUrl: SITE_URL,
+    articles: getArticles({ limit: 50, offset: 0 }),
+  }));
+});
+
+app.get('/feed.xml', (req, res) => {
+  res.redirect(301, '/rss.xml');
+});
+
 app.get('/sitemap.xml', (req, res) => {
   const categorySlugs = getCategories().map(categoryToSlug).filter(Boolean);
+  const taxonomy = getManagedTaxonomy();
   const sitemap = renderSitemap({
     siteUrl: SITE_URL,
     categorySlugs,
+    tagSlugs: taxonomy.tags.filter((item) => item.isVisible !== false).map((item) => item.slug),
+    regionCodes: taxonomy.regions.filter((item) => item.isVisible !== false).map((item) => item.code),
     articles: getSitemapArticles(),
+    archivePageCount: Math.max(1, Math.ceil(countArticles() / PAGE_SIZE)),
   });
   res.type('application/xml').send(sitemap);
 });
@@ -400,10 +1770,12 @@ function renderArchive(req, res, page) {
   if (page > 1 && articles.length === 0) {
     return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   }
-  const title = page === 1 ? 'Финские Новости' : `Архив новостей — страница ${page}`;
+  const title = page === 1
+    ? 'Финские Новости — Finskie Novosti | Новости Финляндии на русском'
+    : `Архив новостей Финляндии — страница ${page}`;
   const description = page === 1
-    ? 'Свежие новости Финляндии на русском языке.'
-    : `Архив новостей Финляндии, страница ${page}.`;
+    ? 'Финские Новости (Finskie Novosti): свежие новости Финляндии на русском языке из Yle, Helsingin Sanomat, Iltalehti и Ilta-Sanomat.'
+    : `Архив «Финских Новостей»: новости Финляндии на русском языке, страница ${page}.`;
   const canonicalPath = page === 1 ? '/' : `/page/${page}`;
   return res.type('html').send(renderListPage({
     title,
@@ -420,19 +1792,97 @@ function renderArchive(req, res, page) {
 
 app.get('/', (req, res) => {
   recordPublicView(req);
-  const total = countArticles();
-  const articles = withReactionTotalsForList(getHomeArticles({ limit: PAGE_SIZE }));
+  const allowedSources = new Set(['yle', 'hs', 'il', 'is']);
+  const source = allowedSources.has(req.query.source) ? req.query.source : '';
+  const sort = req.query.sort === 'oldest' ? 'oldest' : 'newest';
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const isDefaultView = !source && sort === 'newest';
+  if (isDefaultView && page > 1) return res.redirect(301, `/page/${page}`);
+  const total = countArticles({ source });
+  const articles = withReactionTotalsForList(getHomeArticles({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    source,
+    sort,
+  }));
+  if (page > 1 && articles.length === 0) {
+    return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  }
+  const feedQuery = (targetPage) => {
+    if (isDefaultView) return targetPage === 1 ? '/' : `/page/${targetPage}`;
+    const params = new URLSearchParams();
+    if (source) params.set('source', source);
+    if (sort !== 'newest') params.set('sort', sort);
+    if (targetPage > 1) params.set('page', String(targetPage));
+    const query = params.toString();
+    return query ? `/?${query}#feed-heading` : '/';
+  };
   return res.type('html').send(renderListPage({
-    title: 'Финские Новости',
-    description: 'Свежие новости Финляндии на русском языке.',
+    title: 'Финские Новости — Finskie Novosti | Новости Финляндии на русском',
+    description: 'Финские Новости (Finskie Novosti): свежие новости Финляндии на русском языке из Yle, Helsingin Sanomat, Iltalehti и Ilta-Sanomat.',
     canonicalPath: '/',
     siteUrl: SITE_URL,
     articles,
-    page: 1,
+    page,
     total,
-    pagePath: (targetPage) => (targetPage === 1 ? '/' : `/page/${targetPage}`),
+    pagePath: feedQuery,
     categoryToSlug,
+    selectedSource: source,
+    sort,
+    recentComments: getLatestApprovedComments(12),
   }));
+});
+
+app.get('/search', (req, res) => {
+  recordPublicView(req);
+  const query = (typeof req.query.q === 'string' ? req.query.q : '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const searchable = query.length >= 2;
+  const total = searchable ? countPublishedSearchResults(query) : 0;
+  if (searchable) recordSearchQuery(query, total);
+  const articles = searchable
+    ? withReactionTotalsForList(searchPublishedArticles({ query, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }))
+    : [];
+  if (page > 1 && articles.length === 0) {
+    return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  }
+  const searchPath = (targetPage) => {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (targetPage > 1) params.set('page', String(targetPage));
+    const suffix = params.toString();
+    return suffix ? `/search?${suffix}` : '/search';
+  };
+  return res.type('html').send(renderListPage({
+    title: query ? `Поиск: ${query}` : 'Поиск по статьям',
+    description: query ? `Результаты поиска по опубликованным статьям: ${query}.` : 'Поиск по архиву Финских Новостей.',
+    canonicalPath: searchPath(page),
+    siteUrl: SITE_URL,
+    articles,
+    page,
+    total,
+    pagePath: searchPath,
+    categoryToSlug,
+    searchQuery: query,
+    robots: 'noindex,follow',
+  }));
+});
+
+app.get('/api/search/suggestions', (req, res) => {
+  const query = (typeof req.query.q === 'string' ? req.query.q : '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  if (query.length < 2) return res.json({ query, suggestions: [] });
+  const suggestions = searchPublishedArticles({ query, limit: 5, offset: 0 })
+    .map((article) => ({
+      title: article.titleRu || article.titleFi,
+      url: `/news/${encodeURIComponent(article.slug)}`,
+    }));
+  return res.json({ query, suggestions });
 });
 
 app.get('/page/:number', (req, res) => {
@@ -440,31 +1890,81 @@ app.get('/page/:number', (req, res) => {
   if (!Number.isInteger(page) || page < 1) {
     return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   }
+  if (page === 1) return res.redirect(301, '/');
   return renderArchive(req, res, page);
 });
 
 app.get('/category/:slug', (req, res) => {
-  recordPublicView(req);
-  const category = categoryFromSlug(req.params.slug);
-  if (!category) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   const page = Number.parseInt(req.query.page, 10) || 1;
   if (page < 1) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const resolution = categorySlugResolution(req.params.slug);
+  if (!resolution) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  if (resolution.isAlias) {
+    const pageQuery = page > 1 ? `?page=${page}` : '';
+    return res.redirect(301, `/category/${encodeURIComponent(resolution.canonicalSlug)}${pageQuery}`);
+  }
+  recordPublicView(req);
+  const category = resolution.category.name;
   const total = countArticlesByCategory(category);
   const articles = withReactionTotalsForList(getArticlesByCategory(category, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
   if (page > 1 && articles.length === 0) {
     return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   }
   const pageSuffix = page === 1 ? '' : ` — страница ${page}`;
-  const categoryPath = `/category/${encodeURIComponent(req.params.slug)}`;
+  const categoryPath = `/category/${encodeURIComponent(resolution.canonicalSlug)}`;
   return res.type('html').send(renderListPage({
-    title: `Новости: ${category}${pageSuffix}`,
-    description: `Новости Финляндии в категории «${category}»${pageSuffix.toLowerCase()}.`,
+    title: `${category} в Финляндии — новости на русском${pageSuffix}`,
+    description: `Свежие новости Финляндии в категории «${category}» на русском языке. Финские Новости — Finskie Novosti${pageSuffix.toLowerCase()}.`,
     canonicalPath: page === 1 ? categoryPath : `${categoryPath}?page=${page}`,
     siteUrl: SITE_URL,
     articles,
     page,
     total,
     pagePath: (targetPage) => (targetPage === 1 ? categoryPath : `${categoryPath}?page=${targetPage}`),
+    categoryToSlug,
+  }));
+});
+
+app.get('/tag/:slug', (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const tag = getManagedTaxonomy().tags.find((item) => item.slug === req.params.slug && item.isVisible !== false);
+  if (!tag) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  recordPublicView(req);
+  const total = countArticlesByTagSlug(tag.slug);
+  const articles = withReactionTotalsForList(getArticlesByTagSlug(tag.slug, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
+  if (page > 1 && articles.length === 0) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const basePath = `/tag/${encodeURIComponent(tag.slug)}`;
+  return res.type('html').send(renderListPage({
+    title: `Тема: ${tag.name}${page > 1 ? ` — страница ${page}` : ''}`,
+    description: tag.description || `Все опубликованные материалы по теме «${tag.name}».`,
+    canonicalPath: page === 1 ? basePath : `${basePath}?page=${page}`,
+    siteUrl: SITE_URL,
+    articles,
+    page,
+    total,
+    pagePath: (targetPage) => (targetPage === 1 ? basePath : `${basePath}?page=${targetPage}`),
+    categoryToSlug,
+  }));
+});
+
+app.get('/region/:code', (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const region = getManagedTaxonomy().regions.find((item) => item.code === req.params.code && item.isVisible !== false);
+  if (!region) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  recordPublicView(req);
+  const total = countArticlesByRegionCode(region.code);
+  const articles = withReactionTotalsForList(getArticlesByRegionCode(region.code, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }));
+  if (page > 1 && articles.length === 0) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
+  const basePath = `/region/${encodeURIComponent(region.code)}`;
+  return res.type('html').send(renderListPage({
+    title: `Регион: ${region.name}${page > 1 ? ` — страница ${page}` : ''}`,
+    description: `Новости по региону «${region.name}».`,
+    canonicalPath: page === 1 ? basePath : `${basePath}?page=${page}`,
+    siteUrl: SITE_URL,
+    articles,
+    page,
+    total,
+    pagePath: (targetPage) => (targetPage === 1 ? basePath : `${basePath}?page=${targetPage}`),
     categoryToSlug,
   }));
 });
@@ -480,6 +1980,8 @@ app.get('/news/:slug', (req, res) => {
     comments: getApprovedComments(article.id),
     commentMessage: commentMessage(req.query.comment),
     reactionMessage: req.query.reaction === 'submitted' ? 'Реакция учтена.' : '',
+    relatedArticles: getRelatedArticles(article.id, 4),
+    adjacent: getAdjacentArticles(article.id),
   }));
 });
 
@@ -520,24 +2022,643 @@ app.post('/news/:slug/reactions', (req, res) => {
   return res.redirect(303, `/news/${encodeURIComponent(article.slug)}?reaction=submitted`);
 });
 
+app.get('/admin/login', (req, res) => {
+  if (getGoogleAdminSession(req)) return res.redirect(303, '/admin');
+  res.set('Cache-Control', 'no-store');
+  return res.type('html').send(renderAdminLoginPage({
+    siteUrl: SITE_URL,
+    googleEnabled: GOOGLE_AUTH_ENABLED,
+    basicEnabled: ADMIN_ACCOUNTS.length > 0,
+    error: typeof req.query.error === 'string' ? req.query.error : '',
+  }));
+});
+
+app.post('/contact', (req, res) => {
+  const name = normalizeContactText(req.body.name);
+  const email = normalizeContactText(req.body.email).toLowerCase();
+  const body = normalizeContactText(req.body.body);
+  const website = normalizeContactText(req.body.website);
+  const formToken = typeof req.body.form_token === 'string' ? req.body.form_token : '';
+
+  const looksAutomated = website || !verifyContactFormToken(formToken, ANALYTICS_SECRET, {
+    minAgeMs: CONTACT_MIN_FILL_MS,
+    maxAgeMs: CONTACT_FORM_TTL_MS,
+  });
+  if (looksAutomated) return res.redirect(303, '/contact?contact=sent');
+
+  if (!name || name.length > 80 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !body || body.length > 3000) {
+    return renderContactResponse(res, 400, 'invalid');
+  }
+  if (countLinks(body) > CONTACT_MAX_LINKS) return renderContactResponse(res, 400, 'too-many-links');
+  if (!contactRateLimiter.consume(contactVisitorKey(req))) return renderContactResponse(res, 429, 'rate-limited');
+  if (hasRecentContactMessage({ email, body, windowHours: CONTACT_DUPLICATE_WINDOW_HOURS })) {
+    return res.redirect(303, '/contact?contact=sent');
+  }
+  createContactMessage({ name, email, body });
+  return res.redirect(303, '/contact?contact=sent');
+});
+
+app.get('/admin/basic', (req, res) => {
+  const account = verifyAdminAuthorization(req.get('authorization'), ADMIN_ACCOUNTS);
+  if (!account) {
+    if (ADMIN_ACCOUNTS.length) res.set('WWW-Authenticate', 'Basic realm="Finskie Novosti Admin"');
+    return res.status(401).type('text').send('Введите аварийные учётные данные администратора.');
+  }
+  return res.redirect(303, '/admin');
+});
+
+app.get('/admin/auth/google', (req, res) => {
+  if (!GOOGLE_AUTH_ENABLED) return res.redirect(303, '/admin/login?error=not-configured');
+  cleanupAdminAuthData();
+  const state = randomBase64Url(32);
+  const nonce = randomBase64Url(32);
+  const pkce = createPkcePair();
+  createAdminOAuthState({
+    stateHash: sha256(state),
+    nonce,
+    codeVerifier: pkce.verifier,
+    expiresAt: new Date(Date.now() + ADMIN_OAUTH_STATE_TTL_MS).toISOString(),
+  });
+  setAdminOAuthStateCookie(res, state);
+  const authorizationUrl = getAdminGoogleAuthProvider(req).createAuthorizationUrl({
+    state,
+    nonce,
+    codeChallenge: pkce.challenge,
+  });
+  res.set('Cache-Control', 'no-store');
+  return res.redirect(303, authorizationUrl);
+});
+
+app.get('/admin/auth/google/callback', async (req, res) => {
+  if (!GOOGLE_AUTH_ENABLED) return res.redirect(303, '/admin/login?error=not-configured');
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const stateCookie = getCookie(req, ADMIN_OAUTH_STATE_COOKIE);
+  const savedState = state && safelyMatches(state, stateCookie)
+    ? consumeAdminOAuthState(sha256(state))
+    : null;
+  clearAdminOAuthStateCookie(res);
+  if (!savedState || !code || Date.parse(savedState.expiresAt) <= Date.now()) {
+    return res.redirect(303, '/admin/login?error=invalid-state');
+  }
+  try {
+    const identity = await getAdminGoogleAuthProvider(req).exchangeAndVerify({
+      code,
+      codeVerifier: savedState.codeVerifier,
+      nonce: savedState.nonce,
+    });
+    const account = findGoogleAdminAccount(GOOGLE_ADMIN_ACCOUNTS, identity.email);
+    if (!account) {
+      recordAdminAction({
+        actorUsername: identity.email || 'unknown-google-account',
+        actorRole: 'denied',
+        action: 'auth.google_denied',
+        targetType: 'account',
+        targetId: identity.googleSub,
+      });
+      return res.redirect(303, '/admin/login?error=not-allowed');
+    }
+    const sessionToken = randomBase64Url(48);
+    const expiresAt = new Date(Date.now() + ADMIN_SESSION_HOURS * 60 * 60 * 1000).toISOString();
+    createAdminSession({
+      tokenHash: sha256(sessionToken),
+      googleSub: identity.googleSub,
+      email: account.email,
+      displayName: identity.displayName,
+      role: account.role,
+      expiresAt,
+    });
+    recordAdminAction({
+      actorUsername: account.email,
+      actorRole: account.role,
+      action: 'auth.google_login',
+      targetType: 'session',
+      targetId: identity.googleSub,
+    });
+    setAdminSessionCookie(res, sessionToken);
+    return res.redirect(303, '/admin');
+  } catch (error) {
+    console.error('[google-admin-auth] вход отклонён:', error.message);
+    return res.redirect(303, '/admin/login?error=google-failed');
+  }
+});
+
+app.get('/account/login', (req, res) => {
+  if (getUserAuth(req)) return res.redirect(303, '/account');
+  const status = GOOGLE_USER_AUTH_ENABLED ? 200 : 503;
+  return res.status(status).type('html').send(renderAccountLoginPage({
+    siteUrl: SITE_URL,
+    googleEnabled: GOOGLE_USER_AUTH_ENABLED,
+    error: typeof req.query.error === 'string' ? req.query.error : '',
+  }));
+});
+app.get('/account/login/start', (req, res) => {
+  if (getUserAuth(req)) return res.redirect(303, '/account');
+  if (!GOOGLE_USER_AUTH_ENABLED) return res.status(503).send('Google-вход для пользователей не настроен.');
+  const state = randomBase64Url(32); const nonce = randomBase64Url(32); const pkce = createPkcePair();
+  createUserOAuthState({ stateHash: sha256(state), nonce, codeVerifier: pkce.verifier, expiresAt: new Date(Date.now() + 600000).toISOString() });
+  res.append('Set-Cookie', `${USER_OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}; Path=/account/auth/google/callback; HttpOnly; SameSite=Lax; Max-Age=600`);
+  return res.redirect(303, getUserGoogleAuthProvider(req).createAuthorizationUrl({ state, nonce, codeChallenge: pkce.challenge }));
+});
+app.get('/account/auth/google/callback', async (req, res) => {
+  const state = typeof req.query.state === 'string' ? req.query.state : ''; const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const saved = state && safelyMatches(state, getCookie(req, USER_OAUTH_STATE_COOKIE)) ? consumeUserOAuthState(sha256(state)) : null;
+  if (!saved || !code || Date.parse(saved.expiresAt) <= Date.now()) return res.redirect(303, '/account/login?error=state');
+  try { const identity = await getUserGoogleAuthProvider(req).exchangeAndVerify({ code, codeVerifier: saved.codeVerifier, nonce: saved.nonce }); const token = randomBase64Url(48); const created = createUserSession({ tokenHash: sha256(token), googleSub: identity.googleSub, email: identity.email, displayName: identity.displayName, expiresAt: new Date(Date.now() + 43200000).toISOString() }); if (created.isNew) queueAdminTelegramNotification('user_registered', 'Новый пользователь зарегистрирован', [identity.displayName || '', identity.email]); setUserSessionCookie(res, token); return res.redirect(303, '/account'); } catch { return res.redirect(303, '/account/login?error=failed'); }
+});
+app.get('/account', async (req, res) => simpleAccountPage(req, res));
+app.post('/account/assistant-profile', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const allowedStatuses = new Set(['work', 'study', 'business', 'jobseeker', 'pension']);
+  const allowedHousing = new Set(['rent', 'owner']);
+  const allowedTransport = new Set(['hsl', 'car', 'bike']);
+  const interests = String(req.body.interests || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 20);
+  const requestedModes = Array.isArray(req.body.assistant_modes) ? req.body.assistant_modes : (req.body.assistant_modes ? [req.body.assistant_modes] : []);
+  const requestedGroceryChains = Array.isArray(req.body.grocery_chains) ? req.body.grocery_chains : (req.body.grocery_chains ? [req.body.grocery_chains] : []);
+  const allowedModes = new Set(['family', 'entrepreneur', 'newcomer']);
+  const allowedGroceryChains = new Set(GROCERY_CHAINS.map((chain) => chain.id));
+  saveTelegramAssistantProfile(user.googleSub, {
+    city: String(req.body.city || '').trim(),
+    lifeStatus: allowedStatuses.has(req.body.life_status) ? req.body.life_status : '',
+    hasChildren: req.body.has_children === 'on',
+    housing: allowedHousing.has(req.body.housing) ? req.body.housing : '',
+    transport: allowedTransport.has(req.body.transport) ? req.body.transport : '',
+    interests,
+    modes: requestedModes.filter((mode) => allowedModes.has(mode)),
+    groceryOffersEnabled: req.body.grocery_offers_enabled === 'on',
+    groceryChains: requestedGroceryChains.filter((chain) => allowedGroceryChains.has(chain)),
+  });
+  return simpleAccountPage(req, res, 'Профиль персонального помощника сохранён.');
+});
+app.post('/account/subscription', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const cats = Array.isArray(req.body.categories) ? req.body.categories : (req.body.categories ? [req.body.categories] : []);
+  const requestedSources = Array.isArray(req.body.source_ids) ? req.body.source_ids : (req.body.source_ids ? [req.body.source_ids] : []);
+  const requestedExcludedCategories = Array.isArray(req.body.excluded_categories) ? req.body.excluded_categories : (req.body.excluded_categories ? [req.body.excluded_categories] : []);
+  const requestedTags = Array.isArray(req.body.tag_ids) ? req.body.tag_ids : (req.body.tag_ids ? [req.body.tag_ids] : []);
+  const requestedRegions = Array.isArray(req.body.region_codes) ? req.body.region_codes : (req.body.region_codes ? [req.body.region_codes] : []);
+  const requestedAudiences = Array.isArray(req.body.audience_codes) ? req.body.audience_codes : (req.body.audience_codes ? [req.body.audience_codes] : []);
+  const requestedDeliveryWeekdays = Array.isArray(req.body.delivery_weekdays) ? req.body.delivery_weekdays : (req.body.delivery_weekdays ? [req.body.delivery_weekdays] : []);
+  const requestedQuietWeekdays = Array.isArray(req.body.quiet_weekdays) ? req.body.quiet_weekdays : (req.body.quiet_weekdays ? [req.body.quiet_weekdays] : []);
+  const requestedWordLevels = Array.isArray(req.body.word_levels) ? req.body.word_levels : (req.body.word_levels ? [req.body.word_levels] : []);
+  const taxonomy = getManagedTaxonomy();
+  const allowedSourceIds = new Set(getAdminSources().filter((source) => source.enabled).map((source) => source.sourceId));
+  const allowedTagIds = new Set(taxonomy.tags.filter((tag) => tag.isVisible).map((tag) => String(tag.id)));
+  const allowedRegionCodes = new Set(taxonomy.regions.filter((region) => region.isVisible).map((region) => region.code));
+  const allowedAudienceCodes = new Set(taxonomy.audiences.filter((audience) => audience.isVisible).map((audience) => audience.code));
+  const allowedWeekdays = new Set(['0', '1', '2', '3', '4', '5', '6']);
+  const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const quietStart = timePattern.test(req.body.quiet_start || '') ? req.body.quiet_start : '22:00';
+  const quietEnd = timePattern.test(req.body.quiet_end || '') ? req.body.quiet_end : '07:00';
+  upsertUserSubscription({
+    userId: user.googleSub,
+    enabled: req.body.enabled === 'on',
+    frequency: req.body.frequency === 'instant' ? 'instant' : 'daily',
+    categories: cats.filter((category) => managedCategories().includes(category)),
+    scope: req.body.scope === 'all' ? 'all' : 'finland',
+    importance: ['all', 'important', 'urgent'].includes(req.body.importance) ? req.body.importance : 'all',
+    sourceIds: requestedSources.filter((sourceId) => allowedSourceIds.has(sourceId)),
+    maxPostsPerDay: Math.min(100, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)),
+    includeOriginal: req.body.include_original === 'on',
+    quietHoursEnabled: req.body.quiet_hours_enabled === 'on',
+    quietStart,
+    quietEnd,
+    timezone: 'Europe/Helsinki',
+    contentTypes: normalizeContentTypes(req.body.content_types),
+    wordLevels: requestedWordLevels.filter((level) => ['A1-A2', 'B1-B2', 'C1-C2'].includes(level)),
+    excludedCategories: requestedExcludedCategories.filter((category) => managedCategories().includes(category)),
+    tagIds: requestedTags.map(String).filter((id) => allowedTagIds.has(id)),
+    regionCodes: requestedRegions.filter((code) => allowedRegionCodes.has(code)),
+    audienceCodes: requestedAudiences.filter((code) => allowedAudienceCodes.has(code)),
+    minimumImportance: Math.min(5, Math.max(1, Number.parseInt(req.body.minimum_importance, 10) || 1)),
+    deliveryTimes: [req.body.delivery_time].filter((value) => timePattern.test(value || '')),
+    deliveryWeekdays: requestedDeliveryWeekdays.filter((day) => allowedWeekdays.has(day)),
+    quietWeekdays: requestedQuietWeekdays.filter((day) => allowedWeekdays.has(day)),
+    allowCriticalDuringQuiet: req.body.allow_critical_during_quiet === 'on',
+  });
+  queueAdminTelegramNotification('subscription_changed', req.body.enabled === 'on' ? 'Пользователь включил или изменил подписку' : 'Пользователь отключил подписку', [user.email, cats.length ? `Темы: ${cats.join(', ')}` : 'Темы: все']);
+  if (req.body.enabled === 'on') {
+    runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message));
+  }
+  return simpleAccountPage(req, res, 'Настройки сохранены.');
+});
+app.post('/account/telegram/connect', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const botProfile = await getTelegramBotProfile();
+  if (!botProfile?.username) {
+    return simpleAccountPage(req, res, 'Не удалось открыть Telegram. Проверьте настройку TELEGRAM_BOT_TOKEN.');
+  }
+  const raw = randomBase64Url(16);
+  createTelegramLinkCode({
+    userId: user.googleSub,
+    linkCodeHash: sha256(raw),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  return res.redirect(303, `https://t.me/${botProfile.username}?start=${encodeURIComponent(raw)}`);
+});
+app.post('/account/telegram/code', (req, res) => res.redirect(307, '/account/telegram/connect'));
+app.post('/account/telegram/test', async (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  const link = getTelegramUserLink(user.googleSub);
+  if (!link?.telegramChatId) {
+    return simpleAccountPage(req, res, 'Сначала подключите Telegram.');
+  }
+  if (!TELEGRAM_BOT_CONFIGURED) {
+    return simpleAccountPage(req, res, 'Telegram-бот временно не настроен на сервере.');
+  }
+  try {
+    await sendTelegramMessageToChat(link.telegramChatId, [
+      '✅ Доставка работает',
+      'Это проверочное сообщение от «Финских Новостей».',
+      `Открыть личный кабинет: ${SITE_URL}/account`,
+    ].join('\n\n'));
+    return simpleAccountPage(req, res, 'Проверочное сообщение отправлено в Telegram.');
+  } catch (error) {
+    console.error('[telegram-test] ошибка отправки:', error.message);
+    return simpleAccountPage(req, res, 'Не удалось отправить проверочное сообщение. Проверьте бота и повторите позже.');
+  }
+});
+app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
+
+app.post('/telegram/webhook', express.json(), async (req, res) => {
+  if (TELEGRAM_WEBHOOK_SECRET && req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) {
+    return res.status(403).json({ ok: false });
+  }
+  const callbackQuery = req.body && req.body.callback_query;
+  if (callbackQuery) {
+    try {
+      await handleTelegramCallbackQuery(callbackQuery);
+    } catch (error) {
+      console.error('[telegram callback] ошибка:', error.message);
+    }
+    return res.status(200).json({ ok: true });
+  }
+  const message = req.body && req.body.message;
+  const text = message && typeof message.text === 'string' ? message.text.trim() : '';
+  const chatId = message && message.chat && message.chat.id;
+  const match = /^\/start(?:@[A-Za-z0-9_]{5,32})?\s+([A-Za-z0-9_-]{8,64})$/i.exec(text);
+  const linkedUserId = match && chatId
+    ? linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(chatId) })
+    : null;
+  const linkSucceeded = Boolean(linkedUserId);
+  if (linkedUserId) {
+    const subscription = getUserSubscription(linkedUserId);
+    upsertUserSubscription({ ...subscription, enabled: true });
+    queueAdminTelegramNotification('telegram_linked', 'Пользователь подключил Telegram-бота', [`Пользователь: ${linkedUserId}`]);
+    runInstantTelegramCatchup().catch((error) => console.error('[telegram-link-catchup] ошибка:', error.message));
+  }
+  if (chatId && TELEGRAM_BOT_TOKEN) {
+    try {
+      const groceryHandled = await handleGroceryTelegramMessage(message);
+      if (groceryHandled) return res.status(200).json({ ok: true });
+      const hslHandled = await handleHslTelegramMessage(message);
+      if (hslHandled) return res.status(200).json({ ok: true });
+      const assistantHandled = await handleTelegramAssistantMessage(message);
+      if (assistantHandled) return res.status(200).json({ ok: true });
+      await sendTelegramMessageToChat(chatId, getRussianTelegramReply(text, {
+        accountUrl: SITE_URL,
+        linkSucceeded,
+        chatId: String(chatId),
+      }));
+    } catch (error) {
+      console.error('[telegram webhook] не удалось отправить ответ:', error.message);
+      const wasHslRequest = Boolean(message?.location
+        || /^\/hsl\b/iu.test(text) || /^[A-ZÅÄÖ]{0,2}\d{3,7}$/iu.test(text));
+      try {
+        const messageText = wasHslRequest
+          ? (error.code === 'missing_api_key'
+            ? 'Расписание HSL пока не настроено администратором. Нужно добавить ключ Digitransit.'
+            : 'Не удалось получить расписание HSL. Попробуйте ещё раз немного позже.')
+          : 'Бот получил ваш запрос, но сейчас не смог подготовить ответ. Попробуйте ещё раз через минуту.';
+        await sendTelegramMessageToChat(chatId, messageText);
+      } catch (sendError) {
+        console.error('[telegram webhook] не удалось сообщить об ошибке:', sendError.message);
+      }
+    }
+  }
+  return res.status(200).json({ ok: true });
+});
+
 app.use('/admin', requireAdmin);
 
+app.post('/admin/logout', requireAdminOrigin, (req, res) => {
+  if (req.adminSessionTokenHash) deleteAdminSession(req.adminSessionTokenHash);
+  auditAdminAction(req, 'auth.logout', 'session', req.adminSessionTokenHash || 'basic');
+  clearAdminSessionCookie(res);
+  return res.redirect(303, '/admin/login');
+});
+
 app.get('/admin', (req, res) => {
+  const statisticsFilters = parseStatisticsFilters(req.query);
   const articles = withReactionTotalsForList(searchArticles({ query: req.query.q, limit: 50 }))
-    .map((article) => ({ ...article, telegramPublication: getTelegramPublication(article.id) }));
+    .map((article) => ({
+      ...article,
+      classification: getArticleClassification(article.id),
+      ranking: calculateArticleRanking(article, getArticleRankingSignals(article.id)),
+      telegramPublication: getTelegramPublication(article.id),
+      editorialDiscussions: getEditorialDiscussions(article.id),
+    }));
   res.set('Cache-Control', 'no-store');
   res.type('html').send(renderAdminPage({
-    pendingComments: getPendingComments(),
+    comments: getAdminComments(100),
     articles,
     query: typeof req.query.q === 'string' ? req.query.q : '',
-    statistics: getAdminStatistics(),
-    categories,
+    statistics: { ...getAdminStatistics(statisticsFilters), operational: getOperationalMetrics() },
+    userStatistics: getUserStatistics(),
+    statisticsSources: getAdminSources(),
+    newsSources: getAdminSources(),
+    newsSourceStatus: typeof req.query.newsSource === 'string' ? req.query.newsSource : '',
+    duplicateArticles: getRecentDuplicateArticles(20),
+    auditLog: getAdminAuditLog(100),
+    currentAccount: req.adminAccount,
+    categories: managedCategories(),
+    taxonomy: getManagedTaxonomy(),
+    taxonomyStatus: typeof req.query.taxonomy === 'string' ? req.query.taxonomy : '',
+    classificationStatus: typeof req.query.classification === 'string' ? req.query.classification : '',
+    classificationCount: Number.parseInt(req.query.count, 10) || 0,
+    qualityQueue: getQualityReviewQueue(100),
+    qualityQueueCount: countQualityReviewQueue(),
+    qualityStatus: typeof req.query.quality === 'string' ? req.query.quality : '',
     telegramConfigured: TELEGRAM_CONFIGURED,
     telegramStatus: typeof req.query.telegram === 'string' ? req.query.telegram : '',
+    telegramChannelConfigured: TELEGRAM_BOT_CONFIGURED,
+    telegramChannelSettings: normalizeTelegramChannelSettings(getTelegramChannelSettings()),
+    telegramChannelStatus: typeof req.query.telegramChannel === 'string' ? req.query.telegramChannel : '',
     importProviderConfigured: IMPORT_PROVIDER_CONFIGURED,
     importStatus: typeof req.query.import === 'string' ? req.query.import : '',
+    rssStatus: typeof req.query.rss === 'string' ? req.query.rss : '',
+    articleStatus: typeof req.query.article === 'string' ? req.query.article : '',
+    duplicateStatus: typeof req.query.duplicate === 'string' ? req.query.duplicate : '',
     siteUrl: SITE_URL,
+    tab: typeof req.query.tab === 'string' ? req.query.tab : 'stats',
+    contactMessages: getContactMessages(100),
+    unreadContactMessages: getUnreadContactMessageCount(),
+    adminNotifications: getAdminNotifications(50),
+    unreadAdminNotifications: countUnreadAdminNotifications(),
+    adminTelegramNotificationSettings: getAdminTelegramNotificationSettings(),
+    adminTelegramNotificationStatus: typeof req.query.adminTelegram === 'string' ? req.query.adminTelegram : '',
+    untranslatedArticleCount: countUntranslatedArticles(),
   }));
+});
+
+app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
+  if (isRefreshing) {
+    return res.redirect(303, '/admin?tab=articles&rss=already-running');
+  }
+  auditAdminAction(req, 'rss.refresh', 'rss', 'manual');
+  safeRefresh().catch((error) => {
+    console.error('[admin-rss-refresh] ошибка обновления:', error.message);
+  });
+  return res.redirect(303, '/admin?tab=articles&rss=started');
+});
+
+app.post('/admin/news-sources/:id/toggle', requireAdminOrigin, (req, res) => {
+  const sourceId = typeof req.params.id === 'string' ? req.params.id : '';
+  const enabled = req.body.enabled === '1';
+  if (!setNewsSourceEnabled(sourceId, enabled)) return res.status(404).type('text').send('Источник не найден.');
+  auditAdminAction(req, 'news_source.toggle', 'news_source', sourceId, { enabled });
+  return res.redirect(303, `/admin?tab=sources&newsSource=${enabled ? 'enabled' : 'disabled'}`);
+});
+
+app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
+  const templateValidation = validateTelegramChannelTemplate(req.body.template);
+  if (!templateValidation.valid) {
+    console.warn('[telegram-channel-template] отклонён шаблон:', templateValidation.errors.join(' '));
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=template-error');
+  }
+  const settings = normalizeTelegramChannelSettings({
+    enabled: req.body.enabled,
+    chatId: req.body.chat_id,
+    categories: req.body.categories,
+    importance: req.body.importance,
+    minimumScore: req.body.minimum_score,
+    intervalMinutes: req.body.interval_minutes,
+    maxPostsPerDay: req.body.max_posts_per_day,
+    quietHoursEnabled: req.body.quiet_hours_enabled,
+    quietStart: req.body.quiet_start,
+    quietEnd: req.body.quiet_end,
+    includeOriginal: req.body.include_original,
+    template: req.body.template,
+  });
+  saveTelegramChannelSettings({
+    ...settings,
+    categories: settings.categories.join(','),
+  });
+  auditAdminAction(req, 'telegram_channel.settings', 'telegram_channel', settings.chatId, {
+    enabled: settings.enabled,
+    categories: settings.categories,
+    importance: settings.importance,
+    minimumScore: settings.minimumScore,
+    intervalMinutes: settings.intervalMinutes,
+    maxPostsPerDay: settings.maxPostsPerDay,
+    quietHoursEnabled: settings.quietHoursEnabled,
+    quietStart: settings.quietStart,
+    quietEnd: settings.quietEnd,
+  });
+  return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=saved');
+});
+
+app.post('/admin/telegram-channel/test', requireAdminOrigin, async (req, res) => {
+  if (!TELEGRAM_BOT_CONFIGURED) {
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=not-configured');
+  }
+  const settings = normalizeTelegramChannelSettings(getTelegramChannelSettings());
+  try {
+    await sendTelegramMessageToChat(
+      settings.chatId,
+      '<b>✅ Общий канал «Финские Новости» подключён</b>\n\nСвязь с сайтом настроена. Новые публикации будут отправляться по правилам из админ-панели.',
+      { parse_mode: 'HTML' },
+    );
+    auditAdminAction(req, 'telegram_channel.test', 'telegram_channel', settings.chatId);
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-sent');
+  } catch (error) {
+    console.error('[telegram-channel-test] ошибка:', error.message);
+    return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=test-error');
+  }
+});
+
+app.post('/admin/telegram-notifications/settings', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const chatId = typeof req.body.chat_id === 'string' ? req.body.chat_id.trim() : '';
+  if (chatId && !/^-?\d{5,20}$/.test(chatId)) {
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=invalid');
+  }
+  saveAdminTelegramNotificationSettings({
+    enabled: req.body.enabled === 'on', chatId,
+    userRegistered: req.body.user_registered === 'on',
+    telegramLinked: req.body.telegram_linked === 'on',
+    subscriptionChanged: req.body.subscription_changed === 'on',
+  });
+  auditAdminAction(req, 'telegram_notifications.settings', 'telegram_notifications', chatId);
+  return res.redirect(303, '/admin?tab=notifications&adminTelegram=saved');
+});
+
+app.post('/admin/telegram-notifications/test', requireAdminOrigin, requireAdministrator, async (req, res) => {
+  try {
+    const settings = getAdminTelegramNotificationSettings();
+    if (!TELEGRAM_BOT_CONFIGURED || !settings.chatId) throw new Error('not configured');
+    await sendTelegramMessageToChat(settings.chatId, '✅ Уведомления админ-панели «Финских Новостей» подключены.');
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=test-sent');
+  } catch (error) {
+    console.error('[admin-telegram-test] ошибка:', error.message);
+    return res.redirect(303, '/admin?tab=notifications&adminTelegram=test-error');
+  }
+});
+
+app.post('/admin/notifications/:id/read', requireAdminOrigin, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (Number.isInteger(id) && id > 0) markAdminNotificationRead(id);
+  return res.redirect(303, '/admin?tab=messages');
+});
+
+app.post('/admin/taxonomy/:type', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  if (!type) return res.status(404).type('text').send('Справочник не найден.');
+  try {
+    const id = createManagedTaxonomyItem(type, parseTaxonomyInput(req.body));
+    auditAdminAction(req, 'taxonomy.create', type, id, { name: req.body.name });
+    return res.redirect(303, taxonomyRedirect('created', type));
+  } catch (error) {
+    const status = String(error.code || '').startsWith('SQLITE_CONSTRAINT') ? 'duplicate' : 'invalid';
+    return res.redirect(303, taxonomyRedirect(status, type));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  try {
+    if (!updateManagedTaxonomyItem(type, id, parseTaxonomyInput(req.body))) {
+      return res.status(404).type('text').send('Запись справочника не найдена.');
+    }
+    auditAdminAction(req, 'taxonomy.update', type, id, { name: req.body.name });
+    return res.redirect(303, taxonomyRedirect('updated', type));
+  } catch (error) {
+    const status = String(error.code || '').startsWith('SQLITE_CONSTRAINT') ? 'duplicate' : 'invalid';
+    return res.redirect(303, taxonomyRedirect(status, type));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id/visibility', requireAdminOrigin, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  const visible = req.body.visible === '1';
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  try {
+    if (!setManagedTaxonomyVisibility(type, id, visible)) {
+      return res.status(404).type('text').send('Запись справочника не найдена.');
+    }
+    auditAdminAction(req, 'taxonomy.visibility', type, id, { visible });
+    return res.redirect(303, taxonomyRedirect(visible ? 'shown' : 'hidden', type));
+  } catch (error) {
+    auditAdminAction(req, 'taxonomy.visibility_failed', type, id, {
+      visible,
+      reason: error.code || 'unknown',
+    });
+    return res.redirect(303, taxonomyRedirect(
+      error.code === 'CATEGORY_MERGED' ? 'merged-hidden' : 'invalid',
+      type,
+    ));
+  }
+});
+
+app.post('/admin/taxonomy/:type/:id/delete', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const type = parseTaxonomyType(req.params.type);
+  const id = parseArticleId(req.params.id);
+  if (!type || !id) return res.status(404).type('text').send('Запись справочника не найдена.');
+  const result = deleteManagedTaxonomyItem(type, id);
+  auditAdminAction(req, result.deleted ? 'taxonomy.delete' : 'taxonomy.delete_blocked', type, id, result);
+  const status = result.deleted ? 'deleted' : result.reason === 'not_found' ? 'not-found' : result.reason;
+  return res.redirect(303, taxonomyRedirect(status, type));
+});
+
+app.post('/admin/taxonomy/categories/:id/merge', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const sourceId = parseArticleId(req.params.id);
+  const targetId = parseArticleId(req.body.target_id);
+  if (!sourceId || !targetId || req.body.confirm !== 'MERGE') {
+    return res.redirect(303, taxonomyRedirect('merge-invalid', 'categories'));
+  }
+  try {
+    const result = mergeManagedCategories(sourceId, targetId, req.adminAccount.username);
+    auditAdminAction(req, 'taxonomy.merge', 'categories', sourceId, result);
+    return res.redirect(303, taxonomyRedirect('merged', 'categories'));
+  } catch (error) {
+    auditAdminAction(req, 'taxonomy.merge_failed', 'categories', sourceId, {
+      targetId,
+      reason: error.message,
+    });
+    return res.redirect(303, taxonomyRedirect('merge-invalid', 'categories'));
+  }
+});
+
+app.post('/admin/articles/reclassify', requireAdminOrigin, (req, res) => {
+  const includeClassified = req.body.scope === 'all';
+  const classified = classifyUnclassifiedArticles(500, { includeClassified });
+  auditAdminAction(req, 'classification.batch', 'articles', includeClassified ? 'all' : 'unclassified', { classified });
+  const status = classified > 0 ? 'completed' : 'empty';
+  return res.redirect(303, `/admin?tab=taxonomy&classification=${status}&count=${classified}`);
+});
+
+app.post('/admin/quality/:id', requireAdminOrigin, (req, res) => {
+  const id = parseArticleId(req.params.id);
+  const decision = req.body.decision === 'reject' ? 'reject' : 'approve';
+  const category = typeof req.body.category === 'string' ? req.body.category.trim() : '';
+  const importanceLevel = Number.parseInt(req.body.importance_level, 10);
+  const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
+  if (!id || !managedCategories().includes(category)
+    || !Number.isInteger(importanceLevel) || importanceLevel < 1 || importanceLevel > 5) {
+    return res.status(400).type('text').send('Проверьте категорию и важность статьи.');
+  }
+  const reviewed = reviewArticleQuality({
+    id,
+    decision,
+    category,
+    importanceLevel,
+    reviewedBy: req.adminAccount.username,
+    note,
+  });
+  if (!reviewed) return res.status(404).type('text').send('Статья для проверки не найдена.');
+  auditAdminAction(req, `quality.${decision}`, 'article', id, {
+    category,
+    importanceLevel,
+    note,
+    published: reviewed.published,
+  });
+  const status = decision === 'reject'
+    ? 'rejected'
+    : reviewed.published ? 'approved' : 'approved-draft';
+  return res.redirect(303, `/admin?tab=quality&quality=${status}`);
+});
+
+app.post('/admin/contact-messages/:id/read', requireAdminOrigin, (req, res) => {
+  updateContactMessageStatus(Number(req.params.id), 'read');
+  auditAdminAction(req, 'contact.read', 'contact_message', req.params.id);
+  return res.redirect(303, '/admin?tab=messages');
+});
+
+app.post('/admin/articles/cleanup-untranslated', requireAdminOrigin, requireAdministrator, (req, res) => {
+  if (req.body.confirm !== 'DELETE_UNTRANSLATED') return res.status(400).type('text').send('Требуется подтверждение удаления.');
+  const deleted = deleteUntranslatedArticles();
+  auditAdminAction(req, 'article.cleanup_untranslated', 'articles', 'bulk', { deleted });
+  return res.redirect(303, `/admin?tab=articles&article=cleanup-${deleted}`);
+});
+
+app.get('/admin/statistics.csv', (req, res) => {
+  const statistics = getAdminStatistics(parseStatisticsFilters(req.query));
+  auditAdminAction(req, 'statistics.export_csv', 'statistics', `${statistics.filters.from}:${statistics.filters.to}`, {
+    category: statistics.filters.category,
+    sourceId: statistics.filters.sourceId,
+  });
+  const filename = `finskienovosti-statistics-${statistics.filters.from}-${statistics.filters.to}.csv`;
+  res.set({
+    'Cache-Control': 'no-store',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+  });
+  return res.type('text/csv; charset=utf-8').send(renderStatisticsCsv(statistics));
 });
 
 function parseCommentId(value) {
@@ -550,7 +2671,8 @@ app.post('/admin/articles', requireAdminOrigin, (req, res) => {
   if (!input) return res.status(400).type('text').send('Проверьте заголовок, текст, категорию и редакционные метки.');
   const stableKey = crypto.randomUUID();
   const slug = slugify(input.title, stableKey);
-  createManualArticle({
+  const scheduled = Boolean(input.scheduledPublishAt);
+  const articleId = createManualArticle({
     title: input.title,
     body: input.text,
     category: input.category,
@@ -558,8 +2680,20 @@ app.post('/admin/articles', requireAdminOrigin, (req, res) => {
     pinnedUntil: input.pinnedUntil,
     slug,
     originalUrl: `manual:${stableKey}`,
-    publishedAt: new Date().toISOString(),
+    publishedAt: input.scheduledPublishAt || new Date().toISOString(),
+    scheduledPublishAt: input.scheduledPublishAt,
+    publicationStatus: scheduled ? 'draft' : 'published',
   });
+  auditAdminAction(req, scheduled ? 'article.schedule' : 'article.create', 'article', articleId, {
+    slug,
+    title: input.title,
+    scheduledPublishAt: input.scheduledPublishAt,
+  });
+  if (!scheduled) {
+    const article = getArticleById(articleId);
+    if (article) notifyTelegramSubscribersForArticles([article], { frequency: 'instant' }).catch((error) => console.error('[telegram-admin-create] ошибка доставки:', error.message));
+  }
+  if (scheduled) return res.redirect(303, '/admin?article=scheduled');
   return res.redirect(303, `/news/${encodeURIComponent(slug)}`);
 });
 
@@ -578,16 +2712,38 @@ app.post('/admin/import', requireAdminOrigin, async (req, res) => {
     const fetched = await fetchExternalHtml(originalUrl);
     if (articleExists(fetched.url)) return res.redirect(303, '/admin?import=duplicate');
     const extracted = extractArticleContent(fetched.html);
+    const sourceName = new URL(fetched.url).hostname;
+    const similarArticle = findSimilarArticle({
+      sourceId: `import:${sourceName}`,
+      titleFi: extracted.title,
+      summaryFi: extracted.text.slice(0, 5000),
+      publishedAt: new Date().toISOString(),
+    });
+    if (similarArticle) {
+      recordDuplicateArticle({
+        originalUrl: fetched.url,
+        sourceId: `import:${sourceName}`,
+        sourceName,
+        titleFi: extracted.title,
+        summaryFi: extracted.text.slice(0, 5000),
+        externalGuid: fetched.url,
+        category: categorize(extracted.title, extracted.text.slice(0, 5000)),
+        publishedAt: new Date().toISOString(),
+        matchedArticleId: similarArticle.id,
+        similarity: similarArticle.similarity,
+      });
+      return res.redirect(303, '/admin?import=similar');
+    }
     const result = await getRussianVersion({
       titleFi: extracted.title,
       summaryFi: extracted.text.slice(0, 5000),
-      sourceName: new URL(fetched.url).hostname,
+      sourceName,
     });
     if (result.method === 'fallback-original' || !result.titleRu || !result.summaryRu) {
       return res.redirect(303, '/admin?import=error');
     }
-    createImportedDraft({
-      sourceName: new URL(fetched.url).hostname,
+    const articleId = createImportedDraft({
+      sourceName,
       originalUrl: fetched.url,
       slug: slugify(result.titleRu, fetched.url),
       titleFi: extracted.title,
@@ -598,10 +2754,76 @@ app.post('/admin/import', requireAdminOrigin, async (req, res) => {
       promptVersion: result.promptVersion || PROMPT_VERSION,
       importedAt: new Date().toISOString(),
     });
+    auditAdminAction(req, 'article.import_draft', 'article', articleId, {
+      sourceName,
+      originalUrl: fetched.url,
+    });
     return res.redirect(303, '/admin?import=draft-created');
   } catch {
     return res.redirect(303, '/admin?import=error');
   }
+});
+
+app.post('/admin/duplicates/:id/publish', requireAdminOrigin, async (req, res) => {
+  const id = parseArticleId(req.params.id);
+  const duplicate = id ? getDuplicateArticleById(id) : null;
+  if (!duplicate || duplicate.resolution !== 'skipped') {
+    return res.status(404).type('text').send('Запись повтора не найдена или уже обработана.');
+  }
+  if (articleExists(duplicate.originalUrl)) {
+    resolveDuplicateArticle({ id, resolution: 'published', resolvedBy: req.adminAccount.username });
+    return res.redirect(303, '/admin?duplicate=already-published');
+  }
+  try {
+    const result = await getRussianVersion({
+      titleFi: duplicate.titleFi,
+      summaryFi: duplicate.summaryFi || duplicate.titleFi,
+      sourceName: duplicate.sourceName,
+    });
+    if (result.method === 'fallback-original' || !result.titleRu || !result.summaryRu) {
+      return res.redirect(303, '/admin?duplicate=error');
+    }
+    const sourceId = duplicate.sourceId.startsWith('import:') ? 'imported' : duplicate.sourceId;
+    const inserted = insertArticle({
+      sourceId,
+      sourceName: duplicate.sourceName,
+      originalUrl: duplicate.originalUrl,
+      externalGuid: duplicate.externalGuid || duplicate.originalUrl,
+      slug: slugify(result.titleRu, duplicate.originalUrl),
+      category: duplicate.category || categorize(duplicate.titleFi, duplicate.summaryFi || duplicate.titleFi),
+      titleFi: duplicate.titleFi,
+      summaryFi: duplicate.summaryFi || duplicate.titleFi,
+      titleRu: result.titleRu,
+      summaryRu: result.summaryRu,
+      translationMethod: result.method,
+      promptVersion: result.promptVersion || PROMPT_VERSION,
+      publishedAt: duplicate.publishedAt || new Date().toISOString(),
+    });
+    if (!inserted) return res.redirect(303, '/admin?duplicate=error');
+    resolveDuplicateArticle({ id, resolution: 'published', resolvedBy: req.adminAccount.username });
+    auditAdminAction(req, 'duplicate.publish_anyway', 'duplicate', id, {
+      originalUrl: duplicate.originalUrl,
+      matchedArticleId: duplicate.matchedArticleId,
+    });
+    const article = getArticleById(inserted);
+    if (article) notifyTelegramSubscribersForArticles([article], { frequency: 'instant' }).catch((error) => console.error('[telegram-duplicate-publish] ошибка доставки:', error.message));
+    return res.redirect(303, '/admin?duplicate=published');
+  } catch {
+    return res.redirect(303, '/admin?duplicate=error');
+  }
+});
+
+app.post('/admin/articles/:id/classify', requireAdminOrigin, (req, res) => {
+  const id = parseArticleId(req.params.id);
+  const article = id ? getArticleById(id) : null;
+  if (!article) return res.status(404).type('text').send('Статья не найдена.');
+  const classification = classifyAndStoreArticle(id);
+  auditAdminAction(req, 'article.classify', 'article', id, {
+    category: classification.category,
+    regionCode: classification.regionCode,
+    confidence: classification.confidence,
+  });
+  return res.redirect(303, `/admin?tab=articles&q=${encodeURIComponent(article.titleRu || article.titleFi || '')}&classification=article-updated`);
 });
 
 app.post('/admin/articles/:id', requireAdminOrigin, (req, res) => {
@@ -617,6 +2839,11 @@ app.post('/admin/articles/:id', requireAdminOrigin, (req, res) => {
     category: input.category,
     editorialStatus: input.editorialStatus,
     pinnedUntil: input.pinnedUntil,
+    scheduledPublishAt: input.scheduledPublishAt,
+  });
+  auditAdminAction(req, input.scheduledPublishAt ? 'article.schedule' : 'article.update', 'article', id, {
+    title: input.title,
+    scheduledPublishAt: input.scheduledPublishAt,
   });
   return res.redirect(303, `/admin?q=${encodeURIComponent(typeof req.query.q === 'string' ? req.query.q : '')}`);
 });
@@ -624,24 +2851,29 @@ app.post('/admin/articles/:id', requireAdminOrigin, (req, res) => {
 app.post('/admin/articles/:id/publish', requireAdminOrigin, (req, res) => {
   const id = parseArticleId(req.params.id);
   const article = id ? getArticleById(id) : null;
-  if (!article || !categories.includes(article.category) || !publishArticle(id)) {
+  if (!article || !managedCategories().includes(article.category) || !publishArticle(id)) {
     return res.status(400).type('text').send('Заполните категорию и сохраните черновик перед публикацией.');
   }
+  auditAdminAction(req, 'article.publish', 'article', id, { slug: article.slug, title: article.titleRu || article.titleFi });
+  notifyTelegramSubscribersForArticles([getArticleById(id)], { frequency: 'instant' }).catch((error) => console.error('[telegram-admin-publish] ошибка доставки:', error.message));
   return res.redirect(303, '/admin?import=published');
 });
 
-app.get('/admin/articles/:id/delete', (req, res) => {
+app.get('/admin/articles/:id/delete', requireAdministrator, (req, res) => {
   const article = getArticleById(parseArticleId(req.params.id));
   if (!article) return res.status(404).type('html').send(renderNotFound({ siteUrl: SITE_URL }));
   return res.type('html').send(renderAdminArticleDeletePage({ article, siteUrl: SITE_URL }));
 });
 
-app.post('/admin/articles/:id/delete', requireAdminOrigin, (req, res) => {
+app.post('/admin/articles/:id/delete', requireAdminOrigin, requireAdministrator, (req, res) => {
   const id = parseArticleId(req.params.id);
   if (!id || req.body.confirm_delete !== 'delete') {
     return res.status(400).type('text').send('Удаление статьи не подтверждено.');
   }
-  deleteArticle(id);
+  const article = id ? getArticleById(id) : null;
+  if (article && deleteArticle(id)) {
+    auditAdminAction(req, 'article.delete', 'article', id, { slug: article.slug, title: article.titleRu || article.titleFi });
+  }
   return res.redirect(303, '/admin');
 });
 
@@ -660,6 +2892,10 @@ app.post('/admin/articles/:id/telegram', requireAdminOrigin, async (req, res) =>
     if (!recordTelegramPublication({ articleId: id, telegramMessageId })) {
       return res.redirect(303, '/admin?telegram=already-sent');
     }
+    auditAdminAction(req, 'article.telegram_send', 'article', id, {
+      telegramMessageId: String(telegramMessageId),
+      slug: article.slug,
+    });
     return res.redirect(303, '/admin?telegram=sent');
   } catch {
     return res.redirect(303, '/admin?telegram=error');
@@ -668,32 +2904,130 @@ app.post('/admin/articles/:id/telegram', requireAdminOrigin, async (req, res) =>
   }
 });
 
-app.post('/admin/comments/:id/approve', requireAdminOrigin, (req, res) => {
+app.post('/admin/articles/:id/discussions/generate', requireAdminOrigin, async (req, res) => {
+  const id = parseArticleId(req.params.id); const article = id ? getArticleById(id) : null;
+  if (!article) return res.status(404).type('text').send('Статья не найдена.');
+  try {
+    const items = await generateEditorialDiscussions({ titleRu: article.titleRu || article.titleFi, summaryRu: article.summaryRu || article.summaryFi, category: article.category });
+    items.forEach((item) => createEditorialDiscussion({ articleId:id, note:item.note, question:item.question, createdBy:req.adminAccount.username }));
+    auditAdminAction(req, 'editorial_discussion.generate', 'article', id, { count: items.length });
+    return res.redirect(303, `/admin?tab=articles&article=discussion-generated`);
+  } catch { return res.redirect(303, '/admin?tab=articles&article=discussion-error'); }
+});
+
+app.post('/admin/discussions/:id', requireAdminOrigin, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10); const status = String(req.body.status || 'draft');
+  const note = String(req.body.note || '').trim(); const question = String(req.body.question || '').trim();
+  if (!Number.isInteger(id) || !note || !question || note.length > 3000 || question.length > 500) return res.status(400).type('text').send('Проверьте редакционный текст.');
+  if (!updateEditorialDiscussion(id, { note, question, status })) return res.status(400).type('text').send('Недопустимый статус.');
+  auditAdminAction(req, `editorial_discussion.${status}`, 'discussion', id);
+  return res.redirect(303, '/admin?tab=articles');
+});
+
+app.post('/admin/comments/:id', requireAdminOrigin, (req, res) => {
   const id = parseCommentId(req.params.id);
-  if (id) updateCommentStatus(id, 'approved');
+  const authorName = typeof req.body.author_name === 'string' ? req.body.author_name.trim() : '';
+  const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
+  if (!id || !authorName || !body || authorName.length > COMMENT_NAME_MAX_LENGTH || body.length > COMMENT_BODY_MAX_LENGTH) {
+    return res.status(400).type('text').send('Проверьте имя и текст комментария.');
+  }
+  if (!updateComment({ id, authorName, body })) {
+    return res.status(404).type('text').send('Комментарий не найден.');
+  }
+  auditAdminAction(req, 'comment.update', 'comment', id, { authorName });
+  return res.redirect(303, '/admin');
+});
+
+app.post('/admin/comments/:id/approve', requireAdminOrigin, async (req, res) => {
+  const id = parseCommentId(req.params.id);
+  const comment = id ? getCommentById(id) : null;
+  if (id && updateCommentStatus(id, 'approved')) {
+    auditAdminAction(req, 'comment.approve', 'comment', id);
+    if (comment?.telegramChatId) {
+      try {
+        await sendTelegramMessageToChat(comment.telegramChatId, `✅ Ваш комментарий опубликован.\n\n${SITE_URL}/news/${encodeURIComponent(comment.articleSlug)}#comments-heading`);
+      } catch (error) {
+        console.error('[telegram comment approval] уведомление не отправлено:', error.message);
+      }
+    }
+  }
   res.redirect(303, '/admin');
 });
 
 app.post('/admin/comments/:id/reject', requireAdminOrigin, (req, res) => {
   const id = parseCommentId(req.params.id);
-  if (id) updateCommentStatus(id, 'rejected');
+  if (id && updateCommentStatus(id, 'rejected')) auditAdminAction(req, 'comment.reject', 'comment', id);
   res.redirect(303, '/admin');
 });
 
-app.post('/admin/comments/:id/delete', requireAdminOrigin, (req, res) => {
+app.post('/admin/comments/:id/delete', requireAdminOrigin, requireAdministrator, (req, res) => {
   const id = parseCommentId(req.params.id);
-  if (id) deleteComment(id);
+  if (id && deleteComment(id)) auditAdminAction(req, 'comment.delete', 'comment', id);
   res.redirect(303, '/admin');
 });
 
 app.listen(PORT, () => {
   console.log(`Финские Новости — API запущен на http://localhost:${PORT}`);
   console.log(`Обновление RSS каждые ${REFRESH_MIN} мин.`);
+  configureTelegramBotInterface().catch((error) => {
+    console.error('[telegram] не удалось настроить русское меню:', error.message);
+  });
   // Первое обновление сразу при старте, чтобы не ждать 15 минут до первых данных
+  runScheduledPublishing().catch((error) => console.error('[startup scheduled publish] ошибка:', error.message));
+  deliverDailyContentToSubscriptions().catch((error) => console.error('[startup telegram daily content] ошибка:', error.message));
+  deliverDueTelegramReminders().catch((error) => console.error('[startup telegram reminders] ошибка:', error.message));
   safeRefresh();
   cleanupAnalytics(ANALYTICS_RETENTION_DAYS);
+  cleanupAdminAuthData();
 });
 
 // Периодическое обновление по cron (например, "*/15 * * * *")
-cron.schedule(`*/${REFRESH_MIN} * * * *`, safeRefresh);
-cron.schedule('15 0 * * *', () => cleanupAnalytics(ANALYTICS_RETENTION_DAYS), { timezone: 'UTC' });
+cron.schedule(`*/${REFRESH_MIN} * * * *`, safeRefresh, {
+  name: 'rss-refresh',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => runScheduledPublishing().catch((error) => console.error('[scheduled-publishing] ошибка:', error.message)), {
+  name: 'scheduled-publishing',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => runTelegramChannelCatchup().catch((error) => console.error('[telegram-channel-catchup] ошибка:', error.message)), {
+  name: 'telegram-channel-catchup',
+  noOverlap: true,
+});
+cron.schedule('*/5 * * * *', () => runInstantTelegramCatchup().catch((error) => console.error('[telegram-catchup] ошибка:', error.message)), {
+  name: 'telegram-instant-catchup',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => processTelegramRetryQueue().catch((error) => console.error('[telegram-retry-queue] ошибка:', error.message)), {
+  name: 'telegram-retry-queue',
+  noOverlap: true,
+});
+cron.schedule('* * * * *', () => runDailyTelegramDigest().catch((error) => console.error('[telegram-digest] ошибка:', error.message)), {
+  name: 'telegram-digest',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
+});
+cron.schedule('* * * * *', () => deliverDailyContentToSubscriptions().catch((error) => console.error('[telegram-daily-content] ошибка:', error.message)), {
+  name: 'telegram-daily-content',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
+});
+cron.schedule('* * * * *', () => deliverDueTelegramReminders().catch((error) => console.error('[telegram-reminders] ошибка:', error.message)), {
+  name: 'telegram-reminders',
+  noOverlap: true,
+});
+cron.schedule('0 10 * * *', () => runDailyTelegramDigest({ retryOnly: true }).catch((error) => console.error('[telegram-digest-retry] ошибка:', error.message)), {
+  name: 'telegram-digest-retry',
+  noOverlap: true,
+  timezone: 'Europe/Helsinki',
+});
+cron.schedule('15 0 * * *', () => cleanupAnalytics(ANALYTICS_RETENTION_DAYS), {
+  name: 'analytics-cleanup',
+  noOverlap: true,
+  timezone: 'UTC',
+});
+cron.schedule('25 0 * * *', () => cleanupAdminAuthData(), {
+  name: 'admin-auth-cleanup',
+  noOverlap: true,
+  timezone: 'UTC',
+});

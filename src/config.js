@@ -35,6 +35,58 @@ const SOURCES = [
     url: 'https://www.is.fi/rss/tuoreimmat.xml',
     homepage: 'https://www.is.fi',
   },
+  {
+    id: 'suomen-uutiset',
+    name: 'Suomen Uutiset',
+    url: 'https://www.suomenuutiset.fi/feed/',
+    homepage: 'https://www.suomenuutiset.fi',
+  },
+  {
+    id: 'helsinki',
+    name: 'Город Хельсинки',
+    url: 'https://www.hel.fi/fi/uutiset/rss',
+    homepage: 'https://www.hel.fi/fi/uutiset',
+  },
+  {
+    id: 'espoo',
+    name: 'Город Эспоо',
+    url: 'https://www.espoo.fi/fi/rss/news',
+    homepage: 'https://www.espoo.fi/fi/uutiset',
+  },
+  {
+    id: 'vantaa',
+    name: 'Город Вантаа',
+    url: 'https://vantaa.fi/fi/rss/topical/121',
+    homepage: 'https://www.vantaa.fi/fi/ajankohtaista/uutinen',
+  },
+  {
+    id: 'ministry-interior',
+    name: 'Министерство внутренних дел Финляндии',
+    url: 'https://valtioneuvosto.fi/staattiset-feedit/-/asset_publisher/Kh4WBNNjLkT0/rss',
+    homepage: 'https://intermin.fi',
+    creator: 'sisäministeriö',
+  },
+  {
+    id: 'ministry-employment',
+    name: 'Министерство экономики и занятости Финляндии',
+    url: 'https://valtioneuvosto.fi/staattiset-feedit/-/asset_publisher/Kh4WBNNjLkT0/rss',
+    homepage: 'https://tem.fi',
+    creator: 'työ- ja elinkeinoministeriö',
+  },
+  {
+    id: 'ministry-social-health',
+    name: 'Министерство социального обеспечения и здравоохранения Финляндии',
+    url: 'https://valtioneuvosto.fi/staattiset-feedit/-/asset_publisher/Kh4WBNNjLkT0/rss',
+    homepage: 'https://stm.fi',
+    creator: 'sosiaali- ja terveysministeriö',
+  },
+  {
+    id: 'ministry-foreign',
+    name: 'Министерство иностранных дел Финляндии',
+    url: 'https://valtioneuvosto.fi/staattiset-feedit/-/asset_publisher/Kh4WBNNjLkT0/rss',
+    homepage: 'https://um.fi',
+    creator: 'ulkoministeriö',
+  },
 ];
 
 // Простая категоризация по ключевым словам в финском заголовке/описании.

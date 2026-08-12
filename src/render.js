@@ -1,3 +1,15 @@
+const { categories: defaultCategories } = require('./categories');
+const { siteStyles, brandMark, themeScript } = require('./siteDesign');
+const { contextualSummary, contextualTitle, peopleForArticle } = require('./peopleContext');
+const {
+  DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
+  TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
+} = require('./telegramDelivery');
+
+const SITE_NAME = 'Финские Новости';
+const SITE_NAME_LATIN = 'Finskie Novosti';
+const DEFAULT_SEO_KEYWORDS = 'Финские Новости, Finskie Novosti, новости Финляндии, новости Финляндии на русском, Финляндия сегодня';
+
 function escapeHtml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -16,161 +28,320 @@ function safeExternalUrl(value) {
   }
 }
 
+function truncateText(value, maxLength = 160) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+}
+
+function renderTextParagraphs(value, className = '') {
+  const paragraphs = String(value || '').split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean);
+  return paragraphs.map((paragraph) => `<p${className ? ` class="${escapeHtml(className)}"` : ''}>${escapeHtml(paragraph)}</p>`).join('');
+}
+
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'Europe/Helsinki',
-  }).format(date);
+  return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Helsinki' }).format(date);
 }
 
-function documentPage({ title, description, canonicalPath, siteUrl, content, robots }) {
+function shortDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Europe/Helsinki' }).format(date);
+}
+
+function documentPage({ title, description, canonicalPath, siteUrl, content, robots, breakingArticle, searchQuery = '', showInterestModal = false, structuredData = null }) {
   const canonical = `${siteUrl}${canonicalPath}`;
+  const cleanTitle = String(title || SITE_NAME)
+    .replace(/\bFinskiye Novosti\b/gi, SITE_NAME_LATIN)
+    .trim();
+  const seoTitle = cleanTitle.includes(SITE_NAME)
+    ? cleanTitle
+    : `${cleanTitle} | ${SITE_NAME}`;
+  const seoDescription = String(description || '')
+    .replace(/\bFinskiye Novosti\b/gi, SITE_NAME_LATIN)
+    .trim();
+  const baseGraph = [
+    {
+      '@type': 'Organization',
+      '@id': `${siteUrl}/#organization`,
+      name: SITE_NAME,
+      alternateName: SITE_NAME_LATIN,
+      url: siteUrl,
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${siteUrl}/#website`,
+      url: siteUrl,
+      name: SITE_NAME,
+      alternateName: SITE_NAME_LATIN,
+      inLanguage: 'ru',
+      publisher: { '@id': `${siteUrl}/#organization` },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${siteUrl}/search?q={search_term_string}`,
+        'query-input': 'required name=search_term_string',
+      },
+    },
+  ];
+  const extraStructuredData = structuredData
+    ? (Array.isArray(structuredData) ? structuredData : [structuredData])
+    : [];
+  const seoGraph = { '@context': 'https://schema.org', '@graph': [...baseGraph, ...extraStructuredData.map((item) => {
+    const { '@context': _context, ...entry } = item;
+    return entry;
+  })] };
+  const breakingTitle = breakingArticle
+    ? breakingArticle.titleRu || breakingArticle.titleFi
+    : 'Свежие новости Финляндии для русскоязычных читателей';
+  const breakingHref = breakingArticle ? articleUrl(breakingArticle) : '/';
+  const breakingLabel = breakingArticle?.editorialStatus === 'urgent' ? 'СРОЧНО ⚡' : 'BREAKING ⚡';
+  const breaking = `<section class="breaking" aria-label="Важная новость"><div class="wrap"><span class="breaking-label">${breakingLabel}</span><a class="breaking-link" href="${breakingHref}">${escapeHtml(breakingTitle)}</a><button class="breaking-close" type="button" data-breaking-close aria-label="Закрыть">×</button></div></section>`;
+  const categoryIcons = { Политика: '🏛️', Экономика: '💰', Иммиграция: '✈️', Работа: '💼', Общество: '👥', Образование: '🎓', Россия: '🇷🇺', Мир: '🌍' };
+  const nav = defaultCategories.map((category) => `<a href="/category/${encodeURIComponent(categoryToStaticSlug(category))}">${categoryIcons[category]} ${escapeHtml(category)}</a>`).join('');
+  const interestButtons = defaultCategories.map((category) => `<button type="button" class="interest-chip" data-interest="${escapeHtml(category)}" aria-pressed="false">${categoryIcons[category]} ${escapeHtml(category)}</button>`).join('');
+  const interestControl = showInterestModal ? '<button class="icon-btn" type="button" data-interests-open aria-label="Настроить интересы">✦</button>' : '';
+  const interestModal = showInterestModal ? `<div class="interest-modal" data-interest-modal hidden><div class="interest-dialog" role="dialog" aria-modal="true" aria-labelledby="interest-title"><h2 id="interest-title">Что вам интереснее всего?</h2><p>Выберите 2–3 темы — соберём для вас персональную ленту. Можно изменить в любой момент.</p><div class="interest-options">${interestButtons}</div><p class="interest-status" data-interest-status aria-live="polite"></p><div class="interest-actions"><button type="button" class="interest-skip" data-interest-skip>Пропустить</button><button type="button" class="interest-save" data-interest-save>Готово</button></div></div></div>` : '';
   return `<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
-  <meta name="description" content="${escapeHtml(description)}">
+  <title>${escapeHtml(seoTitle)}</title>
+  <meta name="description" content="${escapeHtml(seoDescription)}">
+  <meta name="keywords" content="${escapeHtml(DEFAULT_SEO_KEYWORDS)}">
+  <meta name="author" content="${SITE_NAME}">
+  <meta property="og:type" content="${canonicalPath.startsWith('/news/') ? 'article' : 'website'}">
+  <meta property="og:title" content="${escapeHtml(seoTitle)}">
+  <meta property="og:description" content="${escapeHtml(seoDescription)}">
+  <meta property="og:url" content="${escapeHtml(canonical)}">
+  <meta property="og:site_name" content="${SITE_NAME}">
+  <meta property="og:locale" content="ru_RU">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="${escapeHtml(seoTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(seoDescription)}">
   ${robots ? `<meta name="robots" content="${escapeHtml(robots)}">` : ''}
   <link rel="canonical" href="${escapeHtml(canonical)}">
-  <style>
-    :root{color-scheme:light dark;--bg:#f4f5f7;--surface:#fff;--ink:#172033;--muted:#687386;--line:#e3e7ed;--accent:#0b63ce;--accent-soft:#e8f1ff;--shadow:0 10px 30px rgba(18,36,64,.08);--radius:18px}
-    *{box-sizing:border-box}html{background:var(--bg)}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}.site-header{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}.header-inner{max-width:1180px;margin:auto;min-height:70px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{font-size:1.15rem;font-weight:800;letter-spacing:-.03em;white-space:nowrap}.brand-mark{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:8px;border-radius:9px;background:var(--accent);color:#fff;font-size:.85rem}.header-link{color:var(--muted);font-size:.92rem;font-weight:650}.page-shell{max-width:1180px;margin:0 auto;padding:46px 28px 72px}.eyebrow{margin:0 0 10px;color:var(--accent);font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.page-heading{max-width:720px;margin:0;font-size:clamp(2rem,5vw,4rem);line-height:1.03;letter-spacing:-.055em}.page-intro{max-width:650px;margin:16px 0 30px;color:var(--muted);font-size:1.05rem}.category-nav{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 32px}.category-pill{padding:7px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);font-size:.88rem;font-weight:700}.category-pill:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}.hero{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(230px,.8fr);gap:28px;padding:clamp(24px,5vw,52px);margin:0 0 34px;border-radius:var(--radius);background:linear-gradient(135deg,#0b63ce,#174782);color:#fff;box-shadow:var(--shadow)}.hero .meta,.hero .source-link{color:#dfeeff}.hero h2{max-width:720px;margin:12px 0 16px;font-size:clamp(1.8rem,4vw,3.35rem);line-height:1.08;letter-spacing:-.045em}.hero h2 a:hover,.hero .source-link:hover{color:#fff}.hero-summary{max-width:680px;margin:0;font-size:1.05rem;white-space:pre-line}.hero-aside{align-self:end;border-left:1px solid rgba(255,255,255,.27);padding-left:24px;color:#dfeeff;font-size:.95rem}.section-title{margin:0 0 16px;font-size:1.3rem;letter-spacing:-.025em}.news-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.news-grid--archive{grid-template-columns:repeat(2,minmax(0,1fr))}.card{display:flex;flex-direction:column;min-height:230px;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:0 1px 0 rgba(18,36,64,.02);transition:transform .18s ease,box-shadow .18s ease}.card:hover{transform:translateY(-2px);box-shadow:var(--shadow)}.meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;color:var(--muted);font-size:.79rem;font-weight:650}.meta-separator{color:#a1aab8}.category-link{color:var(--accent)}.card h2{margin:14px 0 10px;font-size:1.18rem;line-height:1.24;letter-spacing:-.025em}.card h2 a:hover{color:var(--accent);text-decoration:none}.summary{margin:0;color:var(--muted);white-space:pre-line}.card .summary{font-size:.93rem;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.source-link{margin-top:auto;padding-top:18px;color:var(--accent);font-size:.86rem;font-weight:750}.source-link:hover{text-decoration:none;color:#084c9c}.pagination{display:flex;justify-content:space-between;gap:12px;margin:36px 0 0}.pagination a{padding:11px 16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:750}.pagination a:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}.article-page{max-width:780px;margin:0 auto}.article-page .article-heading{margin:14px 0 20px;font-size:clamp(2rem,5vw,4.25rem);line-height:1.04;letter-spacing:-.055em}.article-page .summary{max-width:700px;font-family:ui-serif,Georgia,serif;font-size:clamp(1.1rem,2.4vw,1.32rem);line-height:1.72;color:var(--ink)}.article-facts{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 28px}.fact{padding:7px 10px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:.86rem;font-weight:700}.original-box{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:34px 0 0;padding:20px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}.original-box p{margin:0;color:var(--muted);font-size:.92rem}.original-box a{flex:0 0 auto;padding:10px 14px;border-radius:9px;background:var(--accent);color:#fff;font-weight:750}.original-box a:hover{background:#084c9c;text-decoration:none}.empty-state{padding:40px;border:1px dashed var(--line);border-radius:14px;background:var(--surface);color:var(--muted)}.not-found{max-width:600px;padding:clamp(28px,6vw,68px);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow)}.not-found h1{margin:0 0 10px;font-size:clamp(2rem,5vw,4rem);letter-spacing:-.055em}.not-found a{color:var(--accent);font-weight:750}
-    .comments{margin:48px 0 0;padding-top:32px;border-top:1px solid var(--line)}.comments h2{margin:0 0 18px;font-size:1.45rem;letter-spacing:-.025em}.comment{padding:18px 0;border-bottom:1px solid var(--line)}.comment:last-child{border-bottom:0}.comment-author{margin:0 0 4px;font-weight:800}.comment-date{color:var(--muted);font-size:.83rem}.comment-body{margin:10px 0 0;white-space:pre-line}.comment-form{margin-top:26px;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}.comment-form h3{margin:0 0 14px}.comment-form label,.admin-form label,.admin-search label{display:block;margin:14px 0 6px;font-weight:750}.comment-form input,.comment-form textarea,.admin-form input,.admin-form textarea,.admin-form select,.admin-search input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}.comment-form textarea,.admin-form textarea{min-height:130px;resize:vertical}.comment-form button,.admin-actions button,.admin-form>button,.admin-search button{margin-top:16px;padding:10px 14px;border:0;border-radius:9px;background:var(--accent);color:#fff;font:inherit;font-weight:750;cursor:pointer}.comment-form button:hover,.admin-actions button:hover,.admin-form>button:hover,.admin-search button:hover{filter:brightness(.92)}.form-message{margin:0 0 16px;padding:11px 12px;border-radius:9px;background:var(--accent-soft);color:var(--accent);font-weight:650}.honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}.admin-list{display:grid;gap:16px}.admin-comment{padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}.admin-comment h2{margin:0 0 7px;font-size:1.1rem}.admin-actions{display:flex;gap:8px;flex-wrap:wrap}.admin-actions form{margin:0}.admin-actions button{margin-top:12px}.admin-actions .reject{background:#7c4c16}.admin-actions .delete{background:#a33a3a}
-    @media (prefers-color-scheme:dark){:root{--bg:#11151c;--surface:#181e27;--ink:#eef3fb;--muted:#aab5c5;--line:#2b3442;--accent:#6caeff;--accent-soft:#1d3452;--shadow:0 10px 30px rgba(0,0,0,.22)}.hero{background:linear-gradient(135deg,#1e67c2,#162f57)}.original-box a{color:#071321}.original-box a:hover{background:#9bc8ff}}
-    @media (max-width:760px){.header-inner{min-height:62px;padding:0 18px}.header-link{display:none}.page-shell{padding:30px 18px 52px}.hero{grid-template-columns:1fr;padding:26px;margin-bottom:26px}.hero-aside{display:none}.news-grid,.news-grid--archive{grid-template-columns:1fr;gap:12px}.card{min-height:0;padding:19px}.page-intro{margin-bottom:24px}.original-box{align-items:flex-start;flex-direction:column}.original-box a{width:100%;text-align:center}.pagination a{flex:1;text-align:center}}
-    .skip-link{position:absolute;left:14px;top:-48px;z-index:10;padding:9px 12px;border-radius:8px;background:var(--accent);color:#fff;font-weight:750}.skip-link:focus{top:12px;text-decoration:none}.site-header{backdrop-filter:blur(14px);background:color-mix(in srgb,var(--surface) 92%,transparent)}.brand{display:flex;align-items:center}.brand-mark{box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}.header-nav{display:flex;align-items:center;gap:18px}.header-link{position:relative}.header-link:hover{color:var(--accent);text-decoration:none}.header-link::after{content:"";position:absolute;right:0;bottom:-4px;left:0;height:2px;border-radius:2px;background:var(--accent);transform:scaleX(0);transition:transform .18s ease}.header-link:hover::after{transform:scaleX(1)}.page-shell{padding-top:clamp(30px,5vw,60px)}.page-heading{max-width:840px}.page-intro{font-size:1.08rem;line-height:1.65}.category-nav{padding-bottom:4px}.category-pill{transition:border-color .18s ease,background .18s ease,color .18s ease}.hero{position:relative;overflow:hidden}.hero::after{content:"";position:absolute;width:360px;height:360px;right:-160px;top:-230px;border:1px solid rgba(255,255,255,.22);border-radius:50%;box-shadow:0 0 0 34px rgba(255,255,255,.05),0 0 0 68px rgba(255,255,255,.035)}.hero>div{position:relative;z-index:1}.hero-aside strong{display:block;color:#fff;font-size:1.05rem}.section-title{display:flex;align-items:center;gap:12px}.section-title::after{content:"";height:1px;flex:1;background:var(--line)}.card{position:relative}.card::before{content:"";position:absolute;top:0;right:20px;left:20px;height:3px;border-radius:0 0 4px 4px;background:var(--accent);opacity:0;transition:opacity .18s ease}.card:hover::before{opacity:1}.article-page{padding-bottom:24px}.article-page .meta{margin-top:18px}.article-page .article-heading{max-width:760px}.article-page .summary{white-space:pre-line}.article-facts{padding-bottom:18px;border-bottom:1px solid var(--line)}.original-box{box-shadow:0 8px 22px rgba(18,36,64,.05)}.original-box a{transition:transform .18s ease,background .18s ease}.original-box a:hover{transform:translateY(-1px)}.footer-note{margin:46px 0 0;color:var(--muted);font-size:.84rem}.not-found .summary{margin-bottom:26px}.info-page{max-width:780px}.info-page h2{margin:36px 0 12px;font-size:1.35rem;letter-spacing:-.025em}.info-page p,.info-page li{color:var(--muted)}.info-page strong{color:var(--ink)}.info-card{margin-top:18px;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}.info-card h2{margin-top:0}.info-card ul{margin:12px 0 0;padding-left:22px}.info-card li+li{margin-top:8px}.info-note{margin-top:24px;padding:16px 18px;border-left:3px solid var(--accent);background:var(--accent-soft);color:var(--ink)}
-    @media (max-width:760px){.header-nav{gap:12px}.header-link{display:block;font-size:.84rem}.header-link--archive{display:none}.hero::after{right:-220px}.footer-note{margin-top:32px}}
-    .editorial-badges{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.editorial-badge{display:inline-flex;align-items:center;min-height:25px;padding:3px 8px;border:1px solid transparent;border-radius:999px;font-size:.73rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase}.editorial-badge--urgent{background:#fff0ef;border-color:#efb4ae;color:#a52d25}.editorial-badge--important{background:#fff7df;border-color:#e8cd7e;color:#795500}.editorial-badge--pinned{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 32%,var(--line));color:var(--accent)}.hero .editorial-badge--urgent{background:#7c2422;border-color:#f0aaa2;color:#fff}.hero .editorial-badge--important{background:#6b5414;border-color:#e7cb78;color:#fff}.hero .editorial-badge--pinned{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.35);color:#fff}.card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:18px}.card-actions a{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.84rem;font-weight:750}.card-actions .read-more{border-color:var(--accent);background:var(--accent);color:#fff}.card-actions .comment-link{color:var(--accent)}.card-actions a:hover{text-decoration:none;filter:brightness(.96)}.hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.hero-actions a{padding:9px 12px;border-radius:9px;font-size:.9rem;font-weight:750}.hero-actions .read-more{background:#fff;color:#104a90}.hero-actions .comment-link{border:1px solid rgba(255,255,255,.5);color:#fff}.editorial-note{margin:34px 0 0;padding:16px 18px;border-left:3px solid var(--line);background:var(--surface);color:var(--muted);font-size:.94rem}.reaction-totals{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 0;color:var(--muted);font-size:.88rem;font-weight:700}.reactions{max-width:780px;margin:34px auto 0;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}.reactions h2{margin:0;font-size:1.2rem}.reactions form{display:flex;gap:8px;margin-top:14px}.reactions button{min-width:48px;padding:9px;border:1px solid var(--line);border-radius:9px;background:var(--bg);font:inherit;cursor:pointer}.reactions button:hover{border-color:var(--accent)}.admin-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:16px 0 22px}.stat-card{padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--bg)}.stat-card dt{color:var(--muted);font-size:.79rem;font-weight:700}.stat-card dd{margin:4px 0 0;font-size:1.55rem;font-weight:800;letter-spacing:-.04em}.admin-ranking{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:6px}.admin-ranking h3{margin:0 0 10px;font-size:1rem}.admin-ranking ol{display:grid;gap:7px;margin:0;padding-left:22px}.admin-ranking a{color:var(--accent);font-weight:700}.admin-ranking li{padding-left:2px}.admin-count{color:var(--muted);font-size:.84rem;white-space:nowrap}.admin-form{display:grid;gap:0}.admin-form textarea{min-height:190px}.admin-form select{appearance:auto}.admin-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin:0 0 16px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.admin-search label{grid-column:1/-1;margin:0}.admin-search button{margin:0}.admin-delete-link{align-self:center;margin-top:12px;color:#a33a3a;font-weight:750}.admin-form .admin-actions{margin-top:4px}
-    @media (prefers-color-scheme:dark){.editorial-badge--urgent{background:#542223;border-color:#944442;color:#ffd9d5}.editorial-badge--important{background:#554719;border-color:#8d782e;color:#ffebac}}
-    @media (max-width:760px){.admin-stats,.admin-ranking{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-search{grid-template-columns:1fr}.admin-search button{width:100%}}
-    @media (max-width:390px){.page-shell{padding-left:14px;padding-right:14px}.hero{padding:21px}.page-heading{font-size:2.05rem}.hero h2{font-size:1.75rem}.category-nav{gap:6px}.category-pill{padding:6px 10px}.header-inner{padding:0 14px}.brand{font-size:1.03rem}.brand-mark{width:25px;height:25px;margin-right:6px}.admin-stats,.admin-ranking{grid-template-columns:1fr}.card-actions{display:grid;grid-template-columns:1fr 1fr}.card-actions a{text-align:center}}
-  </style>
+  <link rel="alternate" hreflang="ru" href="${escapeHtml(canonical)}">
+  <link rel="alternate" hreflang="x-default" href="${escapeHtml(canonical)}">
+  <link rel="alternate" type="application/rss+xml" title="Финские Новости — общая лента" href="${escapeHtml(`${siteUrl}/rss.xml`)}">
+  <script type="application/ld+json">${JSON.stringify(seoGraph).replace(/</g, '\\u003c')}</script>
+  <style>${siteStyles}</style>
 </head>
 <body>
-  <a class="skip-link" href="#content">Перейти к содержанию</a>
-  <header class="site-header"><div class="header-inner"><a class="brand" href="/"><span class="brand-mark">FN</span>Финские Новости</a><nav class="header-nav" aria-label="Основная навигация"><a class="header-link" href="/">Свежие</a><a class="header-link header-link--archive" href="/page/2">Архив</a><a class="header-link" href="/about">О проекте</a></nav></div></header>
-  <main class="page-shell" id="content">${content}</main>
+  <a class="skip-link" href="#content">К содержанию</a>
+<div class="util-bar"><div class="wrap"><div class="util-left">🇫🇮 → 🇷🇺 AI пересказ в реальном времени</div><div class="util-right"><button class="utility-button" type="button" data-font-step="-0.10" aria-label="Уменьшить текст">A−</button><button class="utility-button utility-button--scale" type="button" data-font-reset aria-label="Обычный размер текста">100%</button><button class="utility-button" type="button" data-font-step="0.10" aria-label="Увеличить текст">A+</button><span class="utility-theme-status" aria-label="Тема зависит от настроек устройства">Система</span></div></div></div>
+  ${breaking}
+  <header class="masthead"><div class="wrap"><div class="topbar"><a class="brand" href="/"><span class="brand-mark">${brandMark}</span><span><strong class="brand-name">Финские Новости</strong><small class="brand-tagline">Свежие новости Финляндии на русском языке</small></span></a><form class="search-box" action="/search" method="get" role="search"><label class="skip-link" for="site-search">Поиск по новостям</label><span aria-hidden="true">⌕</span><input id="site-search" name="q" type="search" value="${escapeHtml(searchQuery)}" placeholder="Поиск новостей…" minlength="2" maxlength="120" required><button type="submit">Найти</button></form><div class="top-actions">${interestControl}<a class="account-link" href="/account" aria-label="Личный кабинет">👤 Личный кабинет</a><a class="icon-btn" href="/about" aria-label="О проекте">i</a><a class="icon-btn" href="/page/2" aria-label="Архив">☰</a></div></div><nav class="catnav" id="category-nav" aria-label="Категории"><a class="active" href="/">🏠 Главная</a>${nav}</nav></div></header>
+  <aside class="telegram-promo" aria-label="Новости и расписание HSL в Telegram"><a class="wrap telegram-promo-inner" href="/telegram"><span class="telegram-promo-icon" aria-hidden="true">✈</span><span class="telegram-promo-copy"><strong>Ваша личная лента новостей в Telegram</strong><small>Выберите темы, источники и удобное время — расписание HSL тоже доступно в боте.</small></span><span class="telegram-promo-hsl"><img src="/assets/hsl-logo.png" alt="HSL"><span><b>Расписание HSL</b><small>Номер остановки · геопозиция</small></span></span><span class="telegram-promo-action">Как это работает →</span></a></aside>
+  <main class="wrap" id="content">${content}</main>
+  <footer class="site-footer" id="contact"><div class="wrap footer-grid"><div class="footer-brand"><span class="footer-mark">${brandMark}</span><div><strong>${SITE_NAME}</strong><p>${SITE_NAME_LATIN} — новости Финляндии на русском языке</p></div><p class="footer-copy">Понятные пересказы, проверенные источники и уважение к читателю.</p></div><div><h2>Категории</h2><a href="/category/politika">Политика</a><a href="/category/ekonomika">Экономика</a><a href="/category/obshchestvo">Общество</a><a href="/page/2">Архив новостей</a></div><div><h2>Информация</h2><a href="/about">О проекте</a><a href="/contact">Контакты</a><a href="/telegram">Новости в Telegram</a><a href="/account">Личный кабинет</a><a href="/rss.xml">RSS-лента</a><a href="/privacy">Конфиденциальность</a><a href="/terms">Условия использования</a></div></div><div class="footer-bottom"><span>© 2026 ${SITE_NAME} · ${SITE_NAME_LATIN}</span><span>Все материалы принадлежат оригинальным источникам.</span></div></footer>
+  ${interestModal}
+<nav class="mobile-bottom-nav" aria-label="Мобильная навигация"><a href="/"><i>⌂</i><span>Главная</span></a><a href="/search"><i>⌕</i><span>Поиск</span></a><a href="/#feed-heading"><i>♧</i><span>Лента</span></a><a href="#category-nav"><i>⊞</i><span>Разделы</span></a><span class="mobile-theme-status" aria-label="Тема зависит от настроек устройства"><i>◐</i><span>Система</span></span></nav>
+  ${themeScript}
 </body>
 </html>`;
 }
 
-function categoryMarkup(article, categoryToSlug) {
-  const categorySlug = categoryToSlug(article.category);
-  return categorySlug
-    ? `<a class="category-link" href="/category/${encodeURIComponent(categorySlug)}">${escapeHtml(article.category)}</a>`
-    : escapeHtml(article.category || '');
-}
-
-function articleMeta(article, categoryToSlug) {
-  return `<p class="meta">${categoryMarkup(article, categoryToSlug)}<span class="meta-separator">•</span><span>${escapeHtml(article.sourceName)}</span><span class="meta-separator">•</span><time datetime="${escapeHtml(article.publishedAt || '')}">${escapeHtml(formatDate(article.publishedAt))}</time></p>`;
-}
-
-function isPinned(article) {
-  const pinnedUntil = new Date(article.pinnedUntil);
-  return !Number.isNaN(pinnedUntil.getTime()) && pinnedUntil.getTime() > Date.now();
-}
-
-function editorialBadges(article) {
-  const badges = [];
-  if (isPinned(article)) badges.push('<span class="editorial-badge editorial-badge--pinned">Главное</span>');
-  if (article.editorialStatus === 'urgent') badges.push('<span class="editorial-badge editorial-badge--urgent">Срочно</span>');
-  if (article.editorialStatus === 'important') badges.push('<span class="editorial-badge editorial-badge--important">Важно</span>');
-  return badges.length ? `<div class="editorial-badges" aria-label="Редакционные метки">${badges.join('')}</div>` : '';
+function categoryToStaticSlug(category) {
+  const values = { Политика: 'politika', Экономика: 'ekonomika', Иммиграция: 'immigratsiya', Работа: 'rabota', Общество: 'obshchestvo', Образование: 'obrazovanie', Россия: 'rossiya', Мир: 'mir' };
+  return values[category] || 'obshchestvo';
 }
 
 function articleUrl(article) {
   return `/news/${encodeURIComponent(article.slug)}`;
 }
 
+function categoryMarkup(article, categoryToSlug) {
+  const slug = categoryToSlug(article.category);
+  return slug ? `<a href="/category/${encodeURIComponent(slug)}">${escapeHtml(article.category)}</a>` : escapeHtml(article.category || 'Новости');
+}
+
+function articleMeta(article, categoryToSlug) {
+  return `<p class="meta">${categoryMarkup(article, categoryToSlug)}<span class="meta-separator">·</span><span>${escapeHtml(article.sourceName || 'Финские Новости')}</span><span class="meta-separator">·</span><time datetime="${escapeHtml(article.publishedAt || '')}">${escapeHtml(shortDate(article.publishedAt))}</time></p>`;
+}
+
+function isPinned(article) {
+  const date = new Date(article.pinnedUntil);
+  return !Number.isNaN(date.getTime()) && date.getTime() > Date.now();
+}
+
+function editorialBadges(article) {
+  const badges = [];
+  if (isPinned(article)) badges.push('<span class="badge badge--pinned">Главное</span>');
+  if (article.editorialStatus === 'urgent') badges.push('<span class="badge badge--urgent">Срочно</span>');
+  if (article.editorialStatus === 'important') badges.push('<span class="badge badge--important">Важно</span>');
+  return badges.length ? `<div class="badge-row" aria-label="Редакционные метки">${badges.join('')}</div>` : '';
+}
+
 function reactionTotalsMarkup(article) {
   const totals = article.reactionTotals || { like: 0, important: 0, sad: 0 };
-  return `<p class="reaction-totals" aria-label="Реакции: нравится ${totals.like}, важно ${totals.important}, грустно ${totals.sad}"><span>👍 ${totals.like}</span><span>❗ ${totals.important}</span><span>😔 ${totals.sad}</span></p>`;
+  return `<p class="reaction-totals" aria-label="Реакции"><span>👍 ${totals.like || 0}</span><span>❗ ${totals.important || 0}</span><span>😔 ${totals.sad || 0}</span></p>`;
 }
 
-function reactionForm(article, reactionMessage) {
-  return `<section class="reactions" aria-labelledby="reactions-heading"><h2 id="reactions-heading">Реакции</h2>${reactionTotalsMarkup(article)}${reactionMessage ? `<p class="form-message" role="status">${escapeHtml(reactionMessage)}</p>` : ''}<form action="/news/${encodeURIComponent(article.slug)}/reactions" method="post"><button type="submit" name="reaction" value="like" aria-label="Нравится">👍</button><button type="submit" name="reaction" value="important" aria-label="Важно">❗</button><button type="submit" name="reaction" value="sad" aria-label="Грустно">😔</button></form></section>`;
+function sourceLine(article) {
+  return article.sourceName === 'Редакция Финские Новости'
+    ? '<p class="source-name">Материал подготовлен редакцией</p>'
+    : `<p class="source-name">Источник: ${escapeHtml(article.sourceName || '')}</p>`;
 }
 
-function sourceLink(article) {
-  return `<a class="source-link" href="${escapeHtml(safeExternalUrl(article.originalUrl))}" rel="noopener noreferrer" target="_blank">Источник: ${escapeHtml(article.sourceName)} ↗</a>`;
+function renderCardTools(article) {
+  const title = article.titleRu || article.titleFi || '';
+  const summary = article.summaryRu || article.summaryFi || '';
+  const original = article.sourceName === 'Редакция Финские Новости'
+    ? '<span class="card-tool card-tool--disabled" aria-disabled="true">↗ Без оригинала</span>'
+    : `<a class="card-tool" href="${escapeHtml(safeExternalUrl(article.originalUrl))}" rel="noopener noreferrer" target="_blank">↗ Читать оригинал</a>`;
+  return `<div class="card-tools" aria-label="Действия с новостью">${original}<button class="card-tool" type="button" data-listen-title="${escapeHtml(title)}" data-listen-text="${escapeHtml(summary)}">🔊 Слушать</button><button class="card-tool" type="button" data-share-title="${escapeHtml(title)}" data-share-url="${escapeHtml(articleUrl(article))}">↗ Поделиться</button><a class="card-tool card-tool--comment" href="${articleUrl(article)}#comment-form">Оставить комментарий</a></div>`;
 }
 
 function renderArticleCard(article, categoryToSlug) {
-  return `<article class="card">
-  ${editorialBadges(article)}
-  ${articleMeta(article, categoryToSlug)}
-  <h2><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h2>
-  <p class="summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>
-  ${article.sourceName !== 'Редакция Финские Новости' ? sourceLink(article) : ''}
-  ${reactionTotalsMarkup(article)}
-  <div class="card-actions"><a class="read-more" href="${articleUrl(article)}">Читать далее</a><a class="comment-link" href="${articleUrl(article)}#comment-form">Комментировать</a></div>
-</article>`;
+  return `<article class="card" data-category="${escapeHtml(article.category || 'Новости')}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h3><p class="summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>${sourceLine(article)}${reactionTotalsMarkup(article)}${renderCardTools(article)}</article>`;
 }
 
-function renderFeaturedArticle(article, categoryToSlug) {
-  return `<article class="hero">
-  <div>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h2><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h2><p class="hero-summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>${reactionTotalsMarkup(article)}<div class="hero-actions"><a class="read-more" href="${articleUrl(article)}">Читать далее</a><a class="comment-link" href="${articleUrl(article)}#comment-form">Комментировать</a></div></div>
-  <div class="hero-aside"><strong>${escapeHtml(article.sourceName)}</strong><br>${escapeHtml(formatDate(article.publishedAt))}</div>
-</article>`;
+function renderMiniCard(article, categoryToSlug, teal = false) {
+  return `<article class="mini-card${teal ? ' mini-card--teal' : ''}">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h3><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h3></article>`;
+}
+
+function renderHeroCard(article, categoryToSlug) {
+  return `<article class="lead-card">${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h2><a href="${articleUrl(article)}">${escapeHtml(contextualTitle(article))}</a></h2><p>${escapeHtml(article.summaryRu || article.summaryFi || '')}</p><div class="lead-meta"><span>${escapeHtml(article.sourceName || 'Финские Новости')} · ${escapeHtml(shortDate(article.publishedAt))}</span><a href="${articleUrl(article)}#comment-form">Комментировать</a></div></article>`;
 }
 
 function renderCategoryNavigation(articles, categoryToSlug) {
-  const links = [...new Map(articles
-    .map((article) => [categoryToSlug(article.category), article.category])
-    .filter(([slug]) => slug)).entries()]
-    .map(([slug, category]) => `<a class="category-pill" href="/category/${encodeURIComponent(slug)}">${escapeHtml(category)}</a>`)
-    .join('');
-  return links ? `<nav class="category-nav" aria-label="Категории">${links}</nav>` : '';
+  const used = new Map(articles.map((article) => [categoryToSlug(article.category), article.category]).filter(([slug]) => slug));
+  return used.size ? `<nav class="category-pills" aria-label="Категории страницы">${[...used.entries()].map(([slug, category]) => `<a class="category-pill" href="/category/${encodeURIComponent(slug)}">${escapeHtml(category)}</a>`).join('')}</nav>` : '';
 }
 
-function renderListPage({ title, description, canonicalPath, siteUrl, articles, page, total, pagePath, categoryToSlug }) {
+function renderDigest(articles) {
+  const points = articles.slice(0, 3).map((article) => `<li>${escapeHtml(article.summaryRu || article.titleRu || article.titleFi || '')}</li>`).join('');
+  return `<section aria-labelledby="digest-heading"><div class="section-head"><span>✦</span><h2 id="digest-heading">AI-дайджест дня</h2><span class="sub">— главное за 40 секунд</span></div><div class="digest-card"><div class="digest-mark">AI</div><div><h2>Главное за день</h2><p>Короткая выжимка из свежих русскоязычных пересказов.</p>${points ? `<ul class="digest-list">${points}</ul>` : ''}</div></div></section>`;
+}
+
+function renderCommentTicker(comments = []) {
+  const renderItems = (hidden = false) => comments.map((comment) => `<a class="comment-ticker-item" href="/news/${encodeURIComponent(comment.articleSlug)}#comments-heading"${hidden ? ' aria-hidden="true" tabindex="-1"' : ''}><strong>${escapeHtml(comment.authorName)}</strong><span>“${escapeHtml(truncateText(comment.body, 150))}”</span><em>${escapeHtml(truncateText(comment.articleTitle, 70))}</em></a>`).join('');
+  const items = comments.length
+    ? `${renderItems()}${renderItems(true)}`
+    : '<span class="comment-ticker-empty">После модерации здесь появятся последние комментарии читателей.</span>';
+  return `<section class="comment-ticker" aria-labelledby="comment-ticker-heading"><div class="section-head"><span>💬</span><h2 id="comment-ticker-heading">Последние комментарии</h2><span class="sub">— обсуждают читатели</span></div><div class="comment-ticker-window"><div class="comment-ticker-track${comments.length ? ' is-moving' : ''}">${items}</div></div></section>`;
+}
+
+function renderRail(articles) {
+  const entries = articles.slice(0, 3).map((article) => `<article class="foryou-card" data-category="${escapeHtml(article.category || 'Новости')}"><p class="card-label">${escapeHtml(article.category || 'Новости')}</p><h3><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h3></article>`).join('');
+  return entries ? `<section class="foryou-section" aria-labelledby="rail-heading"><div class="section-head"><h2 id="rail-heading">Не пропустите</h2></div><div class="foryou-rail">${entries}</div></section>` : '';
+}
+
+function renderSidebar(articles) {
+  const links = articles.slice(0, 4).map((article) => `<li><a href="${articleUrl(article)}">${escapeHtml(article.titleRu || article.titleFi)}</a><small>${escapeHtml(article.category || 'Новости')} · ${escapeHtml(shortDate(article.publishedAt))}</small></li>`).join('');
+  return `<aside class="sidebar" aria-label="Дополнительные материалы"><section class="side-card side-card--navy"><p class="sidebar-kicker">Еженедельная подборка</p><h2>Финляндия — главное за неделю</h2><p>Подписка на редакционную подборку появится перед публичным запуском.</p><form class="newsletter-form"><input type="email" placeholder="Ваш e-mail" disabled><button type="button">Скоро будет доступно</button></form></section><section class="side-card"><p class="sidebar-kicker">В фокусе</p><h2>Сейчас в ленте</h2><ul class="side-list">${links || '<li>Свежие материалы скоро появятся здесь.</li>'}</ul></section><section class="side-card side-card--teal"><p class="sidebar-kicker">Финское слово</p><p class="word">sisu</p><p class="word-translation">стойкость, характер</p><p class="side-note">Слово дня — небольшой культурный контекст рядом с новостями.</p></section></aside>`;
+}
+
+function renderListPage({ title, description, canonicalPath, siteUrl, articles, page, total, pagePath, categoryToSlug, selectedSource = '', sort = 'newest', recentComments = [], searchQuery = null, robots }) {
   const isHome = canonicalPath === '/';
-  const featured = isHome ? articles[0] : null;
-  const visibleArticles = featured ? articles.slice(1) : articles;
-  const cards = visibleArticles.length
-    ? visibleArticles.map((article) => renderArticleCard(article, categoryToSlug)).join('\n')
-    : '<div class="empty-state">Новостей пока нет.</div>';
+  const isSearch = searchQuery !== null;
+  const [hero, miniOne, miniTwo, ...rest] = articles;
+  const featured = [hero, miniOne, miniTwo].filter(Boolean);
+  const emptyMessage = isSearch
+    ? (searchQuery.length >= 2 ? 'По вашему запросу ничего не найдено.' : 'Введите не менее двух символов, чтобы найти статью.')
+    : 'Новостей пока нет.';
+  const cards = (isHome ? rest : articles).map((article) => renderArticleCard(article, categoryToSlug)).join('') || `<div class="empty-state">${emptyMessage}</div>`;
   const previousPath = page > 1 ? pagePath(page - 1) : null;
   const nextPath = page * 50 < total ? pagePath(page + 1) : null;
-  const navigation = previousPath || nextPath
-    ? `<nav class="pagination" aria-label="Навигация по страницам">${previousPath ? `<a href="${previousPath}">← Новее</a>` : '<span></span>'}${nextPath ? `<a href="${nextPath}">Старее →</a>` : '<span></span>'}</nav>`
-    : '';
-  const content = `${isHome ? '<p class="eyebrow">Новости Финляндии на русском</p>' : '<p class="eyebrow">Архив новостей</p>'}<h1 class="page-heading">${escapeHtml(title)}</h1><p class="page-intro">${escapeHtml(description)}</p>${renderCategoryNavigation(articles, categoryToSlug)}${featured ? renderFeaturedArticle(featured, categoryToSlug) : ''}<section aria-labelledby="feed-heading"><h2 class="section-title" id="feed-heading">${featured ? 'Ещё в ленте' : 'Новости'}</h2><div class="news-grid ${featured ? '' : 'news-grid--archive'}">${cards}</div></section>${navigation}<p class="footer-note">Материалы пересказываются на русском. Для полного текста переходите к первоисточнику.</p>`;
-  return documentPage({ title, description, canonicalPath, siteUrl, content });
+  const pagination = previousPath || nextPath ? `<nav class="pagination" aria-label="Страницы">${previousPath ? `<a href="${previousPath}">← Новее</a>` : '<span></span>'}${nextPath ? `<a href="${nextPath}">Старее →</a>` : '<span></span>'}</nav>` : '';
+  const headline = isHome ? 'Новости Финляндии на русском' : title;
+  const bento = isHome && hero ? `<section class="bento" aria-label="Главные новости">${renderHeroCard(hero, categoryToSlug)}<div class="bento-side">${miniOne ? renderMiniCard(miniOne, categoryToSlug) : ''}${miniTwo ? renderMiniCard(miniTwo, categoryToSlug, true) : ''}</div></section>` : '';
+  const appPurpose = isHome ? `<section class="app-purpose" aria-labelledby="app-purpose-title"><div class="app-purpose-mark">${brandMark}</div><div><p class="eyebrow">О приложении</p><h2 id="app-purpose-title">Персональные новости Финляндии и транспорт HSL в одном сервисе</h2><p>«Финские Новости» переводят и кратко пересказывают новости финских источников на русском языке. После входа через Google пользователь может выбрать темы и источники, подключить личную доставку в Telegram, обсуждать материалы с новостным помощником и смотреть ближайшие отправления HSL по номеру остановки или геопозиции.</p><div class="app-purpose-links"><a class="app-purpose-primary" href="/account/login">Войти и настроить приложение</a><a href="/privacy">Политика конфиденциальности</a><a href="/terms">Условия использования</a></div></div></section>` : '';
+  const searchLead = `<section class="page-top search-page-head"><p class="eyebrow">Архив и поиск</p><h1 class="page-heading">Поиск по статьям</h1><p class="page-intro">Ищем в русских и финских заголовках и текстах всех опубликованных материалов.</p><form class="search-page-form" action="/search" method="get" role="search"><label for="archive-search">Запрос</label><div><input id="archive-search" name="q" type="search" value="${escapeHtml(searchQuery || '')}" placeholder="Например: Хельсинки" minlength="2" maxlength="120" required><button type="submit">Найти</button></div></form>${searchQuery ? `<p class="search-result-note">По запросу «${escapeHtml(searchQuery)}» найдено: ${total}</p>` : ''}</section>`;
+  const homeLead = isHome ? '' : isSearch ? searchLead : `<section class="page-top"><p class="eyebrow">Лента новостей</p><h1 class="page-heading">${escapeHtml(headline)}</h1><p class="page-intro">${escapeHtml(description)}</p></section>${renderCategoryNavigation(articles, categoryToSlug)}`;
+  const sourceOptions = [['', 'Все'], ['yle', 'YLE'], ['hs', 'HS'], ['il', 'Iltalehti'], ['is', 'Ilta-Sanomat']];
+  const sourceToolbar = isHome ? `<div class="feed-controls"><nav class="source-toolbar" aria-label="Источники"><span>Источники:</span>${sourceOptions.map(([value, label]) => {
+    const params = new URLSearchParams();
+    if (value) params.set('source', value);
+    if (sort !== 'newest') params.set('sort', sort);
+    const href = params.toString() ? `/?${params.toString()}#feed-heading` : '/#feed-heading';
+    return `<a class="source-chip${selectedSource === value ? ' active' : ''}" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
+  }).join('')}</nav><form class="sort-form" action="/" method="get">${selectedSource ? `<input type="hidden" name="source" value="${escapeHtml(selectedSource)}">` : ''}<label for="feed-sort">Сортировка</label><select id="feed-sort" name="sort" data-sort-select><option value="newest"${sort === 'newest' ? ' selected' : ''}>Сначала новые</option><option value="oldest"${sort === 'oldest' ? ' selected' : ''}>Сначала старые</option></select><button type="submit">Применить</button></form></div>` : '';
+  const feedContent = `${sourceToolbar}<div class="feed-count"><h2 id="feed-heading">${isHome ? 'Свежие новости' : 'Материалы'}</h2><p>${total} материалов · ${sort === 'oldest' ? 'Старые сначала' : 'Новые сначала'}</p></div><section class="grid" aria-labelledby="feed-heading">${cards}</section>${pagination}<p class="footer-note">Материалы пересказываются на русском. Для полного контекста открывайте первоисточник.</p>`;
+  const content = isHome
+    ? `${bento}${appPurpose}${renderCommentTicker(recentComments)}${renderDigest(featured)}${renderRail(rest)}<div class="layout"><div>${feedContent}</div>${renderSidebar(rest)}</div>`
+    : `<div class="listing-layout"><div>${homeLead}${feedContent}</div>${renderSidebar(articles)}</div>`;
+  const itemList = {
+    '@type': 'ItemList',
+    '@id': `${siteUrl}${canonicalPath}#items`,
+    name: title,
+    numberOfItems: articles.length,
+    itemListElement: articles.slice(0, 50).map((article, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      url: `${siteUrl}${articleUrl(article)}`,
+      name: article.titleRu || article.titleFi,
+    })),
+  };
+  const structuredData = {
+    '@type': 'CollectionPage',
+    '@id': `${siteUrl}${canonicalPath}#collection`,
+    name: title,
+    description,
+    inLanguage: 'ru',
+    url: `${siteUrl}${canonicalPath}`,
+    isPartOf: { '@id': `${siteUrl}/#website` },
+    mainEntity: itemList,
+  };
+  return documentPage({ title, description, canonicalPath, siteUrl, content, robots, searchQuery: searchQuery || '', breakingArticle: articles.find((article) => article.editorialStatus === 'urgent') || (isHome ? featured[0] : null), showInterestModal: isHome, structuredData });
 }
 
-function renderAboutPage({ siteUrl }) {
-  return documentPage({
-    title: 'О проекте и конфиденциальность — Финские Новости',
-    description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии и обрабатывают комментарии и статистику.',
-    canonicalPath: '/about',
-    siteUrl,
-    content: `<article class="info-page"><p class="eyebrow">О проекте</p><h1 class="page-heading">Новости Финляндии на русском — с уважением к первоисточникам</h1><p class="page-intro">«Финские Новости» помогают следить за актуальными событиями Финляндии. Мы собираем открытые RSS-анонсы и публикуем краткие русскоязычные пересказы, чтобы читателю было проще понять суть новости.</p><section class="info-card"><h2>Как мы работаем</h2><p>Материалы на сайте — это краткие пересказы, а не полные переводы оригинальных статей. У каждой новости мы указываем источник и даём ссылку на оригинал: для полного контекста рекомендуем перейти к первоисточнику.</p></section><section class="info-card"><h2>Комментарии</h2><p>Комментарий сначала попадает на премодерацию. После одобрения редакцией его имя и текст становятся видны посетителям на странице соответствующей новости.</p></section><section class="info-card"><h2>Конфиденциальность и статистика</h2><p>Для понимания интереса к материалам сайт учитывает просмотры и реакции с помощью анонимного дневного идентификатора. Мы не храним IP-адреса или User-Agent в открытом виде. Срок хранения статистики определяется политикой сайта.</p><p>Не указывайте в комментариях лишние персональные или чувствительные данные.</p></section><section class="info-card"><h2>Контакты</h2><p>Контактные данные будут опубликованы до запуска.</p></section><p class="info-note"><strong>Важно:</strong> эта страница кратко описывает работу сайта и не является юридической гарантией или консультацией.</p></article>`,
-  });
+function reactionForm(article, reactionMessage) {
+  return `<section class="reactions" aria-labelledby="reactions-heading"><h2 id="reactions-heading">Реакции читателей</h2>${reactionTotalsMarkup(article)}${reactionMessage ? `<p class="form-message" role="status">${escapeHtml(reactionMessage)}</p>` : ''}<form action="/news/${encodeURIComponent(article.slug)}/reactions" method="post"><button type="submit" name="reaction" value="like" aria-label="Нравится">👍</button><button type="submit" name="reaction" value="important" aria-label="Важно">❗</button><button type="submit" name="reaction" value="sad" aria-label="Грустно">😔</button></form></section>`;
 }
 
 function renderComments({ article, comments, commentMessage }) {
-  const commentList = comments.length
-    ? comments.map((comment) => `<article class="comment"><p class="comment-author">${escapeHtml(comment.authorName)}</p><time class="comment-date" datetime="${escapeHtml(comment.createdAt || '')}">${escapeHtml(formatDate(comment.createdAt))}</time><p class="comment-body">${escapeHtml(comment.body)}</p></article>`).join('')
-    : '<p class="summary">Пока нет одобренных комментариев.</p>';
-  return `<section class="comments" aria-labelledby="comments-heading"><h2 id="comments-heading">Комментарии</h2>${commentList}<form class="comment-form" id="comment-form" action="/news/${encodeURIComponent(article.slug)}/comments" method="post"><h3>Оставить комментарий</h3>${commentMessage ? `<p class="form-message" role="status">${escapeHtml(commentMessage)}</p>` : ''}<label class="honeypot" for="website">Сайт</label><input class="honeypot" id="website" name="website" type="text" autocomplete="off" tabindex="-1" aria-hidden="true"><label for="author_name">Имя</label><input id="author_name" name="author_name" type="text" maxlength="80" required><label for="body">Комментарий</label><textarea id="body" name="body" maxlength="1500" required></textarea><button type="submit">Отправить на модерацию</button></form></section>`;
+  const list = comments.length ? comments.map((comment) => `<article class="comment"><p class="comment-author">${escapeHtml(comment.authorName)}</p><time class="comment-date" datetime="${escapeHtml(comment.createdAt || '')}">${escapeHtml(formatDate(comment.createdAt))}</time><p class="comment-body">${escapeHtml(comment.body)}</p></article>`).join('') : '<p class="summary">Пока нет одобренных комментариев.</p>';
+  return `<section class="comments" aria-labelledby="comments-heading"><h2 id="comments-heading">Комментарии</h2>${list}<form class="comment-form" id="comment-form" action="/news/${encodeURIComponent(article.slug)}/comments" method="post"><h3>Оставить комментарий</h3>${commentMessage ? `<p class="form-message" role="status">${escapeHtml(commentMessage)}</p>` : ''}<label class="honeypot" for="website">Сайт</label><input class="honeypot" id="website" name="website" type="text" autocomplete="off" tabindex="-1" aria-hidden="true"><label for="author_name">Имя</label><input id="author_name" name="author_name" type="text" maxlength="80" required><label for="body">Комментарий</label><textarea id="body" name="body" maxlength="1500" required></textarea><button type="submit">Отправить на модерацию</button></form></section>`;
 }
 
-function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], commentMessage = '', reactionMessage = '' }) {
-  const title = article.titleRu || article.titleFi;
-  const description = article.summaryRu || article.summaryFi || title;
-  return documentPage({
-    title: `${title} — Финские Новости`,
-    description,
-    canonicalPath: `/news/${encodeURIComponent(article.slug)}`,
-    siteUrl,
-    content: `<article class="article-page"><p class="eyebrow">Новость Финляндии</p>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h1 class="article-heading">${escapeHtml(title)}</h1><div class="article-facts"><span class="fact">${escapeHtml(article.category || 'Новости')}</span><span class="fact">${escapeHtml(article.sourceName)}</span></div><p class="summary">${escapeHtml(article.summaryRu || article.summaryFi || '')}</p>${article.sourceName === 'Редакция Финские Новости' ? '<p class="editorial-note">Материал подготовлен редакцией.</p>' : `<div class="original-box"><p>Полный материал опубликован у первоисточника.</p><a href="${escapeHtml(safeExternalUrl(article.originalUrl))}" rel="noopener noreferrer" target="_blank">Открыть оригинал ↗</a></div>`}</article>${reactionForm(article, reactionMessage)}${renderComments({ article, comments, commentMessage })}`,
-  });
+function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], commentMessage = '', reactionMessage = '', relatedArticles = [], adjacent = {} }) {
+  const title = contextualTitle(article);
+  const articleSummary = contextualSummary(article);
+  const description = article.seoDescription || articleSummary || title;
+  const classification = article.classification || {};
+  const classificationItems = [
+    classification.region ? `<a href="/region/${encodeURIComponent(classification.region.code)}">📍 ${escapeHtml(classification.region.name)}</a>` : '',
+    ...(classification.tags || []).map((tag) => `<a href="/tag/${encodeURIComponent(tag.slug)}">#${escapeHtml(tag.name)}</a>`),
+    ...(classification.audiences || [])
+      .filter((audience) => audience.code !== 'all')
+      .map((audience) => `<span>Для: ${escapeHtml(audience.name)}</span>`),
+  ].filter(Boolean);
+  const classificationMarkup = classificationItems.length
+    ? `<div class="article-classification" aria-label="Темы и география">${classificationItems.join('')}</div>`
+    : '';
+  const people = peopleForArticle(article);
+  const peopleMarkup = people.length
+    ? `<section class="side-card"><p class="sidebar-kicker">Кто упоминается</p>${people.map((person) => `<h2>${escapeHtml(person.nameRu)}</h2><p><strong>${escapeHtml(person.shortRoleRu)}</strong></p><p>${escapeHtml(person.descriptionRu)}</p><a href="${escapeHtml(person.sourceUrl)}" rel="noopener noreferrer" target="_blank">Официальная справка ↗</a>`).join('')}</section>`
+    : '';
+  const original = article.sourceName === 'Редакция Финские Новости'
+    ? '<p class="editorial-note">Материал подготовлен редакцией «Финские Новости».</p>'
+    : `<div class="original-box"><p>Полный текст опубликован у первоисточника. Мы рекомендуем открыть его для подробностей и контекста.</p><a href="${escapeHtml(safeExternalUrl(article.originalUrl))}" rel="noopener noreferrer" target="_blank">Открыть оригинал ↗</a></div>`;
+  const adjacentMarkup = adjacent.older || adjacent.newer
+    ? `<nav class="article-navigation" aria-label="Соседние статьи">${adjacent.older ? `<a href="${articleUrl(adjacent.older)}">← Предыдущая<br><strong>${escapeHtml(truncateText(adjacent.older.titleRu || adjacent.older.titleFi, 75))}</strong></a>` : '<span></span>'}${adjacent.newer ? `<a href="${articleUrl(adjacent.newer)}">Следующая →<br><strong>${escapeHtml(truncateText(adjacent.newer.titleRu || adjacent.newer.titleFi, 75))}</strong></a>` : '<span></span>'}</nav>`
+    : '';
+  const relatedMarkup = relatedArticles.length
+    ? `<section class="related-articles" aria-labelledby="related-heading"><h2 id="related-heading">Похожие материалы</h2><div class="related-grid">${relatedArticles.map((item) => `<article><p>${escapeHtml(item.category || 'Новости')}</p><h3><a href="${articleUrl(item)}">${escapeHtml(item.titleRu || item.titleFi)}</a></h3></article>`).join('')}</div></section>`
+    : '';
+  const content = `<div class="article-wrap"><article><header class="article-head"><p class="eyebrow">Новость Финляндии</p>${editorialBadges(article)}${articleMeta(article, categoryToSlug)}<h1 class="article-title">${escapeHtml(title)}</h1><div class="article-facts"><span class="fact">${escapeHtml(article.category || 'Новости')}</span><span class="fact">${escapeHtml(article.sourceName || '')}</span><span class="fact">${escapeHtml(formatDate(article.publishedAt))}</span></div>${classificationMarkup}<div class="article-lead">${renderTextParagraphs(articleSummary)}</div></header><div class="article-body-grid"><div>${reactionForm(article, reactionMessage)}${renderComments({ article, comments, commentMessage })}</div><aside class="article-aside">${peopleMarkup}${original}<section class="side-card"><p class="sidebar-kicker">Поделиться</p><h2>Читайте и обсуждайте</h2><p>Сохраните постоянную ссылку на материал и оставьте комментарий после модерации.</p></section></aside></div>${adjacentMarkup}${relatedMarkup}</article></div>`;
+  const structuredData = {
+    '@type': 'NewsArticle',
+    '@id': `${siteUrl}/news/${encodeURIComponent(article.slug)}#article`,
+    headline: title,
+    description: truncateText(description, 300),
+    datePublished: article.publishedAt || undefined,
+    dateModified: article.createdAt || article.publishedAt || undefined,
+    mainEntityOfPage: `${siteUrl}/news/${encodeURIComponent(article.slug)}`,
+    url: `${siteUrl}/news/${encodeURIComponent(article.slug)}`,
+    inLanguage: 'ru',
+    isAccessibleForFree: true,
+    author: { '@type': 'Organization', name: article.sourceName || SITE_NAME },
+    publisher: { '@id': `${siteUrl}/#organization` },
+    isBasedOn: safeExternalUrl(article.originalUrl) === '#' ? undefined : safeExternalUrl(article.originalUrl),
+  };
+  return documentPage({ title, description, canonicalPath: `/news/${encodeURIComponent(article.slug)}`, siteUrl, content, breakingArticle: article.editorialStatus === 'urgent' ? article : null, structuredData });
 }
 
 function optionMarkup(value, label, selected) {
@@ -178,6 +349,7 @@ function optionMarkup(value, label, selected) {
 }
 
 function toDateTimeLocal(value) {
+  if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const offset = date.getTimezoneOffset() * 60000;
@@ -185,92 +357,883 @@ function toDateTimeLocal(value) {
 }
 
 function renderTelegramControl(article, telegramConfigured) {
-  if (article.telegramPublication) {
-    return `<p class="form-message" role="status">Отправлено в Telegram: ${escapeHtml(formatDate(article.telegramPublication.sentAt))}.</p>`;
-  }
-  if (!telegramConfigured) {
-    return '<p class="summary">Telegram не настроен: укажите переменные на сервере.</p>';
-  }
-  return `<form action="/admin/articles/${article.id}/telegram" method="post"><button type="submit">Отправить в Telegram</button></form>`;
+  if (article.telegramPublication) return `<p class="form-message" role="status">✓ Опубликовано в Telegram: ${escapeHtml(formatDate(article.telegramPublication.sentAt))}.</p>`;
+  if (!telegramConfigured) return '<p class="summary">Telegram не настроен: укажите переменные на сервере.</p>';
+  return `<form class="telegram-publish-form" action="/admin/articles/${article.id}/telegram" method="post"><button class="telegram-publish-button" type="submit">✈ Запостить в Telegram</button></form>`;
 }
 
-function renderAdminArticleForm(article, categories, telegramConfigured) {
+function renderAdminArticleForm(article, categories, telegramConfigured, canDelete) {
   const categoryOptions = categories.map((category) => optionMarkup(category, category, article.category)).join('');
-  const statusOptions = [
-    optionMarkup('normal', 'Обычная', article.editorialStatus),
-    optionMarkup('important', 'Важная', article.editorialStatus),
-    optionMarkup('urgent', 'Срочная', article.editorialStatus),
-  ].join('');
-  const draftControl = article.publicationStatus === 'draft'
-    ? `<p class="form-message">Черновик: статья ещё не видна публично.</p><form action="/admin/articles/${article.id}/publish" method="post"><button type="submit">Опубликовать черновик</button></form>`
+  const statusOptions = ['normal', 'important', 'urgent'].map((value) => optionMarkup(value, { normal: 'Обычная', important: 'Важная', urgent: 'Срочная' }[value], article.editorialStatus)).join('');
+  const scheduleField = article.publicationStatus === 'draft'
+    ? `<label for="scheduled-${article.id}">Отложенная публикация</label><input id="scheduled-${article.id}" name="scheduled_publish_at" type="datetime-local" value="${escapeHtml(toDateTimeLocal(article.scheduledPublishAt))}"><p class="field-hint">Оставьте пустым, чтобы сохранить без расписания.</p>`
+    : '';
+  const publication = article.publicationStatus === 'draft'
+    ? `<p class="form-message">${article.scheduledPublishAt ? `Запланировано на ${escapeHtml(formatDate(article.scheduledPublishAt))}.` : 'Черновик: статья ещё не видна публично.'}</p><form action="/admin/articles/${article.id}/publish" method="post"><button type="submit">Опубликовать сейчас</button></form>`
     : renderTelegramControl(article, telegramConfigured);
-  return `<article class="admin-comment"><h2>${article.publicationStatus === 'draft' ? 'Черновик: ' : ''}<a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.titleRu || article.titleFi)}</a></h2><form class="admin-form" action="/admin/articles/${article.id}" method="post"><label for="title-${article.id}">Заголовок</label><input id="title-${article.id}" name="title" type="text" maxlength="300" required value="${escapeHtml(article.titleRu || article.titleFi || '')}"><label for="text-${article.id}">Текст</label><textarea id="text-${article.id}" name="text" maxlength="20000" required>${escapeHtml(article.summaryRu || article.summaryFi || '')}</textarea><label for="category-${article.id}">Категория</label><select id="category-${article.id}" name="category" required>${categoryOptions}</select><label for="status-${article.id}">Редакционная метка</label><select id="status-${article.id}" name="editorial_status">${statusOptions}</select><label for="pinned-${article.id}">Закрепить до</label><input id="pinned-${article.id}" name="pinned_until" type="datetime-local" value="${escapeHtml(toDateTimeLocal(article.pinnedUntil))}"><div class="admin-actions"><button type="submit">Сохранить</button><a class="admin-delete-link" href="/admin/articles/${article.id}/delete">Удалить статью</a></div></form><div class="admin-actions">${draftControl}</div></article>`;
+  const deleteControl = canDelete
+    ? `<a class="admin-delete-link" href="/admin/articles/${article.id}/delete">Удалить статью</a>`
+    : '';
+  const discussionMarkup = article.publicationStatus === 'published' ? `<section class="editorial-discussion"><h3>Editorial Discussion</h3><p class="summary">ИИ подготовит варианты заметки и вопроса. Ничего не публикуется автоматически.</p><form action="/admin/articles/${article.id}/discussions/generate" method="post"><button type="submit">✨ Сгенерировать обсуждение</button></form>${(article.editorialDiscussions || []).map((d) => `<form class="editorial-discussion-card" action="/admin/discussions/${d.id}" method="post"><span class="editorial-label">Редакционная дискуссия · создано ИИ</span><textarea name="note" maxlength="3000" required>${escapeHtml(d.note)}</textarea><input name="question" maxlength="500" required value="${escapeHtml(d.question)}"><select name="status"><option value="draft" ${d.status === 'draft' ? 'selected' : ''}>Черновик</option><option value="approved" ${d.status === 'approved' ? 'selected' : ''}>Одобрено</option><option value="published" ${d.status === 'published' ? 'selected' : ''}>Опубликовано</option><option value="deleted">Удалить</option></select><button type="submit">Сохранить</button></form>`).join('')}</section>` : '';
+  const classification = article.classification || {};
+  const classificationSummary = [
+    classification.region ? `Регион: ${classification.region.name}` : '',
+    classification.tags?.length ? `Теги: ${classification.tags.map((tag) => tag.name).join(', ')}` : '',
+    classification.audiences?.length ? `Аудитории: ${classification.audiences.map((audience) => audience.name).join(', ')}` : '',
+    Number.isFinite(classification.confidence) ? `Уверенность: ${Math.round(classification.confidence * 100)}%` : '',
+  ].filter(Boolean).join(' · ');
+  const classificationControl = `<section class="admin-classification"><div><h3>Автоматическая классификация</h3><p>${escapeHtml(classificationSummary || 'Статья ещё не классифицирована.')}</p></div><form action="/admin/articles/${article.id}/classify" method="post"><button type="submit">Переклассифицировать</button></form></section>`;
+  const ranking = article.ranking || {};
+  const rankingControl = `<section class="admin-classification"><div><h3>Рейтинг новости: ${escapeHtml(String(ranking.score ?? 0))}/100</h3><p>${escapeHtml(ranking.explanation || 'Рейтинг ещё не рассчитан.')}</p></div><span class="editorial-label">${ranking.eligible ? 'Допущена к автоматическому отбору' : 'Не допущена к автоматическому отбору'}</span></section>`;
+  return `<article class="admin-comment"><h2>${article.publicationStatus === 'draft' ? 'Черновик: ' : ''}${article.publicationStatus === 'published' ? `<a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.titleRu || article.titleFi)}</a>` : escapeHtml(article.titleRu || article.titleFi)}</h2><form class="admin-form" action="/admin/articles/${article.id}" method="post"><label for="title-${article.id}">Заголовок</label><input id="title-${article.id}" name="title" maxlength="300" required value="${escapeHtml(article.titleRu || article.titleFi || '')}"><label for="text-${article.id}">Текст</label><textarea id="text-${article.id}" name="text" maxlength="20000" required>${escapeHtml(article.summaryRu || article.summaryFi || '')}</textarea><label for="category-${article.id}">Категория</label><select id="category-${article.id}" name="category" required>${categoryOptions}</select><label for="status-${article.id}">Редакционная метка</label><select id="status-${article.id}" name="editorial_status">${statusOptions}</select><label for="pinned-${article.id}">Закрепить до</label><input id="pinned-${article.id}" name="pinned_until" type="datetime-local" value="${escapeHtml(toDateTimeLocal(article.pinnedUntil))}">${scheduleField}<div class="admin-actions"><button type="submit">Сохранить</button>${deleteControl}</div></form>${classificationControl}${rankingControl}<div class="admin-actions">${publication}</div>${discussionMarkup}</article>`;
 }
 
-function telegramStatusMessage(status) {
-  if (status === 'sent') return 'Новость отправлена в Telegram.';
-  if (status === 'already-sent') return 'Эта новость уже была отправлена в Telegram.';
-  if (status === 'error') return 'Не удалось отправить новость в Telegram. Попробуйте позже.';
-  return '';
+function statusMessage(kind, status) {
+  const values = {
+    telegram: { sent: 'Новость отправлена в Telegram.', 'already-sent': 'Эта новость уже была отправлена в Telegram.', error: 'Не удалось отправить новость в Telegram. Попробуйте позже.' },
+    import: { 'draft-created': 'Черновик импортированной статьи создан.', published: 'Черновик опубликован.', duplicate: 'Статья с этим источником уже существует.', similar: 'Импорт не выполнен: за этот день уже найдена очень похожая новость. Решение записано в журнал повторов.', error: 'Не удалось импортировать страницу. Проверьте ссылку и попробуйте позже.' },
+    article: { scheduled: 'Новость сохранена и будет опубликована автоматически в указанное время.' },
+    duplicate: { published: 'Материал опубликован несмотря на совпадение.', 'already-published': 'Этот материал уже был опубликован.', error: 'Не удалось опубликовать материал из журнала повторов.' },
+    taxonomy: {
+      created: 'Запись справочника создана.',
+      updated: 'Изменения сохранены.',
+      hidden: 'Запись скрыта из публичного выбора.',
+      shown: 'Запись снова доступна.',
+      deleted: 'Неиспользуемая запись удалена.',
+      duplicate: 'Название, код или slug уже используются.',
+      invalid: 'Проверьте обязательные поля и латинский код.',
+      system: 'Системную категорию нельзя удалить — её можно скрыть.',
+      'in-use': 'Удаление запрещено: запись используется статьями или подписками.',
+      'not-found': 'Запись уже удалена или не найдена.',
+      merged: 'Категории объединены. Статьи и подписки перенесены, старый URL перенаправляется на новую категорию.',
+      'merge-invalid': 'Не удалось объединить категории. Проверьте категорию назначения.',
+      'merged-hidden': 'Эта категория уже объединена с другой. Её старый адрес сохранён как перенаправление, поэтому снова показывать её отдельно нельзя.',
+    },
+    classification: {
+      completed: 'Старые статьи без классификации обработаны.',
+      empty: 'Все статьи уже классифицированы.',
+      'article-updated': 'Классификация статьи обновлена.',
+    },
+    quality: {
+      approved: 'Статья проверена, одобрена и опубликована редактором.',
+      'approved-draft': 'Качество статьи одобрено. Редакционный черновик сохранён и ожидает отдельной публикации.',
+      rejected: 'Статья скрыта с публичных страниц после проверки.',
+    },
+  };
+  return values[kind][status] || '';
 }
 
-function importStatusMessage(status) {
-  if (status === 'draft-created') return 'Черновик импортированной статьи создан.';
-  if (status === 'published') return 'Черновик опубликован.';
-  if (status === 'duplicate') return 'Статья с этим источником уже существует.';
-  if (status === 'error') return 'Не удалось импортировать страницу. Проверьте ссылку и попробуйте позже.';
-  return '';
+function renderTaxonomyManagement(taxonomy, canDelete, classificationCount = 0) {
+  const definitions = {
+    categories: {
+      title: 'Категории',
+      description: 'Основные разделы сайта и правила автоматической классификации.',
+      newFields: '<label>Название<input name="name" maxlength="120" required></label><label>Slug латиницей<input name="slug" maxlength="100" placeholder="novaya-kategoriya" required></label><label>Код<input name="code" maxlength="80" placeholder="new-category"></label><label>Эмодзи<input name="emoji" maxlength="16"></label><label>Цвет<input name="color" type="color" value="#0f766e"></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="100"></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000"></textarea></label><label class="taxonomy-wide">Синонимы<textarea name="synonyms" maxlength="1000" placeholder="через запятую"></textarea></label><label class="taxonomy-wide">Ключевые слова<textarea name="keywords" maxlength="1000" placeholder="через запятую"></textarea></label>',
+    },
+    tags: {
+      title: 'Теги',
+      description: 'Гибкие тематические метки для статей и персональных подписок.',
+      newFields: '<label>Название<input name="name" maxlength="120" required></label><label>Slug латиницей<input name="slug" maxlength="100" required></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000"></textarea></label><label class="taxonomy-wide">Альтернативные названия<textarea name="aliases" maxlength="1000" placeholder="через запятую"></textarea></label>',
+    },
+    regions: {
+      title: 'Регионы',
+      description: 'География новостей: страна, область, город или международная повестка.',
+      newFields: '<label>Название<input name="name" maxlength="120" required></label><label>Код латиницей<input name="code" maxlength="80" required></label><label>Тип<input name="region_type" maxlength="80" value="region" required></label><label>Родительский код<input name="parent_code" maxlength="80"></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="100"></label>',
+    },
+    audiences: {
+      title: 'Аудитории',
+      description: 'Группы читателей для рекомендаций и персональных Telegram-рассылок.',
+      newFields: '<label>Название<input name="name" maxlength="120" required></label><label>Код латиницей<input name="code" maxlength="80" required></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="100"></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000"></textarea></label>',
+    },
+  };
+  const rowFields = (type, item) => {
+    if (type === 'categories') {
+      const locked = item.isSystem || item.usage?.total > 0;
+      return `<label>Название<input name="name" maxlength="120" value="${escapeHtml(item.name)}" ${locked ? 'readonly' : ''} required></label><label>Slug<input name="slug" maxlength="100" value="${escapeHtml(item.slug)}" ${locked ? 'readonly' : ''} required></label><label>Эмодзи<input name="emoji" maxlength="16" value="${escapeHtml(item.emoji)}"></label><label>Цвет<input name="color" type="color" value="${escapeHtml(item.color || '#0f766e')}"></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="${item.sortOrder}"></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000">${escapeHtml(item.description)}</textarea></label><label class="taxonomy-wide">Синонимы<textarea name="synonyms" maxlength="1000">${escapeHtml(item.synonyms)}</textarea></label><label class="taxonomy-wide">Ключевые слова<textarea name="keywords" maxlength="1000">${escapeHtml(item.keywords)}</textarea></label><label class="taxonomy-wide">Правила классификации<textarea name="classification_rules" maxlength="2000">${escapeHtml(item.classificationRules)}</textarea></label>`;
+    }
+    if (type === 'tags') {
+      const locked = item.usage?.total > 0;
+      return `<label>Название<input name="name" maxlength="120" value="${escapeHtml(item.name)}" required></label><label>Slug<input name="slug" maxlength="100" value="${escapeHtml(item.slug)}" ${locked ? 'readonly' : ''} required></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000">${escapeHtml(item.description)}</textarea></label><label class="taxonomy-wide">Альтернативные названия<textarea name="aliases" maxlength="1000">${escapeHtml(item.aliases)}</textarea></label>`;
+    }
+    if (type === 'regions') {
+      return `<label>Название<input name="name" maxlength="120" value="${escapeHtml(item.name)}" required></label><label>Тип<input name="region_type" maxlength="80" value="${escapeHtml(item.regionType)}" required></label><label>Родительский код<input name="parent_code" maxlength="80" value="${escapeHtml(item.parentCode)}"></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="${item.sortOrder}"></label>`;
+    }
+    return `<label>Название<input name="name" maxlength="120" value="${escapeHtml(item.name)}" required></label><label>Порядок<input name="sort_order" type="number" min="0" max="10000" value="${item.sortOrder}"></label><label class="taxonomy-wide">Описание<textarea name="description" maxlength="1000">${escapeHtml(item.description)}</textarea></label>`;
+  };
+  const sections = Object.entries(definitions).map(([type, definition]) => {
+    const items = taxonomy[type] || [];
+    const rows = items.map((item) => {
+      const identity = item.code || item.slug;
+      const usage = item.usage || { total: 0, articles: 0, subscriptions: 0 };
+      const visibility = item.isVisible ? 'Скрыть' : 'Показать';
+      const deleteControl = canDelete && !(type === 'categories' && item.isSystem)
+        ? `<form action="/admin/taxonomy/${type}/${item.id}/delete" method="post" onsubmit="return confirm('Удалить запись? Операция будет отклонена, если запись используется.')"><button class="delete" type="submit">Удалить</button></form>`
+        : '';
+      const protection = type === 'categories' && item.isSystem
+        ? 'Системная категория: постоянные имя и URL защищены.'
+        : usage.total > 0
+          ? `Используется: статьи — ${usage.articles}, подписки — ${usage.subscriptions}. Удаление защищено.`
+          : 'Запись пока не используется и может быть удалена администратором.';
+      const mergeOptions = type === 'categories'
+        ? (taxonomy.categories || [])
+          .filter((category) => category.id !== item.id && category.isVisible)
+          .map((category) => `<option value="${category.id}">${escapeHtml(category.name)}</option>`)
+          .join('')
+        : '';
+      const mergeControl = canDelete && type === 'categories' && mergeOptions
+        ? `<details class="taxonomy-merge"><summary>Объединить с другой категорией</summary><p class="field-hint">Все статьи и персональные подписки перейдут в выбранную категорию. «${escapeHtml(item.name)}» будет скрыта, а её прежний URL навсегда перенаправится на новый раздел.</p><form class="admin-actions" action="/admin/taxonomy/categories/${item.id}/merge" method="post" onsubmit="return confirm('Объединить категории? Статьи и подписки будут перенесены, а старая категория скрыта.')"><input type="hidden" name="confirm" value="MERGE"><label>Категория назначения<select name="target_id" required><option value="">Выберите категорию</option>${mergeOptions}</select></label><button class="reject" type="submit">Объединить безопасно</button></form></details>`
+        : '';
+      return `<details class="taxonomy-row"><summary><span>${escapeHtml(item.name)}</span><code>${escapeHtml(identity || '')}</code><span class="admin-status ${item.isVisible ? 'admin-status--approved' : 'admin-status--rejected'}">${item.isVisible ? 'Видна' : 'Скрыта'}</span><span>Изменить →</span></summary><form class="taxonomy-form" action="/admin/taxonomy/${type}/${item.id}" method="post">${rowFields(type, item)}<div class="taxonomy-wide admin-actions"><button type="submit">Сохранить</button></div></form><div class="admin-actions"><form action="/admin/taxonomy/${type}/${item.id}/visibility" method="post"><input type="hidden" name="visible" value="${item.isVisible ? '0' : '1'}"><button class="${item.isVisible ? 'reject' : ''}" type="submit">${visibility}</button></form>${deleteControl}<span class="field-hint">${escapeHtml(protection)}</span></div>${mergeControl}</details>`;
+    }).join('') || '<p class="summary">Записей пока нет.</p>';
+    return `<section class="admin-panel admin-panel--wide taxonomy-section" id="taxonomy-${type}"><div class="taxonomy-heading"><div><p class="eyebrow">Справочник</p><h2>${definition.title}</h2><p class="summary">${definition.description}</p></div><span class="taxonomy-count">${items.length}</span></div><details class="taxonomy-create"><summary>＋ Добавить запись</summary><form class="taxonomy-form" action="/admin/taxonomy/${type}" method="post">${definition.newFields}<div class="taxonomy-wide"><button type="submit">Создать</button></div></form></details><div class="taxonomy-list">${rows}</div></section>`;
+  }).join('');
+  const classifiedResult = classificationCount > 0
+    ? `<p class="form-message" role="status">Обработано статей: ${classificationCount}.</p>`
+    : '';
+  return `<div class="taxonomy-intro"><div><p class="eyebrow">Структура контента</p><h2>Категории, теги, регионы и аудитории</h2><p>Скрытие безопасно убирает запись из нового выбора. Удаление разрешено только для неиспользуемых записей; системные категории защищены.</p></div><div class="taxonomy-links">${Object.entries(definitions).map(([type, item]) => `<a href="#taxonomy-${type}">${item.title}</a>`).join('')}</div></div><section class="admin-panel admin-panel--wide classifier-panel"><div><p class="eyebrow">Автоматизация</p><h2>Классификация статей</h2><p class="summary">Новые RSS, импортированные и ручные статьи классифицируются при сохранении. Обработайте старые записи без результата или примените изменённые правила заново к последним 500 статьям. Claude API не вызывается.</p>${classifiedResult}</div><div class="classifier-actions"><form action="/admin/articles/reclassify" method="post"><input type="hidden" name="scope" value="unclassified"><button type="submit">Обработать без классификации</button></form><form action="/admin/articles/reclassify" method="post"><input type="hidden" name="scope" value="all"><button class="secondary" type="submit">Применить правила заново</button></form></div></section>${sections}`;
 }
 
-function renderAdminPage({ pendingComments, articles, query, statistics, categories, telegramConfigured, telegramStatus, importProviderConfigured, importStatus, siteUrl }) {
-  const comments = pendingComments.length
-    ? pendingComments.map((comment) => `<article class="admin-comment"><h2><a href="/news/${encodeURIComponent(comment.articleSlug)}">${escapeHtml(comment.articleTitle)}</a></h2><p class="comment-author">${escapeHtml(comment.authorName)}</p><time class="comment-date" datetime="${escapeHtml(comment.createdAt || '')}">${escapeHtml(formatDate(comment.createdAt))}</time><p class="comment-body">${escapeHtml(comment.body)}</p><div class="admin-actions"><form action="/admin/comments/${comment.id}/approve" method="post"><button type="submit">Одобрить</button></form><form action="/admin/comments/${comment.id}/reject" method="post"><button class="reject" type="submit">Отклонить</button></form><form action="/admin/comments/${comment.id}/delete" method="post"><button class="delete" type="submit">Удалить</button></form></div></article>`).join('')
-    : '<div class="empty-state">Комментариев, ожидающих модерации, нет.</div>';
-  const articleForms = articles.length
-    ? articles.map((article) => renderAdminArticleForm(article, categories, telegramConfigured)).join('')
-    : '<div class="empty-state">Статьи не найдены.</div>';
-  const topRead = statistics.topRead.length
-    ? `<ol>${statistics.topRead.map((article) => `<li><a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.title)}</a> <span class="admin-count">${article.count}</span></li>`).join('')}</ol>`
-    : '<p class="summary">Просмотров сегодня пока нет.</p>';
-  const topCommented = statistics.topCommented.length
-    ? `<ol>${statistics.topCommented.map((article) => `<li><a href="/news/${encodeURIComponent(article.slug)}">${escapeHtml(article.title)}</a> <span class="admin-count">${article.count}</span></li>`).join('')}</ol>`
-    : '<p class="summary">Комментариев пока нет.</p>';
-  const categoryOptions = categories.map((category) => optionMarkup(category, category, '')).join('');
+function renderAdminLoginPage({ siteUrl, googleEnabled, basicEnabled, error = '' }) {
+  const errors = {
+    'not-configured': 'Вход через Google пока не настроен.',
+    'invalid-state': 'Сеанс входа истёк или был отклонён. Попробуйте ещё раз.',
+    'not-allowed': 'Этот Google-аккаунт не включён в список редакторов.',
+    'google-failed': 'Google не подтвердил вход. Попробуйте ещё раз.',
+  };
+  const googleControl = googleEnabled
+    ? '<a class="google-login-button account-google-button" href="/admin/auth/google"><svg class="google-g" viewBox="0 0 18 18" aria-hidden="true"><path fill="#EA4335" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.874 2.684-6.615Z"/><path fill="#4285F4" d="M9 18c2.43 0 4.468-.806 5.956-2.18l-2.91-2.258c-.805.54-1.835.859-3.046.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.333A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.963 10.707A5.42 5.42 0 0 1 3.681 9c0-.592.102-1.168.282-1.707V4.96H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.04l3.007-2.333Z"/><path fill="#34A853" d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.96l3.007 2.333C4.672 5.164 6.656 3.579 9 3.579Z"/></svg><span>Продолжить с Google</span></a>'
+    : '<p class="summary">Google-вход появится после настройки Client ID, Client Secret и списка разрешённых адресов.</p>';
+  const basicControl = basicEnabled
+    ? '<p class="admin-login-fallback"><a href="/admin/basic">Аварийный вход по старому паролю</a></p>'
+    : '';
+  const content = `<section class="admin-login"><div class="admin-login-card"><p class="eyebrow">Закрытая зона</p><h1>Вход в редакцию</h1><p>Используйте только разрешённый Google-аккаунт. Сайт не получает пароль Gmail и не запрашивает доступ к письмам.</p>${errors[error] ? `<p class="form-message" role="alert">${escapeHtml(errors[error])}</p>` : ''}${googleControl}${basicControl}<p class="admin-login-note">После входа защищённая сессия автоматически завершится. Все редакционные действия записываются в журнал.</p></div></section>`;
   return documentPage({
-    title: 'Редакция и модерация — Финские Новости',
-    description: 'Закрытая страница редакции и модерации.',
-    canonicalPath: '/admin',
+    title: 'Вход в редакцию — Финские Новости',
+    description: 'Закрытая авторизация редакции.',
+    canonicalPath: '/admin/login',
     siteUrl,
-    robots: 'noindex',
-    content: `<p class="eyebrow">Администрирование</p><h1 class="page-heading">Редакция и модерация</h1>${telegramStatusMessage(telegramStatus) ? `<p class="form-message" role="status">${escapeHtml(telegramStatusMessage(telegramStatus))}</p>` : ''}${importStatusMessage(importStatus) ? `<p class="form-message" role="status">${escapeHtml(importStatusMessage(importStatus))}</p>` : ''}<section class="admin-list"><article class="admin-comment"><h2>Статистика за сегодня</h2><dl class="admin-stats"><div class="stat-card"><dt>Всего статей</dt><dd>${statistics.articleCount}</dd></div><div class="stat-card"><dt>Сегодня</dt><dd>${statistics.publishedToday}</dd></div><div class="stat-card"><dt>На модерации</dt><dd>${statistics.pendingComments}</dd></div><div class="stat-card"><dt>Просмотры</dt><dd>${statistics.siteViewsToday}</dd></div><div class="stat-card"><dt>Реакции</dt><dd>${statistics.reactionCount}</dd></div></dl><div class="admin-ranking"><section aria-labelledby="top-read-heading"><h3 id="top-read-heading">Топ читаемых</h3>${topRead}</section><section aria-labelledby="top-commented-heading"><h3 id="top-commented-heading">Топ комментируемых</h3>${topCommented}</section></div></article><article class="admin-comment"><h2>Импортировать по ссылке</h2>${importProviderConfigured ? '<form class="admin-form" action="/admin/import" method="post"><label for="import-url">Внешний HTTPS-адрес</label><input id="import-url" name="url" type="url" inputmode="url" placeholder="https://example.com/news" required><button type="submit">Создать черновик</button></form>' : '<p class="summary">Импорт недоступен: настройте провайдер пересказа.</p>'}</article><article class="admin-comment"><h2>Новая ручная новость</h2><form class="admin-form" action="/admin/articles" method="post"><label for="new-title">Заголовок</label><input id="new-title" name="title" type="text" maxlength="300" required><label for="new-text">Текст</label><textarea id="new-text" name="text" maxlength="20000" required></textarea><label for="new-category">Категория</label><select id="new-category" name="category" required><option value="">Выберите категорию</option>${categoryOptions}</select><label for="new-status">Редакционная метка</label><select id="new-status" name="editorial_status">${optionMarkup('normal', 'Обычная', 'normal')}${optionMarkup('important', 'Важная', 'normal')}${optionMarkup('urgent', 'Срочная', 'normal')}</select><label for="new-pinned">Закрепить до</label><input id="new-pinned" name="pinned_until" type="datetime-local"><button type="submit">Опубликовать</button></form></article></section><h2 class="section-title">Комментарии на модерации</h2><section class="admin-list">${comments}</section><h2 class="section-title">Статьи</h2><form class="admin-search" action="/admin" method="get"><label for="article-search">Поиск по заголовку</label><input id="article-search" name="q" type="search" value="${escapeHtml(query)}"><button type="submit">Найти</button></form><section class="admin-list">${articleForms}</section>`,
+    robots: 'noindex,nofollow',
+    content,
   });
+}
+
+function renderAdminPage({
+  comments,
+  articles,
+  query,
+  statistics,
+  userStatistics = { totals: {}, users: [], topics: [] },
+  statisticsSources = [],
+  newsSources = [],
+  newsSourceStatus = '',
+  duplicateArticles,
+  auditLog = [],
+  currentAccount = { username: 'admin', role: 'admin' },
+  categories,
+  telegramConfigured,
+  telegramStatus,
+  telegramChannelConfigured = false,
+  telegramChannelSettings = {
+    enabled: false,
+    chatId: '@finskienovosti',
+    categories: [],
+    importance: 'all',
+    minimumScore: 65,
+    intervalMinutes: 0,
+    maxPostsPerDay: 20,
+    quietHoursEnabled: false,
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    includeOriginal: false,
+    template: '',
+  },
+  telegramChannelStatus = '',
+  importProviderConfigured,
+  importStatus,
+  rssStatus = '',
+  articleStatus = '',
+  duplicateStatus = '',
+  siteUrl,
+  tab = 'stats',
+  contactMessages = [],
+  unreadContactMessages = 0,
+  adminNotifications = [],
+  unreadAdminNotifications = 0,
+  adminTelegramNotificationSettings = {},
+  adminTelegramNotificationStatus = '',
+  untranslatedArticleCount = 0,
+  taxonomy = { categories: [], tags: [], regions: [], audiences: [] },
+  taxonomyStatus = '',
+  classificationStatus = '',
+  classificationCount = 0,
+  qualityQueue = [],
+  qualityQueueCount = 0,
+  qualityStatus = '',
+}) {
+  const canDelete = currentAccount && currentAccount.role === 'admin';
+  const statusLabels = { pending: 'На модерации', approved: 'Опубликован', rejected: 'Отклонён' };
+  const commentMarkup = comments.length ? comments.map((comment) => {
+    const approve = comment.status === 'approved' ? '' : `<form action="/admin/comments/${comment.id}/approve" method="post"><button type="submit">Одобрить</button></form>`;
+    const reject = comment.status === 'rejected' ? '' : `<form action="/admin/comments/${comment.id}/reject" method="post"><button class="reject" type="submit">Отклонить</button></form>`;
+    const deleteControl = canDelete
+      ? `<form action="/admin/comments/${comment.id}/delete" method="post"><button class="delete" type="submit">Удалить</button></form>`
+      : '';
+    return `<article class="admin-comment"><div class="admin-comment-head"><h2><a href="/news/${encodeURIComponent(comment.articleSlug)}">${escapeHtml(comment.articleTitle)}</a></h2><span class="admin-status admin-status--${escapeHtml(comment.status)}">${escapeHtml(statusLabels[comment.status] || comment.status)}</span></div><time class="comment-date" datetime="${escapeHtml(comment.createdAt || '')}">${escapeHtml(formatDate(comment.createdAt))}</time><form class="admin-form" action="/admin/comments/${comment.id}" method="post"><label for="comment-author-${comment.id}">Имя</label><input id="comment-author-${comment.id}" name="author_name" maxlength="80" required value="${escapeHtml(comment.authorName)}"><label for="comment-body-${comment.id}">Комментарий</label><textarea id="comment-body-${comment.id}" name="body" maxlength="1500" required>${escapeHtml(comment.body)}</textarea><button type="submit">Сохранить правки</button></form><div class="admin-actions">${approve}${reject}${deleteControl}</div></article>`;
+  }).join('') : '<div class="empty-state">Комментариев пока нет.</div>';
+  const articleForms = articles.length ? articles.map((article) => `<details class="admin-article-row"><summary><span class="admin-article-title">${escapeHtml(article.titleRu || article.titleFi)}</span><span class="admin-article-meta">${escapeHtml(article.category || 'Без категории')} · ${escapeHtml(formatDate(article.publishedAt))}</span><span class="admin-article-edit">Редактировать →</span></summary>${renderAdminArticleForm(article, categories, telegramConfigured, canDelete)}</details>`).join('') : '<div class="empty-state">Статьи не найдены.</div>';
+  const top = (list, empty) => list.length ? `<ol>${list.map((item) => `<li><a href="/news/${encodeURIComponent(item.slug)}">${escapeHtml(item.title)}</a> <span class="admin-count">${item.count}</span></li>`).join('')}</ol>` : `<p class="summary">${empty}</p>`;
+  const categoryOptions = categories.map((category) => optionMarkup(category, category, '')).join('');
+  const channelStatusLabels = {
+    saved: 'Настройки общего Telegram-канала сохранены.',
+    'template-error': 'Шаблон не сохранён: проверьте переменные, ссылки и разрешённые HTML-теги.',
+    'test-sent': 'Тестовое сообщение отправлено в общий Telegram-канал.',
+    'test-error': 'Telegram не принял тестовое сообщение. Проверьте имя канала и права бота.',
+    'not-configured': 'Сначала добавьте TELEGRAM_BOT_TOKEN на сервере.',
+  };
+  const rssStatusLabels = {
+    started: 'Обновление RSS запущено. Новые статьи появятся через несколько минут.',
+    'already-running': 'Обновление RSS уже выполняется. Дождитесь его завершения.',
+  };
+  const notices = [
+    statusMessage('telegram', telegramStatus),
+    telegramChannelStatus === 'saved' ? '' : channelStatusLabels[telegramChannelStatus] || '',
+    statusMessage('import', importStatus),
+    rssStatusLabels[rssStatus] || '',
+    statusMessage('article', articleStatus),
+    statusMessage('duplicate', duplicateStatus),
+    statusMessage('taxonomy', taxonomyStatus),
+    statusMessage('classification', classificationStatus),
+    statusMessage('quality', qualityStatus),
+  ].filter(Boolean).map((message) => `<p class="form-message" role="status">${escapeHtml(message)}</p>`).join('');
+  const telegramChannelNotice = telegramChannelStatus === 'saved'
+    ? '<p class="account-notice" role="status">Настройки сохранены.</p>'
+    : '';
+  const dailyRows = statistics.daily.map((day) => `<tr><th scope="row">${escapeHtml(day.day)}</th><td>${day.articles}</td><td>${day.visitors}</td><td>${day.articleViews}</td><td>${day.comments}</td><td>${day.reactions}</td><td>${day.duplicates}</td></tr>`).join('');
+  const maxVisitors = Math.max(1, ...statistics.daily.map((day) => day.visitors));
+  const visitorChart = `<div class="visitor-chart" aria-label="Посетители по дням">${statistics.daily.slice(-14).map((day) => `<div class="visitor-bar-wrap" title="${escapeHtml(day.day)}: ${day.visitors} посетителей"><div class="visitor-bar" style="height:${Math.max(8, Math.round((day.visitors / maxVisitors) * 100))}%"></div><span>${escapeHtml(day.day.slice(5))}</span></div>`).join('')}</div>`;
+  const monthlyVisitorMarkup = `<section class="admin-panel admin-panel--wide visitor-overview"><div class="admin-panel-heading"><div><p class="eyebrow">Посещаемость</p><h2>Посетители за месяц</h2></div><dl class="admin-stats admin-stats--monthly"><div class="stat-card"><dt>Уникальных за 30 дней</dt><dd>${statistics.siteVisitorsMonth || 0}</dd></div></dl></div>${visitorChart}</section>`;
+  const operational = statistics.operational || { queue: {}, delivery: {}, searches: [] };
+  const operationalMarkup = `<div class="admin-grid"><section class="admin-panel"><h2>Доставка Telegram за 24 часа</h2><dl class="admin-stats admin-stats--delivery"><div class="stat-card"><dt>Отправлено</dt><dd>${operational.delivery.sent || 0}</dd></div><div class="stat-card"><dt>Ошибок</dt><dd>${operational.delivery.failed || 0}</dd></div><div class="stat-card"><dt>В очереди</dt><dd>${(operational.queue.queued || 0) + (operational.queue.retry || 0)}</dd></div><div class="stat-card"><dt>Исчерпано попыток</dt><dd>${operational.queue.dead || 0}</dd></div></dl></section><section class="admin-panel"><h2>Популярные запросы за 7 дней</h2>${operational.searches.length ? `<ol>${operational.searches.map((item) => `<li>${escapeHtml(item.query)} <span class="admin-count">${item.searches}</span></li>`).join('')}</ol>` : '<p class="summary">Поисковых запросов пока нет.</p>'}</section></div>`;
+  const resolutionLabels = { skipped: 'Пропущено', published: 'Опубликовано редактором', dismissed: 'Отклонено редактором' };
+  const duplicateMarkup = duplicateArticles.length ? `<ol class="duplicate-list">${duplicateArticles.map((item) => `<li><div><a href="${escapeHtml(safeExternalUrl(item.originalUrl))}" rel="noopener noreferrer">${escapeHtml(item.titleFi)}</a><span class="summary">${escapeHtml(item.sourceName)} · совпадение ${Math.round(item.similarity * 100)}% · ${escapeHtml(resolutionLabels[item.resolution] || item.resolution)}</span>${item.resolution === 'skipped' ? `<form action="/admin/duplicates/${item.id}/publish" method="post"><button type="submit">Опубликовать всё равно</button></form>` : `<span class="summary">${item.resolvedBy ? `Решение: ${escapeHtml(item.resolvedBy)}` : ''}</span>`}</div><span>→</span><div>${item.matchedSlug ? `<a href="/news/${encodeURIComponent(item.matchedSlug)}">${escapeHtml(item.matchedTitle)}</a>` : escapeHtml(item.matchedTitle || 'Исходная статья удалена')}<span class="summary">${escapeHtml(item.matchedSourceName || '')}</span></div></li>`).join('')}</ol>` : '<p class="summary">Похожие материалы пока не пропускались.</p>';
+  const statsCategoryOptions = categories.map((category) => optionMarkup(category, category, statistics.filters.category)).join('');
+  const sourceOptions = statisticsSources.map((source) => optionMarkup(source.sourceId, `${source.sourceName} (${source.count})`, statistics.filters.sourceId)).join('');
+  const statsParams = new URLSearchParams();
+  statsParams.set('from', statistics.filters.from);
+  statsParams.set('to', statistics.filters.to);
+  if (statistics.filters.category) statsParams.set('category', statistics.filters.category);
+  if (statistics.filters.sourceId) statsParams.set('source', statistics.filters.sourceId);
+  const statisticsFilter = `<form class="admin-filter" action="/admin" method="get"><div><label for="stats-from">С даты</label><input id="stats-from" name="from" type="date" value="${escapeHtml(statistics.filters.from)}"></div><div><label for="stats-to">По дату</label><input id="stats-to" name="to" type="date" value="${escapeHtml(statistics.filters.to)}"></div><div><label for="stats-category">Категория</label><select id="stats-category" name="category"><option value="">Все категории</option>${statsCategoryOptions}</select></div><div><label for="stats-source">Источник</label><select id="stats-source" name="source"><option value="">Все источники</option>${sourceOptions}</select></div><div class="admin-filter-actions"><button type="submit">Применить</button><a href="/admin">Сбросить</a><a class="button-link" href="/admin/statistics.csv?${escapeHtml(statsParams.toString())}">Скачать CSV</a></div></form>`;
+  const actionLabels = {
+    'article.create': 'Создана статья', 'article.update': 'Изменена статья', 'article.schedule': 'Запланирована статья',
+    'article.publish': 'Опубликован черновик', 'article.scheduled_publish': 'Опубликовано по расписанию',
+    'article.delete': 'Удалена статья', 'article.import_draft': 'Импортирован черновик',
+    'rss.refresh': 'Вручную запущено обновление RSS',
+    'article.telegram_send': 'Отправлено в Telegram', 'duplicate.publish_anyway': 'Повтор опубликован вручную',
+    'comment.update': 'Изменён комментарий', 'comment.approve': 'Одобрен комментарий',
+    'comment.reject': 'Отклонён комментарий', 'comment.delete': 'Удалён комментарий',
+    'statistics.export_csv': 'Выгружена статистика CSV',
+    'taxonomy.create': 'Создана запись справочника', 'taxonomy.update': 'Изменена запись справочника',
+    'taxonomy.visibility': 'Изменена видимость справочника', 'taxonomy.delete': 'Удалена запись справочника',
+    'taxonomy.delete_blocked': 'Удаление справочника отклонено',
+    'taxonomy.merge': 'Объединены категории', 'taxonomy.merge_failed': 'Объединение категорий отклонено',
+    'classification.batch': 'Классифицированы старые статьи', 'article.classify': 'Обновлена классификация статьи',
+    'quality.approve': 'Статья одобрена после проверки качества',
+    'quality.reject': 'Статья скрыта после проверки качества',
+    'auth.google_login': 'Вход через Google', 'auth.google_denied': 'Google-вход отклонён',
+    'authorization.denied': 'Действие отклонено по роли',
+    'auth.logout': 'Выход из редакции',
+  };
+  const auditMarkup = auditLog.length ? `<div class="admin-table-scroll"><table class="admin-table audit-table"><thead><tr><th>Время</th><th>Редактор</th><th>Действие</th><th>Объект</th><th>Детали</th></tr></thead><tbody>${auditLog.map((entry) => {
+    const details = entry.details ? Object.entries(entry.details).map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join(' · ') : '';
+    return `<tr><td>${escapeHtml(formatDate(entry.createdAt))}</td><td>${escapeHtml(entry.actorUsername)} <span class="summary">${escapeHtml(entry.actorRole)}</span></td><td>${escapeHtml(actionLabels[entry.action] || entry.action)}</td><td>${escapeHtml(entry.targetType)}${entry.targetId ? ` #${escapeHtml(entry.targetId)}` : ''}</td><td>${escapeHtml(details)}</td></tr>`;
+  }).join('')}</tbody></table></div>` : '<p class="summary">Журнал пока пуст.</p>';
+  const selectedChannelCategories = new Set(telegramChannelSettings.categories || []);
+  const channelTemplate = telegramChannelSettings.template || DEFAULT_TELEGRAM_CHANNEL_TEMPLATE;
+  const templateVariableLabels = {
+    title: 'заголовок',
+    excerpt: 'краткий текст',
+    source: 'источник',
+    category: 'категория',
+    article_url: 'ссылка на статью',
+    original_url: 'ссылка на оригинал',
+    label: 'метка важности',
+  };
+  const telegramTemplateTokens = TELEGRAM_CHANNEL_TEMPLATE_VARIABLES
+    .map((variable) => `<button class="telegram-template-token" type="button" data-template-token="{${variable}}" title="${escapeHtml(templateVariableLabels[variable])}">{${variable}}</button>`)
+    .join('');
+  const telegramChannelMarkup = `${telegramChannelNotice}<div class="admin-grid telegram-channel-grid">
+    <section class="admin-panel telegram-channel-card">
+      <div class="account-section-head">
+        <div><p class="eyebrow">Публичный канал</p><h2><a href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">@finskienovosti ↗</a></h2></div>
+        <span aria-hidden="true">01</span>
+      </div>
+      <p class="summary">Это общая лента для всех читателей. Она не связана с персональными настройками пользователей в боте.</p>
+      <h3>Как выбираются новости</h3>
+      <div class="telegram-rule-list">
+        <div><span>1–5</span><p><strong>Важность события</strong><small>Оценка влияния новости на читателей и жизнь в Финляндии.</small></p></div>
+        <div><span>2+</span><p><strong>Несколько источников</strong><small>Подтверждение темы независимыми СМИ повышает рейтинг.</small></p></div>
+        <div><span>🇫🇮</span><p><strong>Связь и свежесть</strong><small>Учитываются Финляндия, время публикации и редакционные метки.</small></p></div>
+        <div><span>✓</span><p><strong>Контроль качества</strong><small>Сомнительные материалы не отправляются до проверки редактором.</small></p></div>
+      </div>
+      <div class="account-callout"><strong>Важно</strong><span>Повтор одного источника не повышает рейтинг. Два разных СМИ — сильный сигнал, но не единственный критерий.</span></div>
+      <p><a class="button-link" href="/rss.xml" target="_blank">Открыть общую RSS-ленту ↗</a></p>
+      <p class="field-hint">Постоянный адрес: <code>${escapeHtml(`${siteUrl}/rss.xml`)}</code></p>
+      <ol class="telegram-channel-steps">
+        <li>Добавьте бота администратором канала с правом публикации.</li>
+        <li>Сохраните настройки справа.</li>
+        <li>Нажмите тест — сообщение должно появиться в канале.</li>
+      </ol>
+      <form class="telegram-channel-test" action="/admin/telegram-channel/test" method="post">
+        <button class="account-button account-button--telegram" type="submit" ${telegramChannelConfigured ? '' : 'disabled'}>✈ Отправить тест в канал</button>
+      </form>
+      ${telegramChannelConfigured ? '' : '<p class="form-message">На сервере не задан TELEGRAM_BOT_TOKEN.</p>'}
+    </section>
+    <section class="admin-panel telegram-channel-card telegram-channel-settings">
+      <div class="account-section-head">
+        <div><p class="eyebrow">Настройки</p><h2>Правила публикации</h2></div>
+        <span aria-hidden="true">02</span>
+      </div>
+      <form class="admin-form account-form" action="/admin/telegram-channel/settings" method="post">
+        <label class="account-toggle">
+          <input name="enabled" type="checkbox" ${telegramChannelSettings.enabled ? 'checked' : ''}>
+          <span><strong>Включить автоматическую отправку</strong><small>Новые подходящие статьи будут попадать в общий Telegram-канал.</small></span>
+        </label>
+        <div class="account-form-grid">
+          <label class="account-field" for="channel-chat-id"><span>Канал</span><input id="channel-chat-id" name="chat_id" value="${escapeHtml(telegramChannelSettings.chatId)}" pattern="@[A-Za-z0-9_]{5,32}" required></label>
+          <label class="account-field" for="channel-importance"><span>Какие статьи отправлять</span><select id="channel-importance" name="importance">${optionMarkup('all', 'Все, прошедшие рейтинг', telegramChannelSettings.importance)}${optionMarkup('important', 'Важные — уровень 4–5', telegramChannelSettings.importance)}${optionMarkup('urgent', 'Срочные — уровень 5', telegramChannelSettings.importance)}</select></label>
+          <label class="account-field" for="channel-minimum-score"><span>Минимальный рейтинг 0–100</span><input id="channel-minimum-score" name="minimum_score" type="number" min="0" max="100" step="1" value="${telegramChannelSettings.minimumScore ?? 65}" required></label>
+          <label class="account-field" for="channel-interval"><span>Пауза между сообщениями</span><input id="channel-interval" name="interval_minutes" type="number" min="0" max="1440" step="1" value="${telegramChannelSettings.intervalMinutes || 0}" required><small class="field-hint">В минутах: 0 — сразу, 60 — не чаще раза в час.</small></label>
+          <label class="account-field" for="channel-limit"><span>Максимум постов в день</span><input id="channel-limit" name="max_posts_per_day" type="number" min="1" max="100" value="${telegramChannelSettings.maxPostsPerDay}" required></label>
+        </div>
+        <fieldset class="account-fieldset account-quiet telegram-channel-quiet">
+          <legend>Тихое время</legend>
+          <label class="account-toggle account-toggle--compact">
+            <input name="quiet_hours_enabled" type="checkbox" ${telegramChannelSettings.quietHoursEnabled ? 'checked' : ''}>
+            <span><strong>Не отправлять сообщения ночью</strong><small>Новости, появившиеся во время паузы, пропускаются и позже не досылаются.</small></span>
+          </label>
+          <div class="account-form-grid">
+            <label class="account-field" for="channel-quiet-start"><span>Не отправлять с</span><input id="channel-quiet-start" name="quiet_start" type="time" value="${escapeHtml(telegramChannelSettings.quietStart || '22:00')}"></label>
+            <label class="account-field" for="channel-quiet-end"><span>Возобновить в</span><input id="channel-quiet-end" name="quiet_end" type="time" value="${escapeHtml(telegramChannelSettings.quietEnd || '07:00')}"></label>
+          </div>
+          <p class="account-muted">Время применяется по часовому поясу Финляндии. Ночной интервал через полночь, например 22:00–07:00, поддерживается.</p>
+        </fieldset>
+        <div class="account-callout">
+          <strong>Как работает рейтинг</strong>
+          <span>Система учитывает важность 1–5, упоминание темы несколькими независимыми источниками, редакционную метку «Важно»/«Срочно», связь с Финляндией и свежесть публикации.</span>
+          <span><b>65 — рекомендуемый порог:</b> он отсекает обычные повторы, но пропускает действительно заметные новости. Выбранный режим «Важные» или «Срочные» применяется дополнительно к этому порогу.</span>
+        </div>
+        <fieldset class="account-fieldset telegram-channel-categories">
+          <legend>Категории новостей</legend>
+          <p class="account-muted">Выберите темы, которые разрешено публиковать в общем канале.</p>
+          <div class="account-choices">${categories.map((category) => `<label class="account-choice"><input name="categories" type="checkbox" value="${escapeHtml(category)}" ${selectedChannelCategories.has(category) ? 'checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('')}</div>
+        </fieldset>
+        <label class="account-toggle account-toggle--compact">
+          <input name="include_original" type="checkbox" ${telegramChannelSettings.includeOriginal ? 'checked' : ''}>
+          <span><strong>Добавлять ссылку на оригинал</strong><small>В сообщение будет включена дополнительная ссылка на первоисточник.</small></span>
+        </label>
+        <section class="telegram-template-studio" aria-labelledby="telegram-template-title">
+          <div class="telegram-template-heading">
+            <div>
+              <p class="eyebrow">Оформление сообщения</p>
+              <h3 id="telegram-template-title">Шаблон публикации</h3>
+            </div>
+            <button class="telegram-template-reset" type="button" data-template-reset>Вернуть красивый шаблон</button>
+          </div>
+          <div class="telegram-template-layout">
+            <div class="telegram-template-editor">
+              <label for="channel-template">Текст и разметка</label>
+              <textarea id="channel-template" name="template" maxlength="3000" spellcheck="false" data-template-editor>${escapeHtml(channelTemplate)}</textarea>
+              <p class="field-hint">Нажмите на переменную, чтобы вставить её в позицию курсора. Переносы строк можно вводить обычной клавишей Enter.</p>
+              <div class="telegram-template-tokens" aria-label="Переменные шаблона">${telegramTemplateTokens}</div>
+              <details class="telegram-template-help">
+                <summary>Что означают переменные и теги?</summary>
+                <dl>${TELEGRAM_CHANNEL_TEMPLATE_VARIABLES.map((variable) => `<div><dt>{${variable}}</dt><dd>${escapeHtml(templateVariableLabels[variable])}</dd></div>`).join('')}</dl>
+                <p>Разрешены теги Telegram: <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;u&gt;</code>, <code>&lt;strong&gt;</code>, <code>&lt;em&gt;</code>, <code>&lt;s&gt;</code>, <code>&lt;code&gt;</code> и безопасные ссылки <code>&lt;a href="{article_url}"&gt;</code>.</p>
+              </details>
+            </div>
+            <div class="telegram-template-preview-shell">
+              <span class="telegram-template-preview-label">Предпросмотр в Telegram</span>
+              <div class="telegram-template-preview" data-template-preview aria-live="polite"></div>
+              <span class="telegram-template-preview-time">12:45 ✓✓</span>
+            </div>
+          </div>
+        </section>
+        <button class="telegram-template-save" type="submit">Сохранить правила и шаблон</button>
+      </form>
+    </section>
+  </div>
+  <script>
+  (() => {
+    const editor = document.querySelector('[data-template-editor]');
+    const preview = document.querySelector('[data-template-preview]');
+    const reset = document.querySelector('[data-template-reset]');
+    if (!editor || !preview) return;
+    const defaultTemplate = ${JSON.stringify(DEFAULT_TELEGRAM_CHANNEL_TEMPLATE)};
+    const samples = {
+      label: '🟠 ВАЖНО',
+      category: 'Общество',
+      source: 'YLE',
+      title: 'Новая важная новость из Финляндии',
+      excerpt: 'Короткий и понятный пересказ новости на русском языке. Читатель сразу видит главное и может перейти на сайт за подробностями.',
+      article_url: '${escapeHtml(siteUrl)}/news/primer-novosti',
+      original_url: 'https://yle.fi/example'
+    };
+    const allowed = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'INS', 'S', 'STRIKE', 'DEL', 'CODE']);
+    function safeNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent || '');
+      if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+      if (node.tagName === 'BR') return document.createElement('br');
+      if (node.tagName === 'A') {
+        const link = document.createElement('a');
+        try {
+          const url = new URL(node.getAttribute('href') || '');
+          link.href = url.protocol === 'https:' ? url.href : '#';
+        } catch { link.href = '#'; }
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        node.childNodes.forEach((child) => link.appendChild(safeNode(child)));
+        return link;
+      }
+      if (allowed.has(node.tagName)) {
+        const element = document.createElement(node.tagName.toLowerCase());
+        node.childNodes.forEach((child) => element.appendChild(safeNode(child)));
+        return element;
+      }
+      const fragment = document.createDocumentFragment();
+      node.childNodes.forEach((child) => fragment.appendChild(safeNode(child)));
+      return fragment;
+    }
+    function updatePreview() {
+      let rendered = editor.value.replace(/\\\\n/g, '\\n');
+      Object.entries(samples).forEach(([name, value]) => {
+        rendered = rendered.split('{' + name + '}').join(value);
+      });
+      const parsed = new DOMParser().parseFromString(rendered.replace(/\\n/g, '<br>'), 'text/html');
+      preview.replaceChildren();
+      parsed.body.childNodes.forEach((node) => preview.appendChild(safeNode(node)));
+    }
+    document.querySelectorAll('[data-template-token]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const token = button.getAttribute('data-template-token') || '';
+        const start = editor.selectionStart;
+        const end = editor.selectionEnd;
+        editor.setRangeText(token, start, end, 'end');
+        editor.focus();
+        updatePreview();
+      });
+    });
+    reset?.addEventListener('click', () => {
+      editor.value = defaultTemplate;
+      editor.focus();
+      updatePreview();
+    });
+    editor.addEventListener('input', updatePreview);
+    updatePreview();
+  })();
+  </script>`;
+  const notificationMarkup = adminNotifications.length
+    ? `<div class="admin-list">${adminNotifications.map((notification) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(notification.title)}</h2><span class="admin-status admin-status--${notification.status === 'new' ? 'pending' : 'approved'}">${notification.status === 'new' ? 'Новое' : 'Прочитано'}</span></div><time class="comment-date">${escapeHtml(formatDate(notification.updatedAt))}</time><p class="comment-body">${escapeHtml(notification.body)}</p>${notification.status === 'new' ? `<form action="/admin/notifications/${notification.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>`
+    : '<p class="summary">Системных уведомлений пока нет.</p>';
+  const newsSourceNotice = { enabled: 'Источник включён.', disabled: 'Источник выключен.' }[newsSourceStatus] || '';
+  const newsSourcesMarkup = `${newsSourceNotice ? `<p class="form-message" role="status">${escapeHtml(newsSourceNotice)}</p>` : ''}<section class="admin-panel admin-panel--wide"><div class="admin-panel-heading"><div><p class="eyebrow">RSS-ленты</p><h2>Источники новостей</h2><p class="summary">Выключенный источник перестаёт загружать новые статьи и исчезает из выбора в личном кабинете. Уже опубликованные материалы сохраняются.</p></div><span class="quality-total">${newsSources.filter((source) => source.enabled).length} включено</span></div><div class="admin-list">${newsSources.map((source) => `<article class="admin-comment"><div class="admin-comment-head"><div><h2>${escapeHtml(source.sourceName)}</h2><p class="summary">${source.count} статей${source.homepage ? ` · <a href="${escapeHtml(source.homepage)}" rel="noopener noreferrer" target="_blank">Открыть сайт ↗</a>` : ''}</p></div><span class="admin-status admin-status--${source.enabled ? 'approved' : 'rejected'}">${source.enabled ? 'Включён' : 'Выключен'}</span></div>${source.configured ? `<form action="/admin/news-sources/${encodeURIComponent(source.sourceId)}/toggle" method="post"><input type="hidden" name="enabled" value="${source.enabled ? '0' : '1'}"><button class="${source.enabled ? 'reject' : ''}" type="submit">${source.enabled ? 'Выключить источник' : 'Включить источник'}</button></form>` : '<p class="summary">Архивный источник: новых загрузок для него не настроено.</p>'}</article>`).join('')}</div></section>`;
+  const userTotals = userStatistics.totals || {};
+  const userTopicMarkup = userStatistics.topics.length ? `<ol>${userStatistics.topics.map((topic) => `<li>${escapeHtml(topic.name)} <span class="admin-count">${topic.count}</span></li>`).join('')}</ol>` : '<p class="summary">Выбранных тем пока нет.</p>';
+  const userRows = userStatistics.users.length ? userStatistics.users.map((user) => `<tr><td><strong>${escapeHtml(user.displayName || 'Без имени')}</strong><br><span class="summary">${escapeHtml(user.email)}</span></td><td>${escapeHtml(formatDate(user.registeredAt))}</td><td>${user.telegramLinked ? `✅ Подключён<br><span class="summary">${escapeHtml(formatDate(user.linkedAt))}</span>` : '—'}</td><td>${user.enabled ? `✅ ${user.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}` : 'Выключена'}</td><td>${escapeHtml(user.categories.join(', ') || 'Все темы')}</td><td>${user.deliveries}</td></tr>`).join('') : '<tr><td colspan="6">Пользователей пока нет.</td></tr>';
+  const usersMarkup = `<section class="admin-panel admin-panel--wide"><h2>Пользователи и персональный Telegram-бот</h2><dl class="admin-stats"><div class="stat-card"><dt>Зарегистрировано</dt><dd>${userTotals.registered || 0}</dd></div><div class="stat-card"><dt>Новых за 7 дней</dt><dd>${userTotals.registered7Days || 0}</dd></div><div class="stat-card"><dt>Новых за 30 дней</dt><dd>${userTotals.registered30Days || 0}</dd></div><div class="stat-card"><dt>Подключили Telegram</dt><dd>${userTotals.telegramLinked || 0}</dd></div><div class="stat-card"><dt>Активных подписок</dt><dd>${userTotals.subscriptionsEnabled || 0}</dd></div><div class="stat-card"><dt>Сразу / ежедневно</dt><dd>${userTotals.instant || 0} / ${userTotals.daily || 0}</dd></div><div class="stat-card"><dt>Доставлено сообщений</dt><dd>${userTotals.delivered || 0}</dd></div></dl></section><div class="admin-grid"><section class="admin-panel"><h2>Темы подписок</h2>${userTopicMarkup}</section><section class="admin-panel"><h2>Конверсия</h2><p class="summary">Из регистрации в Telegram: <strong>${userTotals.registered ? Math.round((userTotals.telegramLinked || 0) / userTotals.registered * 100) : 0}%</strong></p><p class="summary">Из регистрации в активную подписку: <strong>${userTotals.registered ? Math.round((userTotals.subscriptionsEnabled || 0) / userTotals.registered * 100) : 0}%</strong></p></section></div><section class="admin-panel admin-panel--wide"><h2>Список пользователей</h2><div class="admin-table-scroll"><table class="admin-table"><thead><tr><th>Пользователь</th><th>Регистрация</th><th>Telegram</th><th>Подписка</th><th>Темы</th><th>Доставки</th></tr></thead><tbody>${userRows}</tbody></table></div></section>`;
+  const notificationStatus = { saved: 'Настройки уведомлений сохранены.', invalid: 'Проверьте Telegram Chat ID.', 'test-sent': 'Тестовое уведомление отправлено.', 'test-error': 'Не удалось отправить тест. Сначала напишите боту /start и проверьте Chat ID.' }[adminTelegramNotificationStatus] || '';
+  const checked = (value) => value ? 'checked' : '';
+  const telegramNotificationsMarkup = `${notificationStatus ? `<p class="form-message" role="status">${escapeHtml(notificationStatus)}</p>` : ''}<section class="admin-panel admin-panel--wide"><h2>Telegram-уведомления владельцу</h2><p class="summary">Укажите числовой Chat ID личного диалога с ботом. Сначала откройте бота в Telegram и нажмите «Запустить».</p><form class="admin-form" action="/admin/telegram-notifications/settings" method="post"><label><input type="checkbox" name="enabled" ${checked(adminTelegramNotificationSettings.enabled)}> Включить уведомления</label><label>Telegram Chat ID<input name="chat_id" value="${escapeHtml(adminTelegramNotificationSettings.chatId || '')}" placeholder="Например: 123456789"></label><fieldset><legend>Какие события присылать</legend><label><input type="checkbox" name="user_registered" ${checked(adminTelegramNotificationSettings.userRegistered)}> Новый зарегистрированный пользователь</label><label><input type="checkbox" name="telegram_linked" ${checked(adminTelegramNotificationSettings.telegramLinked)}> Пользователь подключил Telegram</label><label><input type="checkbox" name="subscription_changed" ${checked(adminTelegramNotificationSettings.subscriptionChanged)}> Пользователь изменил подписку</label></fieldset><button type="submit">Сохранить настройки</button></form><form class="admin-actions" action="/admin/telegram-notifications/test" method="post"><button type="submit">✈ Отправить тест</button></form></section><section class="admin-panel admin-panel--wide"><h2>Журнал уведомлений</h2>${notificationMarkup}</section>`;
+  const activeTab = new Set(['stats', 'users', 'sources', 'articles', 'comments', 'quality', 'duplicates', 'audit', 'messages', 'notifications', 'taxonomy', 'telegram-channel']).has(tab) ? tab : 'stats';
+  const tabPanel = (name, label, html) => `<section class="admin-tab-panel${activeTab === name ? ' is-active' : ''}" id="admin-tab-${name}" data-admin-tab="${name}"><h2 class="sr-only">${label}</h2>${html}</section>`;
+  const cleanupPanel = untranslatedArticleCount > 0 ? `<section class="admin-panel admin-panel--danger"><h2>Проверка перевода</h2><p class="summary">Найдено статей без русского перевода: <strong>${untranslatedArticleCount}</strong>.</p><form action="/admin/articles/cleanup-untranslated" method="post" onsubmit="return confirm('Удалить все статьи без русского перевода и связанные данные?')"><input type="hidden" name="confirm" value="DELETE_UNTRANSLATED"><button class="delete" type="submit">Удалить все непереведённые статьи</button></form></section>` : '<section class="admin-panel"><h2>Проверка перевода</h2><p class="summary">Статей без русского перевода не найдено.</p></section>';
+  const rssRefreshPanel = `<section class="admin-panel admin-panel--wide"><div class="admin-panel-heading"><div><p class="eyebrow">RSS и перевод</p><h2>Получить свежие новости</h2><p class="summary">Будут загружены только новые статьи. Уже сохранённые материалы повторно не переводятся и не расходуют баланс API.</p></div><form action="/admin/rss/refresh" method="post"><button type="submit">↻ Обновить RSS сейчас</button></form></div></section>`;
+  const contactMarkup = contactMessages.length ? `<div class="admin-list">${contactMessages.map((message) => `<article class="admin-comment"><div class="admin-comment-head"><h2>${escapeHtml(message.name)} · <a href="mailto:${escapeHtml(message.email)}">${escapeHtml(message.email)}</a></h2><span class="admin-status admin-status--${escapeHtml(message.status)}">${escapeHtml(message.status === 'new' ? 'Новое' : message.status === 'read' ? 'Прочитано' : 'Архив')}</span></div><time class="comment-date">${escapeHtml(formatDate(message.createdAt))}</time><p class="comment-body">${escapeHtml(message.body)}</p>${message.status === 'new' ? `<form action="/admin/contact-messages/${message.id}/read" method="post"><button type="submit">Отметить прочитанным</button></form>` : ''}</article>`).join('')}</div>` : '<p class="summary">Сообщений пока нет.</p>';
+  const totalUnreadMessages = unreadContactMessages + unreadAdminNotifications;
+  const messageBadge = totalUnreadMessages > 0 ? ` <span class="admin-tab-badge" aria-label="Непрочитанных: ${totalUnreadMessages}">${totalUnreadMessages > 99 ? '99+' : totalUnreadMessages}</span>` : '';
+  const qualityBadge = qualityQueueCount > 0 ? ` <span class="admin-tab-badge" aria-label="Ожидают проверки: ${qualityQueueCount}">${qualityQueueCount > 99 ? '99+' : qualityQueueCount}</span>` : '';
+  const qualityMarkup = qualityQueue.length ? `<div class="quality-queue">${qualityQueue.map((article) => {
+    const classification = article.classification || {};
+    const categoryReviewOptions = categories.map((category) => optionMarkup(category, category, article.category)).join('');
+    const importanceOptions = [1, 2, 3, 4, 5].map((level) => optionMarkup(String(level), `${level} — ${['низкая', 'обычная', 'заметная', 'важная', 'критическая'][level - 1]}`, String(article.importanceLevel || 1))).join('');
+    const articleTitle = escapeHtml(article.titleRu || article.titleFi || 'Без заголовка');
+    const articleHeading = article.publicationStatus === 'published'
+      ? `<a href="/news/${encodeURIComponent(article.slug)}">${articleTitle}</a>`
+      : articleTitle;
+    return `<article class="quality-card">
+      <header><div><span class="quality-status">Нужна ручная проверка</span><h3>${articleHeading}</h3><p class="summary">${escapeHtml(article.sourceName)} · ${escapeHtml(formatDate(article.publishedAt))}${article.publicationStatus === 'draft' ? ' · скрытый черновик' : ''}</p></div><strong class="quality-score">${Math.round(Number(article.qualityConfidence || 0) * 100)}%</strong></header>
+      <div class="quality-explanation"><p><strong>Почему статья попала в очередь:</strong> ${escapeHtml(article.qualityReason || classification.qualityReason || 'Автоматическая проверка не завершена.')}</p><p><strong>Решение классификатора:</strong> ${escapeHtml(classification.explanation || 'Подробное объяснение отсутствует.')}</p><p><strong>Важность:</strong> ${escapeHtml(article.importanceReason || classification.importanceReason || '')}</p></div>
+      <form class="quality-review-form" action="/admin/quality/${article.id}" method="post">
+        <label>Категория<select name="category" required>${categoryReviewOptions}</select></label>
+        <label>Важность 1–5<select name="importance_level" required>${importanceOptions}</select></label>
+        <label class="quality-note">Комментарий редактора<textarea name="note" maxlength="1000" placeholder="Необязательно: почему решение изменено"></textarea></label>
+        <p class="field-hint">${article.qualityPublishOnApproval ? 'После одобрения статья будет опубликована.' : 'Одобрение качества не публикует редакционный черновик автоматически.'}</p>
+        <div class="admin-actions"><button name="decision" value="approve" type="submit">${article.qualityPublishOnApproval ? '✓ Одобрить и опубликовать' : '✓ Одобрить качество'}</button><button class="reject" name="decision" value="reject" type="submit">Отклонить и скрыть</button></div>
+      </form>
+    </article>`;
+  }).join('')}</div>` : '<div class="empty-state">Очередь пуста: сомнительных статей нет.</div>';
+  const tabNav = `<nav class="admin-tabs" aria-label="Разделы админ-панели">${[['stats', '📊 Статистика'], ['users', '👥 Пользователи'], ['sources', '📡 Источники'], ['articles', '📰 Статьи'], ['comments', '💬 Комментарии'], ['quality', `✅ Качество${qualityBadge}`], ['taxonomy', '🗂 Справочники'], ['telegram-channel', '📣 Общий Telegram'], ['notifications', '🔔 Уведомления'], ['messages', `✉️ Сообщения${messageBadge}`], ['duplicates', '🔎 Повторы'], ['audit', '🛡 Журнал']].map(([name, label]) => `<a class="${activeTab === name ? 'active' : ''}" href="/admin?tab=${name}">${label}</a>`).join('')}</nav>`;
+  const content = `<div class="admin-wrap">
+    <header class="admin-hero"><div><p class="eyebrow">Закрытая зона</p><h1 class="page-heading">Редакция и модерация</h1></div><div class="admin-account"><p>Вошли как <strong>${escapeHtml(currentAccount.displayName || currentAccount.username)}</strong> · ${escapeHtml(currentAccount.role)} · ${escapeHtml(currentAccount.authMethod || 'basic')}</p><form action="/admin/logout" method="post"><button type="submit">Выйти</button></form></div></header>
+    ${notices}${tabNav}${activeTab === 'articles' ? `${rssRefreshPanel}${cleanupPanel}` : ''}
+    ${tabPanel('stats', 'Статистика', `${monthlyVisitorMarkup}<section class="admin-panel admin-panel--wide"><h2>Статистика</h2>${statisticsFilter}<dl class="admin-stats"><div class="stat-card"><dt>Всего статей</dt><dd>${statistics.articleCount}</dd></div><div class="stat-card"><dt>Статей за период</dt><dd>${statistics.report.articles}</dd></div><div class="stat-card"><dt>Читатели за период</dt><dd>${statistics.report.visitors}</dd></div><div class="stat-card"><dt>Чтения за период</dt><dd>${statistics.report.articleViews}</dd></div><div class="stat-card"><dt>Комментарии</dt><dd>${statistics.report.comments}</dd></div><div class="stat-card"><dt>Реакции</dt><dd>${statistics.report.reactions}</dd></div><div class="stat-card"><dt>Повторы</dt><dd>${statistics.report.duplicates}</dd></div><div class="stat-card"><dt>На модерации</dt><dd>${statistics.pendingComments}</dd></div></dl><div class="admin-table-scroll"><table class="admin-table"><thead><tr><th>Дата</th><th>Статьи</th><th>Читатели</th><th>Чтения</th><th>Комментарии</th><th>Реакции</th><th>Повторы</th></tr></thead><tbody>${dailyRows}</tbody></table></div></section><div class="admin-grid"><section class="admin-panel"><h2>Топ читаемых за период</h2>${top(statistics.topRead, 'Просмотров за период пока нет.')}</section><section class="admin-panel"><h2>Топ комментируемых за период</h2>${top(statistics.topCommented, 'Одобренных комментариев за период пока нет.')}</section></div>${operationalMarkup}`)}
+    ${tabPanel('users', 'Пользователи', usersMarkup)}
+    ${tabPanel('sources', 'Источники', newsSourcesMarkup)}
+    ${tabPanel('articles', 'Статьи', `<div class="admin-grid"><section class="admin-panel"><h2>Импортировать по ссылке</h2>${importProviderConfigured ? '<p class="summary">Страница будет безопасно загружена, проверена на повтор, переведена и сохранена как черновик.</p><form class="admin-form" action="/admin/import" method="post"><label for="import-url">Внешний HTTPS-адрес</label><input id="import-url" name="url" type="url" inputmode="url" placeholder="https://example.com/news" required><button type="submit">Создать черновик</button></form>' : '<p class="summary">Импорт недоступен: настройте провайдер пересказа.</p>'}</section><section class="admin-panel"><h2>Новая ручная новость</h2><form class="admin-form" action="/admin/articles" method="post"><label for="new-title">Заголовок</label><input id="new-title" name="title" maxlength="300" required><label for="new-text">Текст</label><textarea id="new-text" name="text" maxlength="20000" required></textarea><label for="new-category">Категория</label><select id="new-category" name="category" required><option value="">Выберите категорию</option>${categoryOptions}</select><label for="new-status">Редакционная метка</label><select id="new-status" name="editorial_status">${optionMarkup('normal', 'Обычная', 'normal')}${optionMarkup('important', 'Важная', 'normal')}${optionMarkup('urgent', 'Срочная', 'normal')}</select><label for="new-pinned">Показывать в главных до</label><input id="new-pinned" name="pinned_until" type="datetime-local"><label for="new-scheduled">Опубликовать позже</label><input id="new-scheduled" name="scheduled_publish_at" type="datetime-local"><p class="field-hint">Если дата не указана, новость появится сразу.</p><button type="submit">Опубликовать или запланировать</button></form></section></div><h2 class="section-heading">Редактирование статей</h2><form class="admin-search" action="/admin" method="get"><input type="hidden" name="tab" value="articles"><label for="article-search">Поиск по заголовку</label><input id="article-search" name="q" type="search" value="${escapeHtml(query)}"><button type="submit">Найти</button></form><section class="admin-list">${articleForms}</section>`)}
+    ${tabPanel('comments', 'Комментарии', `<h2 class="section-heading">Модерация и редактирование комментариев</h2><section class="admin-list">${commentMarkup}</section>`)}
+    ${tabPanel('quality', 'Контроль качества', `<section class="admin-panel admin-panel--wide"><div class="admin-panel-heading"><div><h2>Очередь контроля качества</h2><p class="summary">Автоматическая оценка объясняет причину сомнения. Только редактор может одобрить материал или скрыть его.</p></div><span class="quality-total">${qualityQueueCount} на проверке</span></div>${qualityMarkup}</section>`)}
+    ${tabPanel('taxonomy', 'Справочники', renderTaxonomyManagement(taxonomy, canDelete, classificationCount))}
+    ${tabPanel('telegram-channel', 'Общий Telegram', telegramChannelMarkup)}
+    ${tabPanel('notifications', 'Уведомления', telegramNotificationsMarkup)}
+    ${tabPanel('messages', 'Сообщения', `<section class="admin-panel admin-panel--wide"><h2>Системные уведомления</h2><p class="summary">Здесь появится предупреждение, если закончится баланс API или возникнет другая важная проблема.</p>${notificationMarkup}</section><section class="admin-panel admin-panel--wide"><h2>Сообщения от посетителей</h2><p class="summary">Сообщения сохраняются в SQLite и доступны редакции. Ответ можно отправить на e-mail через почтовый клиент.</p>${contactMarkup}</section>`)}
+    ${tabPanel('duplicates', 'Повторы', `<section class="admin-panel admin-panel--wide"><h2>Журнал похожих новостей</h2><p class="summary">Автоматически пропущенный материал можно проверить и опубликовать вручную.</p>${duplicateMarkup}</section>`)}
+    ${tabPanel('audit', 'Журнал', `<section class="admin-panel admin-panel--wide"><h2>Журнал действий редакторов</h2><p class="summary">Хранятся имя учётной записи, действие, объект и время.</p>${auditMarkup}</section>`)}
+  </div>`;
+  return documentPage({ title: 'Редакция и модерация — Финские Новости', description: 'Закрытая страница редакции и модерации.', canonicalPath: '/admin', siteUrl, robots: 'noindex', content });
+}
+
+function renderAboutPage({ siteUrl }) {
+  const content = `<article class="info-page">
+    <section class="info-hero">
+      <div><p class="eyebrow">О проекте</p><h1 class="page-heading">Новости Финляндии — понятно и с уважением к источникам</h1><p class="page-intro">Следите за событиями Финляндии на русском языке и всегда переходите к первоисточнику, когда нужен полный контекст.</p></div>
+      <div class="info-hero-mark" aria-hidden="true">${brandMark}</div>
+    </section>
+    <div class="info-grid">
+      <section class="info-card"><span class="info-card-icon">🇫🇮</span><h2>Что мы публикуем</h2><p>Мы собираем открытые RSS-анонсы финских СМИ и публикуем краткие русскоязычные пересказы. У каждой новости указан источник и доступна ссылка на оригинальный материал.</p></section>
+      <section class="info-card"><span class="info-card-icon">✨</span><h2>Как используется ИИ</h2><p>ИИ помогает подготовить пересказ, но не заменяет оригинальную статью. Редакционные материалы и обсуждения всегда имеют понятную маркировку.</p></section>
+      <section class="info-card"><span class="info-card-icon">💬</span><h2>Комментарии</h2><p>Комментарий сначала попадает на премодерацию. После одобрения редакцией его имя и текст становятся видны на странице соответствующей новости.</p></section>
+      <section class="info-card" id="privacy"><span class="info-card-icon">🛡️</span><h2>Конфиденциальность</h2><p>Сайт учитывает просмотры и реакции с помощью анонимного дневного идентификатора. IP-адреса и User-Agent не сохраняются в открытом виде.</p></section>
+    </div>
+    <aside class="info-note"><strong>Главный принцип:</strong> краткий пересказ помогает быстро понять событие, а оригинальный источник остаётся основой материала.</aside>
+  </article>`;
+  return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content });
+}
+
+function renderPrivacyPage({ siteUrl }) {
+  const content = `<article class="legal-page">
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Политика конфиденциальности</h1><p>Как сервис «Финские Новости» получает, использует и защищает данные пользователей.</p><small>Последнее обновление: 12 августа 2026 года</small></header>
+    <nav class="legal-summary" aria-label="Содержание"><strong>Кратко</strong><a href="#privacy-data">Какие данные собираются</a><a href="#privacy-use">Как они используются</a><a href="#privacy-sharing">Передача данных</a><a href="#privacy-rights">Ваши права</a></nav>
+    <div class="legal-content">
+      <section><h2>1. О сервисе</h2><p>«Финские Новости» (Finskie Novosti) — русскоязычный информационный сервис о Финляндии. Эта политика относится к сайту <a href="${escapeHtml(siteUrl)}">${escapeHtml(siteUrl)}</a>, личному кабинету и связанному Telegram-боту. По вопросам конфиденциальности можно обратиться через <a href="/contact">форму связи</a>.</p></section>
+      <section id="privacy-data"><h2>2. Какие данные мы получаем</h2><p>При входе через Google сервис получает только данные, необходимые для идентификации аккаунта: уникальный идентификатор Google, адрес электронной почты и отображаемое имя. Пароль Google сервису не передаётся и не хранится.</p><p>Если вы подключаете Telegram, сохраняются идентификатор связанного Telegram-чата, дата подключения и выбранные настройки рассылки: темы, источники, регионы, частота, время и тихие часы. Для персонального помощника пользователь может добровольно указать город, жизненную ситуацию, наличие детей, тип жилья, транспорт, интересы, выбранные продуктовые сети и специальные режимы. Геопозиция, отправленная команде поиска магазинов или HSL, используется для ответа на текущий запрос и в профиле не сохраняется. Также могут храниться выбранная для разговора статья, черновик комментария, сохранённые статьи, отслеживаемые темы, созданные напоминания и сообщения редакции об ошибках.</p><p>Для защиты и статистики могут обрабатываться технические данные запроса. Публичные просмотры учитываются с помощью необратимого дневного идентификатора; исходный IP-адрес и User-Agent в аналитической записи не сохраняются. Сообщение через форму связи содержит имя, email и текст, которые вы вводите самостоятельно.</p></section>
+      <section id="privacy-use"><h2>3. Для чего используются данные</h2><ul><li>для входа и поддержания защищённой сессии;</li><li>для сохранения настроек личного кабинета;</li><li>для подключения Telegram и доставки выбранных материалов;</li><li>для предотвращения злоупотреблений, диагностики и агрегированной статистики;</li><li>для ответа на обращения пользователей.</li></ul><p>Данные Google используются исключительно для предоставления этих функций и в соответствии с настройками пользователя.</p></section>
+      <section id="privacy-sharing"><h2>4. Передача и внешние сервисы</h2><p>Мы не продаём персональные данные. Они могут технически обрабатываться поставщиками, необходимыми для работы сервиса: Google — для авторизации, Telegram — для доставки сообщений, Digitransit/HSL — для запросов расписания транспорта, OpenAI — для ответов новостного помощника и распознавания голосовых вопросов, а также инфраструктурным хостингом. В запросы расписания HSL не добавляются данные Google-аккаунта. Помощнику передаются вопрос, добровольно заполненный профиль и тексты выбранных опубликованных материалов.</p><p>Данные могут быть раскрыты, если это необходимо для исполнения обязательного требования закона или защиты безопасности сервиса и пользователей.</p></section>
+      <section><h2>5. Хранение и безопасность</h2><p>Сессионные токены хранятся только в виде хеша и имеют ограниченный срок действия. Настройки аккаунта и Telegram-связка хранятся, пока они нужны для работы выбранных функций. Анонимная аналитика хранится ограниченный период, установленный настройками сервера. Применяются разумные технические и организационные меры защиты, однако ни один интернет-сервис не может гарантировать абсолютную безопасность.</p></section>
+      <section id="privacy-rights"><h2>6. Ваши права и удаление данных</h2><p>Вы можете изменить или отключить рассылку в личном кабинете. Вы также можете запросить доступ, исправление или удаление связанных с аккаунтом данных через <a href="/contact">форму связи</a>, указав email Google-аккаунта. Перед выполнением запроса может потребоваться подтверждение личности.</p></section>
+      <section><h2>7. Изменения политики</h2><p>Политика может обновляться при изменении функций или требований. Актуальная версия всегда публикуется на этой странице с датой обновления.</p></section>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Политика конфиденциальности — Финские Новости', description: 'Политика конфиденциальности сервиса «Финские Новости»: Google-вход, Telegram, аналитика и права пользователей.', canonicalPath: '/privacy', siteUrl, content });
+}
+
+function renderTermsPage({ siteUrl }) {
+  const content = `<article class="legal-page">
+    <header class="legal-hero"><p class="eyebrow">Правовая информация</p><h1>Условия использования</h1><p>Правила использования сайта, личного кабинета и Telegram-бота «Финские Новости».</p><small>Последнее обновление: 12 августа 2026 года</small></header>
+    <div class="legal-content">
+      <section><h2>1. Принятие условий</h2><p>Используя сайт ${escapeHtml(siteUrl)}, личный кабинет или Telegram-бот, вы соглашаетесь с настоящими условиями и <a href="/privacy">Политикой конфиденциальности</a>. Если вы не согласны, прекратите использование сервиса.</p></section>
+      <section><h2>2. Назначение сервиса</h2><p>Сервис публикует краткие русскоязычные пересказы новостей, ссылки на первоисточники, редакционные материалы, пользовательские комментарии и вспомогательные функции, включая персональную Telegram-ленту, новостного помощника и расписание HSL. Ответы помощника носят информационный характер: возможное влияние и прогнозы могут быть неполными и не являются юридической, медицинской или финансовой консультацией.</p></section>
+      <section><h2>3. Информационный характер</h2><p>Материалы предоставляются для общего информирования и могут содержать задержки, неточности или ошибки автоматического пересказа. Они не являются юридической, медицинской, финансовой или иной профессиональной консультацией. Для полного контекста следует обращаться к указанному первоисточнику.</p><p>Расписание транспорта поступает из Digitransit/HSL и может меняться в реальном времени. Перед поездкой проверяйте критически важную информацию в официальных сервисах HSL.</p><p>Акции, цены и доступность товаров определяются магазинами и могут зависеть от выбранного филиала, карты лояльности или приложения. Перед покупкой проверяйте условия на официальной странице магазина.</p></section>
+      <section><h2>4. Аккаунт и безопасность</h2><p>Вход выполняется через Google. Пользователь отвечает за безопасность своего Google- и Telegram-аккаунта и за действия, совершённые через них. Запрещено пытаться получить доступ к чужому аккаунту, обходить ограничения, нарушать работу сервиса или использовать автоматизированные запросы, создающие чрезмерную нагрузку.</p></section>
+      <section><h2>5. Комментарии и пользовательский контент</h2><p>Запрещены незаконные материалы, угрозы, травля, спам, публикация чужих персональных данных и нарушение авторских прав. Комментарии проходят модерацию и могут быть отклонены или удалены. Отправляя комментарий, пользователь разрешает показать введённые имя и текст на соответствующей странице новости.</p></section>
+      <section><h2>6. Интеллектуальная собственность</h2><p>Права на оригинальные новости, изображения и товарные знаки принадлежат соответствующим владельцам. Ссылки и обозначения источников не означают партнёрство или одобрение проекта этими организациями. Дизайн и собственные редакционные материалы сервиса защищены применимым законодательством.</p></section>
+      <section><h2>7. Доступность и ответственность</h2><p>Сервис предоставляется «как есть» и может временно изменяться или быть недоступен. В пределах, допускаемых законом, оператор не отвечает за решения, принятые исключительно на основании опубликованного пересказа, за действия сторонних сервисов или за косвенные убытки.</p></section>
+      <section><h2>8. Изменения и прекращение доступа</h2><p>Функции и условия могут обновляться. Дата актуальной редакции указана в начале страницы. Доступ пользователя может быть ограничен при нарушении условий, угрозе безопасности или обязательном требовании закона.</p></section>
+      <section><h2>9. Контакты</h2><p>Вопросы об условиях можно направить через <a href="/contact">форму связи</a>.</p></section>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Условия использования — Финские Новости', description: 'Условия использования сайта, личного кабинета и Telegram-бота «Финские Новости».', canonicalPath: '/terms', siteUrl, content });
+}
+
+function renderTelegramInfoPage({ siteUrl }) {
+  const content = `<article class="telegram-page">
+    <section class="telegram-hero">
+      <div class="telegram-hero-copy">
+        <p class="eyebrow">Персональная рассылка</p>
+        <h1>Только нужные вам новости — прямо в Telegram</h1>
+        <p>Не просматривайте сотни публикаций. Выберите интересующие темы, любимые источники и удобное время, а бот «Финских Новостей» соберёт вашу личную ленту.</p>
+        <div class="telegram-hero-actions"><a class="telegram-primary-button" href="/account">Настроить мою ленту</a><a class="telegram-secondary-button" href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">Открыть общий канал</a></div>
+        <p class="telegram-free-note">✓ Бесплатно &nbsp; ✓ Можно отключить в любой момент &nbsp; ✓ Без установки отдельного приложения</p>
+      </div>
+      <div class="telegram-phone" aria-label="Пример сообщения">
+        <div class="telegram-phone-head"><span>✈</span><strong>Финские Новости</strong></div>
+        <div class="telegram-message-preview"><b>🔥 В Финляндии приняли новое решение</b><p>Кратко объясняем, что произошло и почему это важно для жителей страны…</p><span>📁 Политика · YLE</span><a href="/account">Читать далее →</a></div>
+      </div>
+    </section>
+
+    <section class="telegram-hsl" aria-labelledby="telegram-hsl-title">
+      <div class="telegram-hsl-brand"><img src="/assets/hsl-logo.png" alt="Логотип HSL"><span>HSL</span></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Новая функция бота</p><h2 id="telegram-hsl-title">Расписание транспорта HSL прямо в Telegram</h2><p>Не нужно отдельно искать остановку в браузере. Откройте в боте команду <strong>/hsl</strong> и получите ближайшие отправления с отметкой времени в реальном времени.</p><div class="telegram-hsl-methods"><span>⌨️ Номер остановки</span><span>📍 Геопозиция</span></div><small>Расписание предоставляется на основе данных Digitransit/HSL.</small></div>
+      <a class="telegram-hsl-button" href="/account">Подключить бота →</a>
+    </section>
+
+    <section class="telegram-hsl" aria-labelledby="telegram-assistant-title">
+      <div class="telegram-hsl-brand"><span>🤖</span></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Персональный помощник</p><h2 id="telegram-assistant-title">Обсуждайте новости с ботом</h2><p>Спросите, какие новости сегодня важны, как событие может затронуть вас или цены, попросите объяснить статью простыми словами, сравнить источники либо подобрать финские слова. Под каждой персональной новостью доступны кнопки вопросов, комментариев, сохранения и отслеживания темы.</p><div class="telegram-hsl-methods"><span>💬 Вопросы текстом и голосом</span><span>👤 Ответы с учётом профиля</span><span>✍️ Комментарии с модерацией</span></div><small>Бот отделяет факты от возможного влияния и показывает использованные статьи.</small></div>
+      <a class="telegram-hsl-button" href="/account#assistant-profile">Настроить помощника →</a>
+    </section>
+
+    <section class="telegram-benefits" aria-labelledby="telegram-benefits-title">
+      <div class="section-head"><h2 id="telegram-benefits-title">Почему это удобно</h2></div>
+      <div class="telegram-benefit-grid">
+        <article><span>🎯</span><h3>Только ваши темы</h3><p>Политика, работа, экономика, иммиграция, образование или другие интересующие разделы.</p></article>
+        <article><span>🗞️</span><h3>Выбор источников</h3><p>Получайте материалы только от YLE, Helsingin Sanomat, Iltalehti или других выбранных СМИ.</p></article>
+        <article><span>🕒</span><h3>Удобный ритм</h3><p>Сразу после публикации или одной ежедневной подборкой. Ночью работает режим «Не беспокоить».</p></article>
+        <article><span>🔗</span><h3>Полный контекст</h3><p>В каждом сообщении есть заголовок, краткий пересказ и постоянная ссылка на страницу новости.</p></article>
+      </div>
+    </section>
+
+    <section class="telegram-how" aria-labelledby="telegram-how-title">
+      <div><p class="eyebrow">Три простых шага</p><h2 id="telegram-how-title">Настройка занимает пару минут</h2><p><strong>Имя канала вводить не нужно.</strong> Технические коды тоже не понадобятся — сайт сам откроет правильного бота.</p></div>
+      <ol>
+        <li><span>1</span><div><strong>Войдите через Google</strong><p>Откройте личный кабинет и войдите своим Google-аккаунтом.</p></div></li>
+        <li><span>2</span><div><strong>Подключите Telegram</strong><p>Нажмите «Подключить Telegram». Откроется бот проекта — в Telegram останется нажать «Запустить».</p></div></li>
+        <li><span>3</span><div><strong>Выберите новости</strong><p>Отметьте темы, источники, частоту и тихие часы, затем включите рассылку.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="telegram-controls">
+      <div><p class="eyebrow">Всё под вашим контролем</p><h2>Настройки можно менять когда угодно</h2><p>Сервис хранит только данные, необходимые для входа и доставки в ваш Telegram-чат. Рассылку можно приостановить или отключить в личном кабинете.</p></div>
+      <a class="telegram-primary-button" href="/account">Перейти в личный кабинет →</a>
+    </section>
+  </article>`;
+  return documentPage({
+    title: 'Персональные новости в Telegram — Финские Новости',
+    description: 'Настройте личную Telegram-ленту новостей Финляндии: темы, источники, частоту и тихие часы.',
+    canonicalPath: '/telegram',
+    siteUrl,
+    content,
+  });
+}
+
+function renderContactPage({ siteUrl, status = '', formToken = '' }) {
+  const messages = {
+    sent: '<p class="form-message form-message--success" role="status">Сообщение отправлено в редакцию.</p>',
+    invalid: '<p class="form-message form-message--error" role="alert">Проверьте заполнение всех полей.</p>',
+    'too-many-links': '<p class="form-message form-message--error" role="alert">В сообщении слишком много ссылок.</p>',
+    'rate-limited': '<p class="form-message form-message--error" role="alert">Слишком много обращений. Попробуйте снова немного позже.</p>',
+  };
+  const message = messages[status] || '';
+  const content = `<article class="contact-page">
+    <section class="page-top"><p class="eyebrow">Обратная связь</p><h1 class="page-heading">Связаться с редакцией</h1><p class="page-intro">Расскажите о новости, предложите сотрудничество или сообщите, что можно улучшить.</p></section>
+    <div class="contact-layout">
+      <form class="contact-form contact-form--page" action="/contact" method="post">
+        ${message}
+        <input type="hidden" name="form_token" value="${escapeHtml(formToken)}">
+        <label class="honeypot" aria-hidden="true">Ваш сайт<input name="website" tabindex="-1" autocomplete="off"></label>
+        <label>Ваше имя<input name="name" maxlength="80" autocomplete="name" placeholder="Иван Иванов" required></label>
+        <label>E-mail для ответа<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="ivan@example.com" required></label>
+        <label>Сообщение<textarea name="body" maxlength="3000" placeholder="Ваше сообщение…" required></textarea></label>
+        <button type="submit">✈ Отправить сообщение</button>
+      </form>
+      <aside class="contact-aside"><p class="eyebrow">Как это работает</p><h2>Сообщение попадёт прямо в редакцию</h2><p>Мы сохраняем обращение в защищённом разделе админ-панели. E-mail нужен только для ответа.</p><a href="/about#privacy">О конфиденциальности →</a></aside>
+    </div>
+  </article>`;
+  return documentPage({ title: 'Контакты — Финские Новости', description: 'Свяжитесь с редакцией Финских Новостей.', canonicalPath: '/contact', siteUrl, content });
+}
+
+function renderAccountPage({
+  siteUrl,
+  user,
+  subscription,
+  assistantProfile = {},
+  categories = defaultCategories,
+  sources = [],
+  taxonomy = { tags: [], regions: [], audiences: [] },
+  telegramLink = null,
+  botProfile = null,
+  message = '',
+  telegramLinkCode = '',
+}) {
+  const selectedCategories = Array.isArray(subscription.categories) ? subscription.categories : [];
+  const assistantInterests = Array.isArray(assistantProfile.interests) ? assistantProfile.interests.join(', ') : '';
+  const assistantModes = new Set(Array.isArray(assistantProfile.modes) ? assistantProfile.modes : []);
+  const groceryChains = new Set(Array.isArray(assistantProfile.groceryChains) && assistantProfile.groceryChains.length
+    ? assistantProfile.groceryChains : ['lidl', 'prisma', 'smarket', 'alepa', 'kmarket', 'kcitymarket']);
+  const selectedSources = Array.isArray(subscription.sourceIds) ? subscription.sourceIds : [];
+  const selectedContentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
+  const selectedWordLevels = new Set(Array.isArray(subscription.wordLevels) && subscription.wordLevels.length
+    ? subscription.wordLevels
+    : [['A1-A2', 'B1-B2', 'C1-C2'].includes(subscription.wordLevel) ? subscription.wordLevel : 'A1-A2']);
+  const selectedExcludedCategories = Array.isArray(subscription.excludedCategories) ? subscription.excludedCategories : [];
+  const selectedTagIds = new Set((subscription.tagIds || []).map(String));
+  const selectedRegions = new Set(subscription.regionCodes || []);
+  const selectedAudiences = new Set(subscription.audienceCodes || []);
+  const selectedDeliveryWeekdays = new Set(subscription.deliveryWeekdays || ['1', '2', '3', '4', '5', '6', '0']);
+  const selectedQuietWeekdays = new Set(subscription.quietWeekdays || ['1', '2', '3', '4', '5', '6', '0']);
+  const categoryOptions = categories.map((category) => `<label class="account-choice"><input type="checkbox" name="categories" value="${escapeHtml(category)}"${selectedCategories.includes(category) ? ' checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('');
+  const sourceOptions = sources.map((source) => `<label class="account-choice"><input type="checkbox" name="source_ids" value="${escapeHtml(source.sourceId)}"${selectedSources.includes(source.sourceId) ? ' checked' : ''}><span>${escapeHtml(source.sourceName || source.sourceId)}</span></label>`).join('');
+  const excludedCategoryOptions = categories.map((category) => `<label class="account-choice"><input type="checkbox" name="excluded_categories" value="${escapeHtml(category)}"${selectedExcludedCategories.includes(category) ? ' checked' : ''}><span>${escapeHtml(category)}</span></label>`).join('');
+  const tagOptions = (taxonomy.tags || []).filter((tag) => tag.isVisible).map((tag) => `<label class="account-choice"><input type="checkbox" name="tag_ids" value="${tag.id}"${selectedTagIds.has(String(tag.id)) ? ' checked' : ''}><span>#${escapeHtml(tag.name)}</span></label>`).join('');
+  const regionOptions = (taxonomy.regions || []).filter((region) => region.isVisible).map((region) => `<label class="account-choice"><input type="checkbox" name="region_codes" value="${escapeHtml(region.code)}"${selectedRegions.has(region.code) ? ' checked' : ''}><span>${escapeHtml(region.name)}</span></label>`).join('');
+  const audienceOptions = (taxonomy.audiences || []).filter((audience) => audience.isVisible && audience.code !== 'all').map((audience) => `<label class="account-choice"><input type="checkbox" name="audience_codes" value="${escapeHtml(audience.code)}"${selectedAudiences.has(audience.code) ? ' checked' : ''}><span>${escapeHtml(audience.name)}</span></label>`).join('');
+  const weekdayLabels = [['1', 'Пн'], ['2', 'Вт'], ['3', 'Ср'], ['4', 'Чт'], ['5', 'Пт'], ['6', 'Сб'], ['0', 'Вс']];
+  const weekdayOptions = (name, selected) => weekdayLabels.map(([value, label]) => `<label class="account-choice"><input type="checkbox" name="${name}" value="${value}"${selected.has(value) ? ' checked' : ''}><span>${label}</span></label>`).join('');
+  const telegramConnected = Boolean(telegramLink?.telegramChatId);
+  const telegramStatus = telegramConnected ? 'Подключён' : 'Не подключён';
+  const botLabel = botProfile?.username ? `@${botProfile.username}` : 'бот проекта «Финские Новости»';
+  const statusMessage = message ? `<p class="account-notice" role="status">${escapeHtml(message)}</p>` : '';
+  const deliveryWarning = telegramConnected && !subscription.enabled
+    ? '<p class="account-notice account-notice--error" role="alert">Telegram подключён, но рассылка выключена. Включите переключатель «Получать новые публикации» и сохраните настройки.</p>'
+    : '';
+  let telegramSetup;
+  if (telegramConnected) {
+    telegramSetup = '<div class="account-callout account-callout--success"><strong>✓ Telegram подключён</strong><span>Выберите темы и сохраните настройки — рассылка будет приходить в привязанный чат.</span></div>';
+  } else {
+    telegramSetup = `<div class="account-callout"><strong>Подключение почти автоматическое</strong><span>Нажмите кнопку ниже — откроется именно ${escapeHtml(botLabel)} с готовой безопасной привязкой.</span><span><b>Имя канала вводить не нужно.</b> В Telegram останется нажать только «Запустить» — это обязательное подтверждение Telegram.</span></div>`;
+  }
+  const content = `<article class="account-page">
+    <section class="account-hero">
+      <div><p class="eyebrow">Личный кабинет</p><h1>Персональная Telegram-рассылка</h1><p>Здравствуйте, <strong>${escapeHtml(user.displayName || user.email)}</strong>. Настройте темы, частоту и количество новостей — бот пришлёт только выбранное.</p></div>
+      <span class="account-hero-icon" aria-hidden="true">✈</span>
+    </section>
+    ${statusMessage}
+    ${deliveryWarning}
+    <dl class="account-stats">
+      <div><dt>Telegram</dt><dd class="${telegramConnected ? 'is-connected' : ''}">${telegramStatus}</dd></div>
+      <div><dt>Частота</dt><dd>${subscription.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</dd></div>
+      <div><dt>Лимит</dt><dd>${subscription.maxPostsPerDay} в день</dd></div>
+    </dl>
+    <section class="account-card" id="assistant-profile">
+      <div class="account-section-head"><div><p class="eyebrow">Персональный помощник</p><h2>Что учитывать в ответах бота</h2></div><span>AI</span></div>
+      <p class="account-muted">Заполнять необязательно. Бот использует эти сведения только для выбора более полезных новостей и объяснения возможного влияния.</p>
+      <form class="account-form" method="post" action="/account/assistant-profile">
+        <div class="account-form-grid">
+          <label class="account-field"><span>Город</span><input name="city" maxlength="80" value="${escapeHtml(assistantProfile.city || '')}" placeholder="Например, Эспоо"></label>
+          <label class="account-field"><span>Ваша ситуация</span><select name="life_status"><option value="">Не указывать</option>${[['work','Работаю'],['study','Учусь'],['business','Предприниматель'],['jobseeker','Ищу работу'],['pension','Пенсионер']].map(([value,label]) => `<option value="${value}"${assistantProfile.lifeStatus === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+          <label class="account-field"><span>Жильё</span><select name="housing"><option value="">Не указывать</option><option value="rent"${assistantProfile.housing === 'rent' ? ' selected' : ''}>Арендую</option><option value="owner"${assistantProfile.housing === 'owner' ? ' selected' : ''}>Собственное жильё</option></select></label>
+          <label class="account-field"><span>Основной транспорт</span><select name="transport"><option value="">Не указывать</option><option value="hsl"${assistantProfile.transport === 'hsl' ? ' selected' : ''}>HSL</option><option value="car"${assistantProfile.transport === 'car' ? ' selected' : ''}>Автомобиль</option><option value="bike"${assistantProfile.transport === 'bike' ? ' selected' : ''}>Велосипед/пешком</option></select></label>
+        </div>
+        <label class="account-toggle account-toggle--compact"><input type="checkbox" name="has_children"${assistantProfile.hasChildren ? ' checked' : ''}><span><strong>У меня есть дети</strong><small>Учитывать новости школ, детских услуг и семейных пособий</small></span></label>
+        <fieldset class="account-fieldset"><legend>Специальные режимы помощника</legend><div class="account-choices">
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="family"${assistantModes.has('family') ? ' checked' : ''}><span>👨‍👩‍👧 Семья</span></label>
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="entrepreneur"${assistantModes.has('entrepreneur') ? ' checked' : ''}><span>💼 Предприниматель</span></label>
+          <label class="account-choice"><input type="checkbox" name="assistant_modes" value="newcomer"${assistantModes.has('newcomer') ? ' checked' : ''}><span>🧭 Новый житель Финляндии</span></label>
+        </div></fieldset>
+        <label class="account-field"><span>Особые интересы через запятую</span><input name="interests" maxlength="500" value="${escapeHtml(assistantInterests)}" placeholder="Kela, налоги, иммиграция, образование"></label>
+        <fieldset class="account-fieldset"><legend>🛒 Акции продуктовых магазинов</legend>
+          <label class="account-toggle account-toggle--compact"><input type="checkbox" name="grocery_offers_enabled"${assistantProfile.groceryOffersEnabled ? ' checked' : ''}><span><strong>Присылать подборку акций раз в неделю</strong><small>Бот использует официальные страницы магазинов и ваш город.</small></span></label>
+          <div class="account-choices">
+            ${[['lidl','Lidl'],['prisma','Prisma'],['smarket','S-market'],['alepa','Alepa'],['kmarket','K-Market'],['kcitymarket','K-Citymarket']].map(([value,label]) => `<label class="account-choice"><input type="checkbox" name="grocery_chains" value="${value}"${groceryChains.has(value) ? ' checked' : ''}><span>${label}</span></label>`).join('')}
+          </div>
+          <small class="account-muted">В Telegram также можно написать /offers или отправить геопозицию после этой команды, чтобы открыть магазины рядом.</small>
+        </fieldset>
+        <div class="account-actions"><button class="account-button" type="submit">Сохранить профиль помощника</button></div>
+      </form>
+    </section>
+    <div class="account-layout">
+      <section class="account-card account-card--settings">
+        <div class="account-section-head"><div><p class="eyebrow">Настройки</p><h2>Ваша новостная лента</h2></div><span>01</span></div>
+        <form class="account-form" method="post" action="/account/subscription">
+          <label class="account-toggle"><input type="checkbox" name="enabled"${subscription.enabled ? ' checked' : ''}><span><strong>Включить рассылку</strong><small>Получать новые публикации в Telegram</small></span></label>
+          <div class="account-form-grid">
+            <label class="account-field"><span>Частота</span><select name="frequency"><option value="instant"${subscription.frequency === 'instant' ? ' selected' : ''}>Сразу после публикации</option><option value="daily"${subscription.frequency === 'daily' ? ' selected' : ''}>Ежедневная подборка</option></select></label>
+            <label class="account-field"><span>Охват</span><select name="scope"><option value="finland"${subscription.scope === 'finland' ? ' selected' : ''}>Только Финляндия</option><option value="all"${subscription.scope === 'all' ? ' selected' : ''}>Финляндия и мир</option></select></label>
+            <label class="account-field"><span>Какие статьи отправлять</span><select name="importance"><option value="all"${subscription.importance === 'all' ? ' selected' : ''}>Все выбранные новости</option><option value="important"${subscription.importance === 'important' ? ' selected' : ''}>Важные — уровень 4–5</option><option value="urgent"${subscription.importance === 'urgent' ? ' selected' : ''}>Срочные — уровень 5</option></select></label>
+            <label class="account-field"><span>Дополнительный порог важности</span><select name="minimum_importance"><option value="1"${Number(subscription.minimumImportance || 1) === 1 ? ' selected' : ''}>1 — без дополнительного ограничения</option><option value="2"${Number(subscription.minimumImportance) === 2 ? ' selected' : ''}>2 — заметные и выше</option><option value="3"${Number(subscription.minimumImportance) === 3 ? ' selected' : ''}>3 — значимые и выше</option><option value="4"${Number(subscription.minimumImportance) === 4 ? ' selected' : ''}>4 — важные и срочные</option><option value="5"${Number(subscription.minimumImportance) === 5 ? ' selected' : ''}>5 — только критически срочные</option></select></label>
+            <label class="account-field"><span>Максимум постов в день</span><input name="max_posts_per_day" type="number" min="1" max="100" value="${subscription.maxPostsPerDay}"></label>
+            <label class="account-field"><span>Время ежедневной подборки</span><input name="delivery_time" type="time" value="${escapeHtml(subscription.deliveryTimes?.[0] || '08:00')}"></label>
+          </div>
+          <div class="account-callout">
+            <strong>Что означает важность 1–5</strong>
+            <span><b>1–2</b> — обычные и локальные новости; <b>3</b> — заметные события; <b>4</b> — важные решения и события с широкими последствиями; <b>5</b> — срочные события, безопасность и немедленные изменения.</span>
+            <span>Режим «Важные» пропускает уровни 4–5, «Срочные» — только уровень 5. Дополнительный порог позволяет сделать фильтр ещё строже.</span>
+          </div>
+          <fieldset class="account-fieldset"><legend>Темы</legend><div class="account-choices">${categoryOptions || '<span class="account-muted">Нет доступных категорий.</span>'}</div></fieldset>
+          <details class="account-advanced"><summary>Расширенные фильтры</summary>
+            <fieldset class="account-fieldset"><legend>Не присылать темы</legend><div class="account-choices">${excludedCategoryOptions}</div></fieldset>
+            <fieldset class="account-fieldset"><legend>Теги</legend><div class="account-choices">${tagOptions || '<span class="account-muted">Теги появятся после классификации статей.</span>'}</div></fieldset>
+            <fieldset class="account-fieldset"><legend>География</legend><div class="account-choices">${regionOptions}</div></fieldset>
+            <fieldset class="account-fieldset"><legend>Для кого</legend><div class="account-choices">${audienceOptions}</div></fieldset>
+          </details>
+          <fieldset class="account-fieldset"><legend>Источники новостей</legend><div class="account-choices">${sourceOptions || '<span class="account-muted">Источники появятся после обновления новостей.</span>'}</div><small class="account-muted">Если ничего не выбрано, будут использоваться все источники.</small></fieldset>
+          <fieldset class="account-fieldset"><legend>Дни доставки</legend><div class="account-choices">${weekdayOptions('delivery_weekdays', selectedDeliveryWeekdays)}</div></fieldset>
+          <fieldset class="account-fieldset">
+            <legend>Что присылать</legend>
+            <div class="account-choices">
+              <label class="account-choice"><input type="checkbox" name="content_types" value="news"${selectedContentTypes.includes('news') ? ' checked' : ''}><span>📰 Новости</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="holidays"${selectedContentTypes.includes('holidays') ? ' checked' : ''}><span>🎉 Праздники Финляндии</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="flag_days"${selectedContentTypes.includes('flag_days') ? ' checked' : ''}><span>🇫🇮 Дни флага</span></label>
+              <label class="account-choice"><input type="checkbox" name="content_types" value="word"${selectedContentTypes.includes('word') ? ' checked' : ''}><span>💬 Слово дня</span></label>
+            </div>
+            <fieldset class="account-fieldset"><legend>Уровни финского для слов дня</legend><div class="account-choices">
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="A1-A2"${selectedWordLevels.has('A1-A2') ? ' checked' : ''}><span>A1–A2 — начинающий</span></label>
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="B1-B2"${selectedWordLevels.has('B1-B2') ? ' checked' : ''}><span>B1–B2 — средний</span></label>
+              <label class="account-choice"><input type="checkbox" name="word_levels" value="C1-C2"${selectedWordLevels.has('C1-C2') ? ' checked' : ''}><span>C1–C2 — продвинутый</span></label>
+            </div></fieldset>
+            <small class="account-muted">Ежедневно приходят три новых слова, три слова со вчерашнего дня для повторения и фраза дня. Можно выбрать один, два или все три уровня. Праздники и дни флага приходят только в соответствующие даты.</small>
+          </fieldset>
+          <fieldset class="account-fieldset account-quiet">
+            <legend>Не беспокоить</legend>
+            <label class="account-toggle account-toggle--compact"><input type="checkbox" name="quiet_hours_enabled"${subscription.quietHoursEnabled ? ' checked' : ''}><span><strong>Не отправлять ночью</strong><small>Новости, появившиеся во время паузы, пропускаются и позже не досылаются.</small></span></label>
+            <div class="account-form-grid">
+              <label class="account-field"><span>Начало</span><input name="quiet_start" type="time" value="${escapeHtml(subscription.quietStart || '22:00')}"></label>
+              <label class="account-field"><span>Окончание</span><input name="quiet_end" type="time" value="${escapeHtml(subscription.quietEnd || '07:00')}"></label>
+            </div>
+            <p class="account-muted">Дни действия тихого времени</p><div class="account-choices">${weekdayOptions('quiet_weekdays', selectedQuietWeekdays)}</div>
+            <label class="account-toggle account-toggle--compact"><input type="checkbox" name="allow_critical_during_quiet"${subscription.allowCriticalDuringQuiet ? ' checked' : ''}><span><strong>Разрешить только критически важные новости</strong><small>Срочные материалы важности 5 могут прийти во время тишины.</small></span></label>
+            <small class="account-muted">Часовой пояс: Финляндия (Europe/Helsinki), с автоматическим переходом на летнее время.</small>
+          </fieldset>
+          <label class="account-toggle account-toggle--compact"><input type="checkbox" name="include_original"${subscription.includeOriginal ? ' checked' : ''}><span><strong>Добавлять ссылку на оригинал</strong><small>Можно прочитать полный материал у источника</small></span></label>
+          <div class="account-actions"><button class="account-button" type="submit">Сохранить настройки</button></div>
+        </form>
+      </section>
+      <aside class="account-side">
+        <section class="account-card">
+          <div class="account-section-head"><div><p class="eyebrow">Подключение</p><h2>Telegram</h2></div><span>02</span></div>
+          <p class="account-muted">${telegramConnected ? `Привязанный чат: ${escapeHtml(telegramLink.telegramChatId)}` : `Для рассылки используется ${escapeHtml(botLabel)}.`}</p>
+          ${telegramSetup}
+          ${telegramConnected
+            ? '<form method="post" action="/account/telegram/test" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Проверить доставку</button></form>'
+            : '<form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Подключить Telegram</button></form>'}
+        </section>
+        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Каждая новость содержит заголовок, краткое описание и ссылку «Читать далее» на сайт.</li><li>Ночные сообщения откладываются, а не теряются.</li><li>Можно отключить рассылку в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li></ul></section>
+      </aside>
+    </div>
+    <form class="account-logout" method="post" action="/account/logout"><button class="account-button account-button--ghost" type="submit">Выйти из кабинета</button></form>
+  </article>`;
+  return documentPage({ title: 'Личный кабинет — Финские Новости', description: 'Настройки персональной Telegram-рассылки Финских Новостей.', canonicalPath: '/account', siteUrl, robots: 'noindex', content });
+}
+
+function renderAccountLoginPage({ siteUrl, googleEnabled = true, error = '' }) {
+  const errorMessage = error === 'state'
+    ? 'Сессия входа устарела. Попробуйте войти ещё раз.'
+    : error === 'failed'
+      ? 'Google не подтвердил вход. Проверьте аккаунт и повторите попытку.'
+      : '';
+  const action = googleEnabled
+    ? '<a class="google-login-button account-google-button" href="/account/login/start"><svg class="google-g" viewBox="0 0 18 18" aria-hidden="true"><path fill="#EA4335" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.874 2.684-6.615Z"/><path fill="#4285F4" d="M9 18c2.43 0 4.468-.806 5.956-2.18l-2.91-2.258c-.805.54-1.835.859-3.046.859-2.344 0-4.328-1.585-5.037-3.714H.956v2.333A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.963 10.707A5.42 5.42 0 0 1 3.681 9c0-.592.102-1.168.282-1.707V4.96H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.04l3.007-2.333Z"/><path fill="#34A853" d="M9 3.579c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.426 0 9 0A9 9 0 0 0 .956 4.96l3.007 2.333C4.672 5.164 6.656 3.579 9 3.579Z"/></svg><span>Продолжить с Google</span></a>'
+    : '<p class="account-notice account-notice--error">Вход временно недоступен: Google-авторизация не настроена.</p>';
+  const content = `<section class="account-login">
+    <div class="account-login-card">
+      <span class="account-login-mark">${brandMark}</span>
+      <p class="eyebrow">Персональная рассылка</p>
+      <h1>Ваши новости — в удобное время</h1>
+      <p>Войдите через Google, выберите темы и получайте персональную подборку в Telegram.</p>
+      ${errorMessage ? `<p class="account-notice account-notice--error" role="alert">${escapeHtml(errorMessage)}</p>` : ''}
+      ${action}
+      <div class="account-login-benefits"><span>✓ Без пароля</span><span>✓ Настройки под вашим контролем</span><span>✓ Можно отключить в любой момент</span></div>
+    </div>
+  </section>`;
+  return documentPage({ title: 'Вход в личный кабинет — Финские Новости', description: 'Вход в настройки персональной Telegram-рассылки.', canonicalPath: '/account/login', siteUrl, robots: 'noindex', content });
+}
+
+function renderAccountErrorPage({ siteUrl }) {
+  const content = '<section class="account-login"><div class="account-login-card"><span class="account-login-mark">⚠️</span><p class="eyebrow">Личный кабинет</p><h1>Не удалось открыть кабинет</h1><p>Ошибка уже записана. Попробуйте обновить страницу или войти заново.</p><div class="account-actions account-actions--center"><a class="account-button" href="/account/login">Вернуться ко входу</a><a class="account-button account-button--ghost" href="/">На главную</a></div></div></section>';
+  return documentPage({ title: 'Личный кабинет — ошибка', description: 'Не удалось открыть личный кабинет.', canonicalPath: '/account', siteUrl, robots: 'noindex', content });
 }
 
 function renderAdminArticleDeletePage({ article, siteUrl }) {
   const title = article.titleRu || article.titleFi;
-  return documentPage({
-    title: 'Подтверждение удаления — Финские Новости',
-    description: 'Подтверждение удаления статьи.',
-    canonicalPath: `/admin/articles/${article.id}/delete`,
-    siteUrl,
-    robots: 'noindex',
-    content: `<section class="not-found"><p class="eyebrow">Подтверждение</p><h1>Удалить статью?</h1><p class="summary">${escapeHtml(title)}</p><p>Будут удалены и все связанные комментарии.</p><form action="/admin/articles/${article.id}/delete" method="post"><input type="hidden" name="confirm_delete" value="delete"><button class="delete" type="submit">Удалить без возможности восстановления</button></form><p><a href="/admin">Отмена</a></p></section>`,
-  });
+  return documentPage({ title: 'Подтверждение удаления — Финские Новости', description: 'Подтверждение удаления статьи.', canonicalPath: `/admin/articles/${article.id}/delete`, siteUrl, robots: 'noindex', content: `<section class="not-found"><p class="eyebrow">Подтверждение</p><h1>Удалить статью?</h1><p class="summary">${escapeHtml(title)}</p><p>Будут удалены и все связанные комментарии.</p><form action="/admin/articles/${article.id}/delete" method="post"><input type="hidden" name="confirm_delete" value="delete"><button class="delete" type="submit">Удалить без возможности восстановления</button></form><p><a href="/admin">Отмена</a></p></section>` });
 }
 
 function renderNotFound({ siteUrl }) {
-  return documentPage({
-    title: 'Страница не найдена — Финские Новости',
-    description: 'Запрошенная страница не найдена.',
-    canonicalPath: '/404',
-    siteUrl,
-    robots: 'noindex',
-    content: '<section class="not-found"><p class="eyebrow">Ошибка 404</p><h1>Страница не найдена</h1><p class="summary">Возможно, ссылка устарела или адрес введён с ошибкой.</p><p><a href="/">Вернуться к свежим новостям →</a></p></section>',
-  });
+  return documentPage({ title: 'Страница не найдена — Финские Новости', description: 'Запрошенная страница не найдена.', canonicalPath: '/404', siteUrl, robots: 'noindex', content: '<section class="not-found"><p class="eyebrow">Ошибка 404</p><h1>Страница не найдена</h1><p class="summary">Возможно, ссылка устарела или адрес введён с ошибкой.</p><p><a href="/">Вернуться к свежим новостям →</a></p></section>' });
 }
 
 function escapeXml(value = '') {
   return String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -283,17 +1246,70 @@ function formatLastmod(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function renderSitemap({ siteUrl, categorySlugs, articles }) {
+function renderRssFeed({ siteUrl, articles = [] }) {
+  const baseUrl = String(siteUrl || '').replace(/\/+$/, '');
+  const items = articles
+    .filter((article) => article && article.slug && article.titleRu && article.summaryRu)
+    .slice(0, 50)
+    .map((article) => {
+      const link = `${baseUrl}/news/${encodeURIComponent(article.slug)}`;
+      const published = new Date(article.publishedAt);
+      const pubDate = Number.isNaN(published.getTime()) ? '' : published.toUTCString();
+      const sourceUrl = safeExternalUrl(article.originalUrl);
+      const source = sourceUrl === '#'
+        ? ''
+        : `<source url="${escapeXml(sourceUrl)}">${escapeXml(article.sourceName || 'Финские Новости')}</source>`;
+      return `    <item>
+      <title>${escapeXml(article.titleRu)}</title>
+      <link>${escapeXml(link)}</link>
+      <guid isPermaLink="true">${escapeXml(link)}</guid>
+      <description>${escapeXml(article.summaryRu)}</description>
+      ${article.category ? `<category>${escapeXml(article.category)}</category>` : ''}
+      ${source}
+      ${pubDate ? `<pubDate>${escapeXml(pubDate)}</pubDate>` : ''}
+    </item>`;
+    })
+    .join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Финские Новости</title>
+    <link>${escapeXml(baseUrl)}</link>
+    <description>Свежие новости Финляндии на русском языке</description>
+    <language>ru</language>
+    <lastBuildDate>${escapeXml(new Date().toUTCString())}</lastBuildDate>
+${items}
+  </channel>
+</rss>
+`;
+}
+
+function renderSitemap({
+  siteUrl,
+  categorySlugs,
+  tagSlugs = [],
+  regionCodes = [],
+  articles,
+  archivePageCount = 1,
+}) {
+  const archivePages = Array.from({ length: Math.max(0, archivePageCount - 1) }, (_, index) => ({ path: `/page/${index + 2}` }));
   const urls = [
     { path: '/' },
+    { path: '/about' },
+    { path: '/privacy' },
+    { path: '/terms' },
+    { path: '/contact' },
+    { path: '/telegram' },
+    ...archivePages,
     ...categorySlugs.map((slug) => ({ path: `/category/${encodeURIComponent(slug)}` })),
+    ...tagSlugs.map((slug) => ({ path: `/tag/${encodeURIComponent(slug)}` })),
+    ...regionCodes.map((code) => ({ path: `/region/${encodeURIComponent(code)}` })),
     ...articles.map((article) => ({
       path: `/news/${encodeURIComponent(article.slug)}`,
-      lastmod: formatLastmod(article.publishedAt),
+      lastmod: formatLastmod(article.updatedAt || article.createdAt || article.publishedAt),
     })),
   ];
-  const entries = urls.map((entry) => `  <url><loc>${escapeXml(`${siteUrl}${entry.path}`)}</loc>${entry.lastmod ? `<lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ''}</url>`);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries.join('\n')}\n</urlset>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((entry) => `  <url><loc>${escapeXml(`${siteUrl}${entry.path}`)}</loc>${entry.lastmod ? `<lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;
 }
 
 function renderRobots({ siteUrl }) {
@@ -301,12 +1317,21 @@ function renderRobots({ siteUrl }) {
 }
 
 module.exports = {
+  renderAccountErrorPage,
+  renderAccountLoginPage,
+  renderAccountPage,
   renderArticlePage,
   renderAdminPage,
+  renderAdminLoginPage,
   renderAdminArticleDeletePage,
   renderAboutPage,
+  renderPrivacyPage,
+  renderTermsPage,
+  renderContactPage,
+  renderTelegramInfoPage,
   renderListPage,
   renderNotFound,
+  renderRssFeed,
   renderRobots,
   renderSitemap,
 };
