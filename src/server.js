@@ -11,7 +11,6 @@ const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('
 const { googleTranslateFree } = require('./freeTranslate');
 const { parseAdminAccounts, verifyAdminAuthorization } = require('./adminAccounts');
 const {
-  articleMatchesFollowedTopics,
   countLinks,
   createContactFormToken,
   createSlidingWindowRateLimiter,
@@ -47,6 +46,7 @@ const {
 const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
 const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
 const {
+  articleMatchesFollowedTopics,
   detectAssistantIntent,
   extractFinnishWords,
   fallbackAnswer,
