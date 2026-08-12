@@ -45,6 +45,7 @@ const {
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
 const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
+const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
 const {
   detectAssistantIntent,
   extractFinnishWords,
@@ -850,23 +851,11 @@ function personalArticleTelegramOptions(article) {
       inline_keyboard: [
         [
           { text: '🧩 Объяснить', callback_data: `news:explain:${article.id}` },
-          { text: '👤 Для меня', callback_data: `news:impact:${article.id}` },
-        ],
-        [
           { text: '💬 Задать вопрос', callback_data: `news:ask:${article.id}` },
+        ],
+        [
           { text: '✍️ Комментировать', callback_data: `news:comment:${article.id}` },
-        ],
-        [
-          { text: '🔔 Следить', callback_data: `news:follow:${article.id}` },
           { text: '🔖 Сохранить', callback_data: `news:save:${article.id}` },
-        ],
-        [
-          { text: '🗞 Источники', callback_data: `news:sources:${article.id}` },
-          { text: '🇫🇮 Финский', callback_data: `news:language:${article.id}` },
-        ],
-        [
-          { text: '⏰ Напомнить', callback_data: `news:remind:${article.id}` },
-          { text: '⚠️ Сообщить об ошибке', callback_data: `news:report:${article.id}` },
         ],
       ],
     },
@@ -1167,6 +1156,43 @@ async function handleHslTelegramMessage(message) {
   return false;
 }
 
+async function handleGroceryTelegramMessage(message) {
+  const chatId = message?.chat?.id;
+  if (!chatId) return false;
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  const command = /^\/offers(?:@[A-Za-z0-9_]{5,32})?(?:\s+(.{1,80}))?$/iu.exec(text);
+  const conversation = getTelegramConversation(chatId);
+  const waitingForLocation = conversation?.pendingAction === 'grocery_location';
+  if (!command && !(waitingForLocation && message.location)) return false;
+
+  const user = getTelegramUserByChatId(chatId);
+  const profile = user ? getTelegramAssistantProfile(user.userId) : {};
+  if (command && !command[1]) {
+    saveTelegramConversation({ chatId, userId: user?.userId, pendingAction: 'grocery_location' });
+    await sendTelegramMessageToChat(chatId, [
+      '🛒 Акции продуктовых магазинов',
+      'Отправьте геопозицию кнопкой ниже или напишите команду с городом, например: /offers Espoo',
+    ].join('\n\n'), {
+      reply_markup: {
+        keyboard: [[{ text: '📍 Найти магазины и акции рядом', request_location: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
+    return true;
+  }
+
+  const location = message.location
+    ? { latitude: message.location.latitude, longitude: message.location.longitude }
+    : { city: String(command?.[1] || profile.city || '').trim() };
+  clearTelegramConversation(chatId);
+  await sendTelegramMessageToChat(chatId, buildGroceryOffersMessage({
+    chainIds: profile.groceryChains,
+    ...location,
+  }), { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: { remove_keyboard: true } });
+  return true;
+}
+
 async function sendAdminTelegramNotification(event, title, lines = []) {
   const settings = getAdminTelegramNotificationSettings();
   const eventEnabled = event === 'user_registered' ? settings.userRegistered
@@ -1309,7 +1335,7 @@ async function runTelegramChannelCatchup() {
 }
 
 function getTelegramTodayKey(now = new Date()) {
-  return now.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Helsinki' }).format(now);
 }
 
 async function notifyTelegramSubscribersForArticles(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
@@ -1422,8 +1448,11 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
+    const profile = getTelegramAssistantProfile(subscription.userId);
     const items = contentForDate(now, { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel });
+    if (profile.groceryOffersEnabled) items.push(groceryOfferDigest(now, profile));
     const selected = new Set(subscription.contentTypes || []);
+    if (profile.groceryOffersEnabled) selected.add('offers');
     if (!isDailyContentDue(subscription, now)
       || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
       skipped += 1;
@@ -1437,8 +1466,8 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
       try {
         const messageId = await sendTelegramMessageToChat(
           subscription.telegramChatId,
-          buildDailyContentMessage(item, SITE_URL),
-          item.type === 'word' ? { parse_mode: 'HTML' } : {},
+          item.type === 'offers' ? item.text : buildDailyContentMessage(item, SITE_URL),
+          ['word', 'offers'].includes(item.type) ? { parse_mode: 'HTML', link_preview_options: { is_disabled: true } } : {},
         );
         if (recordTelegramContentDelivery({
           userId: subscription.userId,
@@ -2122,7 +2151,9 @@ app.post('/account/assistant-profile', async (req, res) => {
   const allowedTransport = new Set(['hsl', 'car', 'bike']);
   const interests = String(req.body.interests || '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 20);
   const requestedModes = Array.isArray(req.body.assistant_modes) ? req.body.assistant_modes : (req.body.assistant_modes ? [req.body.assistant_modes] : []);
+  const requestedGroceryChains = Array.isArray(req.body.grocery_chains) ? req.body.grocery_chains : (req.body.grocery_chains ? [req.body.grocery_chains] : []);
   const allowedModes = new Set(['family', 'entrepreneur', 'newcomer']);
+  const allowedGroceryChains = new Set(GROCERY_CHAINS.map((chain) => chain.id));
   saveTelegramAssistantProfile(user.googleSub, {
     city: String(req.body.city || '').trim(),
     lifeStatus: allowedStatuses.has(req.body.life_status) ? req.body.life_status : '',
@@ -2131,6 +2162,8 @@ app.post('/account/assistant-profile', async (req, res) => {
     transport: allowedTransport.has(req.body.transport) ? req.body.transport : '',
     interests,
     modes: requestedModes.filter((mode) => allowedModes.has(mode)),
+    groceryOffersEnabled: req.body.grocery_offers_enabled === 'on',
+    groceryChains: requestedGroceryChains.filter((chain) => allowedGroceryChains.has(chain)),
   });
   return simpleAccountPage(req, res, 'Профиль персонального помощника сохранён.');
 });
@@ -2256,6 +2289,8 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   }
   if (chatId && TELEGRAM_BOT_TOKEN) {
     try {
+      const groceryHandled = await handleGroceryTelegramMessage(message);
+      if (groceryHandled) return res.status(200).json({ ok: true });
       const hslHandled = await handleHslTelegramMessage(message);
       if (hslHandled) return res.status(200).json({ ok: true });
       const assistantHandled = await handleTelegramAssistantMessage(message);
@@ -2269,11 +2304,12 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
       console.error('[telegram webhook] не удалось отправить ответ:', error.message);
       const wasHslRequest = Boolean(message?.location
         || /^\/hsl\b/iu.test(text) || /^[A-ZÅÄÖ]{0,2}\d{3,7}$/iu.test(text));
-      if (!wasHslRequest) return res.status(200).json({ ok: true });
       try {
-        const messageText = error.code === 'missing_api_key'
-          ? 'Расписание HSL пока не настроено администратором. Нужно добавить ключ Digitransit.'
-          : 'Не удалось получить расписание HSL. Попробуйте ещё раз немного позже.';
+        const messageText = wasHslRequest
+          ? (error.code === 'missing_api_key'
+            ? 'Расписание HSL пока не настроено администратором. Нужно добавить ключ Digitransit.'
+            : 'Не удалось получить расписание HSL. Попробуйте ещё раз немного позже.')
+          : 'Бот получил ваш запрос, но сейчас не смог подготовить ответ. Попробуйте ещё раз через минуту.';
         await sendTelegramMessageToChat(chatId, messageText);
       } catch (sendError) {
         console.error('[telegram webhook] не удалось сообщить об ошибке:', sendError.message);

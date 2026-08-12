@@ -117,18 +117,23 @@ async function generateGroundedAnswer(question, articles, { siteUrl, profile = {
     publishedAt: article.publishedAt,
     url: articleLink(article, siteUrl),
   }));
-  const response = await fetchImpl(OPENAI_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || 'gpt-5-nano',
-      messages: [
-        { role: 'system', content: 'Ты персональный новостной помощник о Финляндии. Отвечай только по переданным материалам. Чётко разделяй: подтверждённые факты, возможное влияние и то, что пока неизвестно. Не давай юридических, медицинских или финансовых гарантий. Не используй HTML. В конце перечисли номера использованных источников.' },
-        { role: 'user', content: `Профиль пользователя: ${JSON.stringify(profile)}\nВопрос: ${question}\nМатериалы: ${JSON.stringify(sources)}` },
-      ],
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
+  let response;
+  try {
+    response = await fetchImpl(OPENAI_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || 'gpt-5-nano',
+        messages: [
+          { role: 'system', content: 'Ты персональный новостной помощник о Финляндии. Отвечай только по переданным материалам. Чётко разделяй: подтверждённые факты, возможное влияние и то, что пока неизвестно. Не давай юридических, медицинских или финансовых гарантий. Не используй HTML. В конце перечисли номера использованных источников.' },
+          { role: 'user', content: `Профиль пользователя: ${JSON.stringify(profile)}\nВопрос: ${question}\nМатериалы: ${JSON.stringify(sources)}` },
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    return fallbackAnswer(question, articles, { siteUrl, intent, profile });
+  }
   if (!response.ok) return fallbackAnswer(question, articles, { siteUrl, intent, profile });
   const payload = await response.json();
   const answer = String(payload?.choices?.[0]?.message?.content || '').trim();

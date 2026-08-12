@@ -255,6 +255,8 @@ function createDatabase() {
       housing TEXT NOT NULL DEFAULT '',
       transport TEXT NOT NULL DEFAULT '',
       interests TEXT NOT NULL DEFAULT '',
+      grocery_offers_enabled INTEGER NOT NULL DEFAULT 0,
+      grocery_chains TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS telegram_conversations (
@@ -328,6 +330,8 @@ function createDatabase() {
 
   const assistantProfileColumns = new Set(db.prepare('PRAGMA table_info(telegram_assistant_profiles)').all().map((column) => column.name));
   if (!assistantProfileColumns.has('modes')) db.exec("ALTER TABLE telegram_assistant_profiles ADD COLUMN modes TEXT NOT NULL DEFAULT ''");
+  if (!assistantProfileColumns.has('grocery_offers_enabled')) db.exec('ALTER TABLE telegram_assistant_profiles ADD COLUMN grocery_offers_enabled INTEGER NOT NULL DEFAULT 0');
+  if (!assistantProfileColumns.has('grocery_chains')) db.exec("ALTER TABLE telegram_assistant_profiles ADD COLUMN grocery_chains TEXT NOT NULL DEFAULT ''");
 
   const duplicateColumns = new Set(db.prepare('PRAGMA table_info(article_duplicate_log)').all().map((column) => column.name));
   if (!duplicateColumns.has('summary_fi')) db.exec('ALTER TABLE article_duplicate_log ADD COLUMN summary_fi TEXT');
@@ -1749,7 +1753,7 @@ function getUserSubscription(userId) {
     wordLevels: ['A1-A2'],
     excludedCategories: [],
     tagIds: [],
-    regionCodes: ['finland'],
+    regionCodes: [],
     audienceCodes: [],
     minimumImportance: 1,
     deliveryTimes: [],
@@ -1831,7 +1835,7 @@ function getActiveUserSubscriptions() {
     wordLevel: ['A1-A2', 'B1-B2', 'C1-C2'].includes(row.word_level) ? row.word_level : 'A1-A2',
     excludedCategories: csvValues(row.excluded_categories),
     tagIds: csvValues(row.tag_ids),
-    regionCodes: csvValues(row.region_codes, ['finland']),
+    regionCodes: csvValues(row.region_codes),
     audienceCodes: csvValues(row.audience_codes),
     minimumImportance: Math.min(5, Math.max(1, Number(row.minimum_importance) || 1)),
     deliveryTimes: csvValues(row.delivery_times),
@@ -1861,7 +1865,7 @@ function upsertUserSubscription({
   wordLevels,
   excludedCategories = [],
   tagIds = [],
-  regionCodes = ['finland'],
+  regionCodes = [],
   audienceCodes = [],
   minimumImportance = 1,
   deliveryTimes = [],
@@ -1985,22 +1989,29 @@ function getTelegramAssistantProfile(userId) {
     transport: row.transport,
     interests: csvValues(row.interests),
     modes: csvValues(row.modes),
-  } : { city: '', lifeStatus: '', hasChildren: false, housing: '', transport: '', interests: [], modes: [] };
+    groceryOffersEnabled: Boolean(row.grocery_offers_enabled),
+    groceryChains: csvValues(row.grocery_chains),
+  } : { city: '', lifeStatus: '', hasChildren: false, housing: '', transport: '', interests: [], modes: [], groceryOffersEnabled: false, groceryChains: [] };
 }
 
 function saveTelegramAssistantProfile(userId, profile = {}) {
   const interests = Array.isArray(profile.interests) ? profile.interests : [];
   const modes = Array.isArray(profile.modes) ? profile.modes : [];
+  const groceryChains = Array.isArray(profile.groceryChains) ? profile.groceryChains : [];
   return db.prepare(`
     INSERT INTO telegram_assistant_profiles
-      (user_id, city, life_status, has_children, housing, transport, interests, modes, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      (user_id, city, life_status, has_children, housing, transport, interests, modes,
+       grocery_offers_enabled, grocery_chains, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id) DO UPDATE SET city=excluded.city, life_status=excluded.life_status,
       has_children=excluded.has_children, housing=excluded.housing, transport=excluded.transport,
-      interests=excluded.interests, modes=excluded.modes, updated_at=CURRENT_TIMESTAMP
+      interests=excluded.interests, modes=excluded.modes,
+      grocery_offers_enabled=excluded.grocery_offers_enabled, grocery_chains=excluded.grocery_chains,
+      updated_at=CURRENT_TIMESTAMP
   `).run(userId, String(profile.city || '').slice(0, 80), String(profile.lifeStatus || '').slice(0, 80),
     profile.hasChildren ? 1 : 0, String(profile.housing || '').slice(0, 80),
-    String(profile.transport || '').slice(0, 80), interests.join(','), modes.join(',')).changes > 0;
+    String(profile.transport || '').slice(0, 80), interests.join(','), modes.join(','),
+    profile.groceryOffersEnabled ? 1 : 0, groceryChains.join(',')).changes > 0;
 }
 
 function getTelegramConversation(chatId) {

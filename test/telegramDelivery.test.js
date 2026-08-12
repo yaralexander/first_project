@@ -90,6 +90,17 @@ test('filters by importance, exclusions, regions, tags and audiences', () => {
   }), true);
 });
 
+test('whole Finland region includes city and regional news', () => {
+  assert.equal(articleMatchesSubscription(
+    { ...article, regionCode: 'espoo' },
+    { ...subscription, regionCodes: ['finland'] },
+  ), true);
+  assert.equal(articleMatchesSubscription(
+    { ...article, regionCode: 'espoo' },
+    { ...subscription, regionCodes: ['helsinki'] },
+  ), false);
+});
+
 test('quiet hours work both across midnight and within one day', () => {
   const overnight = {
     quietHoursEnabled: true,

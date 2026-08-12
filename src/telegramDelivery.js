@@ -135,7 +135,10 @@ function articleMatchesSubscription(article, subscription) {
   if (subscription.categories.length && !subscription.categories.includes(article.category || '')) return false;
   if ((subscription.excludedCategories || []).includes(article.category || '')) return false;
   if (subscription.sourceIds.length && !subscription.sourceIds.includes(article.sourceId || '')) return false;
-  if ((subscription.regionCodes || []).length && !subscription.regionCodes.includes(article.regionCode || 'finland')) return false;
+  const regionCodes = subscription.regionCodes || [];
+  // "finland" means the whole country, including city and regional stories.
+  if (regionCodes.length && !regionCodes.includes('finland')
+    && !regionCodes.includes(article.regionCode || 'finland')) return false;
   const articleTagIds = new Set((article.classification?.tags || []).map((tag) => String(tag.id)));
   if ((subscription.tagIds || []).length && !subscription.tagIds.some((id) => articleTagIds.has(String(id)))) return false;
   const articleAudienceCodes = new Set((article.classification?.audiences || []).map((audience) => audience.code));
@@ -222,7 +225,10 @@ function isDeliveryScheduleDue(subscription, now = new Date()) {
     ? subscription.deliveryTimes
     : ['08:00'];
   const current = localMinutes(now, subscription.timezone);
-  return deliveryTimes.some((value) => minutesFromTime(value) === current);
+  const targets = deliveryTimes.map(minutesFromTime).filter((value) => value !== null);
+  // Delivery records prevent duplicates. Treat the configured time as the
+  // earliest send time so a restart or a slow cron tick does not lose a digest.
+  return targets.length ? current >= Math.min(...targets) : current >= 8 * 60;
 }
 
 function isDailyContentDue(subscription, now = new Date()) {

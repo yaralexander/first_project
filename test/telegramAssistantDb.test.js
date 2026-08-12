@@ -20,8 +20,8 @@ test('stores assistant profile, conversation, followed topics and saved articles
   assert.equal(db.linkTelegramUser({ linkCodeHash: 'link-hash', telegramChatId: '12345' }), 'assistant-user');
   assert.equal(db.getTelegramUserByChatId('12345').displayName, 'Reader');
 
-  db.saveTelegramAssistantProfile('assistant-user', { city: 'Espoo', lifeStatus: 'work', hasChildren: true, transport: 'hsl', interests: ['Kela', 'налоги'], modes: ['family'] });
-  assert.deepEqual(db.getTelegramAssistantProfile('assistant-user'), { city: 'Espoo', lifeStatus: 'work', hasChildren: true, housing: '', transport: 'hsl', interests: ['Kela', 'налоги'], modes: ['family'] });
+  db.saveTelegramAssistantProfile('assistant-user', { city: 'Espoo', lifeStatus: 'work', hasChildren: true, transport: 'hsl', interests: ['Kela', 'налоги'], modes: ['family'], groceryOffersEnabled: true, groceryChains: ['lidl', 'prisma'] });
+  assert.deepEqual(db.getTelegramAssistantProfile('assistant-user'), { city: 'Espoo', lifeStatus: 'work', hasChildren: true, housing: '', transport: 'hsl', interests: ['Kela', 'налоги'], modes: ['family'], groceryOffersEnabled: true, groceryChains: ['lidl', 'prisma'] });
 
   db.saveTelegramConversation({ chatId: '12345', userId: 'assistant-user', articleId: null, pendingAction: 'comment_text', draftText: 'Текст' });
   assert.equal(db.getTelegramConversation('12345').pendingAction, 'comment_text');
