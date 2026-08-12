@@ -957,14 +957,26 @@ function renderTelegramInfoPage({ siteUrl }) {
     <section class="telegram-hero">
       <div class="telegram-hero-copy">
         <p class="eyebrow">Персональная рассылка</p>
-        <h1>Только нужные вам новости — прямо в Telegram</h1>
-        <p>Не просматривайте сотни публикаций. Выберите интересующие темы, любимые источники и удобное время, а бот «Финских Новостей» соберёт вашу личную ленту.</p>
+        <h1>Новости, транспорт и полезные предложения — в одном Telegram-боте</h1>
+        <p>Получайте персональную ленту новостей Финляндии, спрашивайте о влиянии событий, смотрите отправления HSL и находите акции продуктовых магазинов рядом. Вы сами выбираете, что и когда присылать.</p>
         <div class="telegram-hero-actions"><a class="telegram-primary-button" href="/account">Настроить мою ленту</a><a class="telegram-secondary-button" href="https://t.me/finskienovosti" rel="noopener noreferrer" target="_blank">Открыть общий канал</a></div>
         <p class="telegram-free-note">✓ Бесплатно &nbsp; ✓ Можно отключить в любой момент &nbsp; ✓ Без установки отдельного приложения</p>
       </div>
       <div class="telegram-phone" aria-label="Пример сообщения">
         <div class="telegram-phone-head"><span>✈</span><strong>Финские Новости</strong></div>
-        <div class="telegram-message-preview"><b>🔥 В Финляндии приняли новое решение</b><p>Кратко объясняем, что произошло и почему это важно для жителей страны…</p><span>📁 Политика · YLE</span><a href="/account">Читать далее →</a></div>
+        <div class="telegram-message-preview"><b>📰 Главное сегодня</b><p>Короткая персональная подборка свежих новостей с понятными объяснениями и ссылками на статьи.</p><span>🤖 /today · /forme</span><a href="/account">Настроить бота →</a></div>
+      </div>
+    </section>
+
+    <section class="telegram-benefits" aria-labelledby="telegram-commands-title">
+      <div class="section-head"><div><p class="eyebrow">Основное меню</p><h2 id="telegram-commands-title">Шесть понятных команд</h2><p>Нажмите кнопку «Меню» в Telegram и выберите нужное действие.</p></div></div>
+      <div class="telegram-benefit-grid">
+        <article><span>📰</span><h3>/today</h3><p>Главные свежие новости сегодня. Бот сразу показывает, что начал собирать подборку.</p></article>
+        <article><span>🎯</span><h3>/forme</h3><p>События, которые могут быть важны лично вам с учётом города и интересов.</p></article>
+        <article><span>🚌</span><h3>/hsl</h3><p>Ближайшие отправления по номеру остановки или вашей геопозиции.</p></article>
+        <article><span>🛒</span><h3>/offers</h3><p>Официальные акции выбранных продуктовых сетей и магазины рядом.</p></article>
+        <article><span>⚙️</span><h3>/settings</h3><p>Быстрый переход в личный кабинет для изменения рассылки.</p></article>
+        <article><span>❓</span><h3>/help</h3><p>Краткая инструкция по возможностям и командам бота.</p></article>
       </div>
     </section>
 
@@ -976,8 +988,14 @@ function renderTelegramInfoPage({ siteUrl }) {
 
     <section class="telegram-hsl" aria-labelledby="telegram-assistant-title">
       <div class="telegram-hsl-brand"><span>🤖</span></div>
-      <div class="telegram-hsl-copy"><p class="eyebrow">Персональный помощник</p><h2 id="telegram-assistant-title">Обсуждайте новости с ботом</h2><p>Спросите, какие новости сегодня важны, как событие может затронуть вас или цены, попросите объяснить статью простыми словами, сравнить источники либо подобрать финские слова. Под каждой персональной новостью доступны кнопки вопросов, комментариев, сохранения и отслеживания темы.</p><div class="telegram-hsl-methods"><span>💬 Вопросы текстом и голосом</span><span>👤 Ответы с учётом профиля</span><span>✍️ Комментарии с модерацией</span></div><small>Бот отделяет факты от возможного влияния и показывает использованные статьи.</small></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Персональный помощник</p><h2 id="telegram-assistant-title">Обсуждайте новости с ботом</h2><p>Спросите, какие новости сегодня важны, как событие может затронуть вас или цены, попросите объяснить статью простыми словами либо сравнить источники. Под каждой персональной новостью доступны кнопки «Объяснить», «Задать вопрос», «Комментировать» и «Сохранить».</p><div class="telegram-hsl-methods"><span>💬 Вопросы текстом и голосом</span><span>👤 Ответы с учётом профиля</span><span>✍️ Комментарии с модерацией</span></div><small>Бот отделяет подтверждённые факты от возможного влияния и показывает использованные статьи.</small></div>
       <a class="telegram-hsl-button" href="/account#assistant-profile">Настроить помощника →</a>
+    </section>
+
+    <section class="telegram-hsl" aria-labelledby="telegram-offers-title">
+      <div class="telegram-hsl-brand"><span>🛒</span></div>
+      <div class="telegram-hsl-copy"><p class="eyebrow">Акции рядом</p><h2 id="telegram-offers-title">Предложения продуктовых магазинов</h2><p>Команда <strong>/offers</strong> открывает актуальные официальные предложения Lidl, Prisma, S-market, Alepa, K-Market, K-Supermarket и K-Citymarket. Укажите город или отправьте геопозицию, чтобы найти магазины рядом.</p><div class="telegram-hsl-methods"><span>📍 По городу или геопозиции</span><span>🏪 Выбор любимых сетей</span><span>📅 Еженедельная подборка</span></div><small>Цены зависят от магазина. Персональные купоны Lidl Plus и Plussa остаются в официальных приложениях сетей.</small></div>
+      <a class="telegram-hsl-button" href="/account#assistant-profile">Выбрать магазины →</a>
     </section>
 
     <section class="telegram-benefits" aria-labelledby="telegram-benefits-title">
@@ -987,6 +1005,8 @@ function renderTelegramInfoPage({ siteUrl }) {
         <article><span>🗞️</span><h3>Выбор источников</h3><p>Получайте материалы только от YLE, Helsingin Sanomat, Iltalehti или других выбранных СМИ.</p></article>
         <article><span>🕒</span><h3>Удобный ритм</h3><p>Сразу после публикации или одной ежедневной подборкой. Ночью работает режим «Не беспокоить».</p></article>
         <article><span>🔗</span><h3>Полный контекст</h3><p>В каждом сообщении есть заголовок, краткий пересказ и постоянная ссылка на страницу новости.</p></article>
+        <article><span>🇫🇮</span><h3>Финский каждый день</h3><p>Три новых слова, повторение вчерашних слов и полезная фраза. Можно выбрать уровни A1–A2, B1–B2 и C1–C2.</p></article>
+        <article><span>🎉</span><h3>Праздники и дни флага</h3><p>Отдельные уведомления о праздниках Финляндии и официальных днях поднятия флага.</p></article>
       </div>
     </section>
 
@@ -995,18 +1015,18 @@ function renderTelegramInfoPage({ siteUrl }) {
       <ol>
         <li><span>1</span><div><strong>Войдите через Google</strong><p>Откройте личный кабинет и войдите своим Google-аккаунтом.</p></div></li>
         <li><span>2</span><div><strong>Подключите Telegram</strong><p>Нажмите «Подключить Telegram». Откроется бот проекта — в Telegram останется нажать «Запустить».</p></div></li>
-        <li><span>3</span><div><strong>Выберите новости</strong><p>Отметьте темы, источники, частоту и тихие часы, затем включите рассылку.</p></div></li>
+        <li><span>3</span><div><strong>Выберите нужные функции</strong><p>Отметьте темы и источники новостей, частоту, тихие часы, уровни финского и любимые магазины. Включите рассылку и нажмите «Сохранить настройки».</p></div></li>
       </ol>
     </section>
 
     <section class="telegram-controls">
-      <div><p class="eyebrow">Всё под вашим контролем</p><h2>Настройки можно менять когда угодно</h2><p>Сервис хранит только данные, необходимые для входа и доставки в ваш Telegram-чат. Рассылку можно приостановить или отключить в личном кабинете.</p></div>
+      <div><p class="eyebrow">Всё под вашим контролем</p><h2>Настройки можно менять когда угодно</h2><p>В личном кабинете можно изменить темы, источники, регионы, важность, количество сообщений, время доставки и ночную паузу. Там же настраиваются личный профиль, слово дня и магазины. Рассылку можно приостановить или полностью отключить.</p></div>
       <a class="telegram-primary-button" href="/account">Перейти в личный кабинет →</a>
     </section>
   </article>`;
   return documentPage({
     title: 'Персональные новости в Telegram — Финские Новости',
-    description: 'Настройте личную Telegram-ленту новостей Финляндии: темы, источники, частоту и тихие часы.',
+    description: 'Персональный Telegram-бот: новости Финляндии, помощник по статьям, HSL, акции магазинов, слово дня и гибкие настройки рассылки.',
     canonicalPath: '/telegram',
     siteUrl,
     content,
