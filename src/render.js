@@ -1048,7 +1048,7 @@ function renderAccountPage({
   const assistantInterests = Array.isArray(assistantProfile.interests) ? assistantProfile.interests.join(', ') : '';
   const assistantModes = new Set(Array.isArray(assistantProfile.modes) ? assistantProfile.modes : []);
   const groceryChains = new Set(Array.isArray(assistantProfile.groceryChains) && assistantProfile.groceryChains.length
-    ? assistantProfile.groceryChains : ['lidl', 'prisma', 'smarket', 'alepa', 'kmarket', 'kcitymarket']);
+    ? assistantProfile.groceryChains : ['lidl', 'prisma', 'smarket', 'alepa', 'kmarket', 'ksupermarket', 'kcitymarket']);
   const selectedSources = Array.isArray(subscription.sourceIds) ? subscription.sourceIds : [];
   const selectedContentTypes = Array.isArray(subscription.contentTypes) ? subscription.contentTypes : ['news'];
   const selectedWordLevels = new Set(Array.isArray(subscription.wordLevels) && subscription.wordLevels.length
@@ -1113,7 +1113,7 @@ function renderAccountPage({
         <fieldset class="account-fieldset"><legend>🛒 Акции продуктовых магазинов</legend>
           <label class="account-toggle account-toggle--compact"><input type="checkbox" name="grocery_offers_enabled"${assistantProfile.groceryOffersEnabled ? ' checked' : ''}><span><strong>Присылать подборку акций раз в неделю</strong><small>Бот использует официальные страницы магазинов и ваш город.</small></span></label>
           <div class="account-choices">
-            ${[['lidl','Lidl'],['prisma','Prisma'],['smarket','S-market'],['alepa','Alepa'],['kmarket','K-Market'],['kcitymarket','K-Citymarket']].map(([value,label]) => `<label class="account-choice"><input type="checkbox" name="grocery_chains" value="${value}"${groceryChains.has(value) ? ' checked' : ''}><span>${label}</span></label>`).join('')}
+            ${[['lidl','Lidl'],['prisma','Prisma'],['smarket','S-market'],['alepa','Alepa'],['kmarket','K-Market'],['ksupermarket','K-Supermarket'],['kcitymarket','K-Citymarket']].map(([value,label]) => `<label class="account-choice"><input type="checkbox" name="grocery_chains" value="${value}"${groceryChains.has(value) ? ' checked' : ''}><span>${label}</span></label>`).join('')}
           </div>
           <small class="account-muted">В Telegram также можно написать /offers или отправить геопозицию после этой команды, чтобы открыть магазины рядом.</small>
         </fieldset>
