@@ -294,6 +294,15 @@ function createDatabase() {
       FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS idx_telegram_reminders_due ON telegram_reminders(status, remind_at);
+    CREATE TABLE IF NOT EXISTS telegram_bot_events (
+      id INTEGER PRIMARY KEY,
+      user_id TEXT,
+      chat_id TEXT,
+      event_type TEXT NOT NULL,
+      occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_telegram_bot_events_time_type
+      ON telegram_bot_events(occurred_at DESC, event_type);
     CREATE TABLE IF NOT EXISTS article_issue_reports (
       id INTEGER PRIMARY KEY,
       article_id INTEGER NOT NULL,
@@ -1695,6 +1704,50 @@ function getUserStatistics() {
   return { totals, users, topics: [...topicCounts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru')) };
 }
 
+function recordTelegramBotEvent({ userId = null, chatId = null, eventType }) {
+  const normalized = String(eventType || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+  if (!normalized) return null;
+  return db.prepare(`
+    INSERT INTO telegram_bot_events (user_id, chat_id, event_type)
+    VALUES (?, ?, ?)
+  `).run(userId || null, chatId ? String(chatId) : null, normalized).lastInsertRowid;
+}
+
+function getTelegramBotStatistics() {
+  const totals = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM telegram_user_links WHERE telegram_chat_id IS NOT NULL) AS linkedUsers,
+      (SELECT COUNT(*) FROM user_subscriptions WHERE enabled = 1) AS activeSubscriptions,
+      (SELECT COUNT(*) FROM telegram_user_links WHERE telegram_chat_id IS NOT NULL AND datetime(linked_at) >= datetime('now', '-7 days')) AS linked7Days,
+      (SELECT COUNT(*) FROM telegram_user_links WHERE telegram_chat_id IS NOT NULL AND datetime(linked_at) >= datetime('now', '-30 days')) AS linked30Days,
+      (SELECT COUNT(*) FROM telegram_user_deliveries) AS newsDelivered,
+      (SELECT COUNT(*) FROM telegram_content_deliveries) AS contentDelivered,
+      (SELECT COUNT(*) FROM telegram_delivery_log WHERE status = 'sent' AND attempted_at >= datetime('now', '-7 days')) AS sent7Days,
+      (SELECT COUNT(*) FROM telegram_delivery_log WHERE status = 'failed' AND attempted_at >= datetime('now', '-7 days')) AS failed7Days,
+      (SELECT COUNT(DISTINCT COALESCE(user_id, chat_id)) FROM telegram_bot_events WHERE occurred_at >= datetime('now', '-7 days')) AS activeUsers7Days,
+      (SELECT COUNT(DISTINCT COALESCE(user_id, chat_id)) FROM telegram_bot_events WHERE occurred_at >= datetime('now', '-30 days')) AS activeUsers30Days
+  `).get();
+  const commands = db.prepare(`
+    SELECT event_type AS eventType, COUNT(*) AS uses,
+      COUNT(DISTINCT COALESCE(user_id, chat_id)) AS users
+    FROM telegram_bot_events
+    WHERE occurred_at >= datetime('now', '-30 days')
+    GROUP BY event_type ORDER BY uses DESC, event_type ASC
+  `).all();
+  const frequency = db.prepare(`
+    SELECT frequency, COUNT(*) AS users FROM user_subscriptions
+    WHERE enabled = 1 GROUP BY frequency ORDER BY users DESC
+  `).all();
+  const daily = db.prepare(`
+    SELECT date(occurred_at) AS day, COUNT(*) AS actions,
+      COUNT(DISTINCT COALESCE(user_id, chat_id)) AS users
+    FROM telegram_bot_events
+    WHERE occurred_at >= date('now', '-13 days')
+    GROUP BY date(occurred_at) ORDER BY day DESC
+  `).all();
+  return { totals, commands, frequency, daily };
+}
+
 function getAdminTelegramNotificationSettings() {
   return {
     enabled: getSystemSetting('admin_telegram_notifications_enabled', '0') === '1',
@@ -2645,6 +2698,8 @@ module.exports = {
   consumeUserOAuthState,
   createUserSession,
   getUserStatistics,
+  getTelegramBotStatistics,
+  recordTelegramBotEvent,
   getUserSession,
   deleteUserSession,
   getUserSubscription,

@@ -142,6 +142,7 @@ const {
   consumeUserOAuthState,
   createUserSession,
   getUserStatistics,
+  getTelegramBotStatistics,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -189,6 +190,7 @@ const {
   recordTelegramChannelPublication,
   recordTelegramDeliveryAttempt,
   recordSearchQuery,
+  recordTelegramBotEvent,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
@@ -2284,6 +2286,18 @@ app.post('/account/telegram/test', async (req, res) => {
 });
 app.post('/account/logout', (req, res) => { const user = getUserAuth(req); if (user) deleteUserSession(user.tokenHash); clearUserSessionCookie(res); return res.redirect(303, '/account/login'); });
 
+function telegramEventType(message) {
+  if (message?.voice) return 'voice_question';
+  if (message?.location) {
+    return getTelegramConversation(message.chat?.id)?.pendingAction === 'grocery_location'
+      ? 'offers_location' : 'hsl_location';
+  }
+  const text = typeof message?.text === 'string' ? message.text.trim() : '';
+  const command = /^\/([a-z0-9_]+)/i.exec(text)?.[1]?.toLowerCase();
+  if (command) return `command_${command}`;
+  return text ? 'text_question' : 'other_message';
+}
+
 app.post('/telegram/webhook', express.json(), async (req, res) => {
   if (TELEGRAM_WEBHOOK_SECRET && req.get('x-telegram-bot-api-secret-token') !== TELEGRAM_WEBHOOK_SECRET) {
     return res.status(403).json({ ok: false });
@@ -2291,6 +2305,10 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   const callbackQuery = req.body && req.body.callback_query;
   if (callbackQuery) {
     try {
+      const callbackChatId = callbackQuery?.message?.chat?.id;
+      const callbackUser = callbackChatId ? getTelegramUserByChatId(callbackChatId) : null;
+      const callbackAction = String(callbackQuery?.data || '').split(':')[1] || 'unknown';
+      recordTelegramBotEvent({ userId: callbackUser?.userId, chatId: callbackChatId, eventType: `button_${callbackAction}` });
       await handleTelegramCallbackQuery(callbackQuery);
     } catch (error) {
       console.error('[telegram callback] ошибка:', error.message);
@@ -2300,6 +2318,10 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   const message = req.body && req.body.message;
   const text = message && typeof message.text === 'string' ? message.text.trim() : '';
   const chatId = message && message.chat && message.chat.id;
+  if (chatId) {
+    const eventUser = getTelegramUserByChatId(chatId);
+    recordTelegramBotEvent({ userId: eventUser?.userId, chatId, eventType: telegramEventType(message) });
+  }
   const match = /^\/start(?:@[A-Za-z0-9_]{5,32})?\s+([A-Za-z0-9_-]{8,64})$/i.exec(text);
   const linkedUserId = match && chatId
     ? linkTelegramUser({ linkCodeHash: sha256(match[1]), telegramChatId: String(chatId) })
@@ -2369,6 +2391,7 @@ app.get('/admin', (req, res) => {
     query: typeof req.query.q === 'string' ? req.query.q : '',
     statistics: { ...getAdminStatistics(statisticsFilters), operational: getOperationalMetrics() },
     userStatistics: getUserStatistics(),
+    botStatistics: getTelegramBotStatistics(),
     statisticsSources: getAdminSources(),
     newsSources: getAdminSources(),
     newsSourceStatus: typeof req.query.newsSource === 'string' ? req.query.newsSource : '',
