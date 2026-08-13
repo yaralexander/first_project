@@ -25,6 +25,11 @@ function assertSharedSiteShell(html) {
   assert.match(html, /\.article-navigation a\{[^}]*color:var\(--ink\)/);
   assert.match(html, /data-font-step="-0\.10"/);
   assert.match(html, /data-font-step="0\.10"/);
+  assert.match(html, /data-translation-status/);
+  assert.match(html, /translation-status-dot/);
+  assert.match(html, /\/api\/translation-status/);
+  assert.match(html, /AI-пересказ работает/);
+  assert.match(html, /Google-перевод/);
   assert.match(html, /class="utility-button utility-theme-status"[^>]*data-theme-toggle/);
   assert.match(html, /localStorage\.getItem\(themeKey\)/);
   assert.match(html, /savedTheme='light'/);

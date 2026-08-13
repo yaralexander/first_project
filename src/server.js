@@ -134,6 +134,7 @@ const {
   getArticleSourceMentions,
   getHomeArticles,
   articleExists,
+  getTranslationServiceStatus,
   cleanupAnalytics,
   cleanupAdminAuthData,
   consumeAdminOAuthState,
@@ -1768,6 +1769,15 @@ app.get('/api/news', (req, res) => {
 // GET /api/news/sources — список источников и сколько новостей от каждого сейчас в кэше
 app.get('/api/news/sources', (req, res) => {
   res.json(getSourceCounts());
+});
+
+app.get('/api/translation-status', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const status = getTranslationServiceStatus();
+  if (status.mode === 'unknown') {
+    status.mode = ['openai', 'claude'].includes(RUSSIAN_PROVIDER) && IMPORT_PROVIDER_CONFIGURED ? 'ai' : 'google';
+  }
+  res.json(status);
 });
 
 // POST /api/news/refresh — форсировать обновление вручную (например, из админки)

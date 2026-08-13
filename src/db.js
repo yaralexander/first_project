@@ -409,6 +409,24 @@ function articleExists(originalUrl) {
   return Boolean(findArticleByUrl.get(originalUrl));
 }
 
+function getTranslationServiceStatus() {
+  const row = db.prepare(`
+    SELECT translation_method, created_at
+    FROM articles
+    WHERE translation_method IS NOT NULL AND translation_method <> ''
+    ORDER BY datetime(created_at) DESC, id DESC
+    LIMIT 1
+  `).get();
+  const method = String(row?.translation_method || '');
+  const google = method === 'google-translate-free';
+  const ai = ['openai-retelling', 'ai-retelling'].includes(method);
+  return {
+    mode: google ? 'google' : ai ? 'ai' : 'unknown',
+    method,
+    updatedAt: row?.created_at || null,
+  };
+}
+
 function getArticleClassification(articleId) {
   const article = db.prepare(`
     SELECT region_code, classification_confidence, importance_level,
@@ -2651,6 +2669,7 @@ function getManagedTaxonomyUsage(type, id) {
 
 module.exports = {
   articleExists,
+  getTranslationServiceStatus,
   claimDueTasks,
   cleanupAnalytics,
   completeTask,
