@@ -16,6 +16,19 @@ const GLOSSARY = {
   'Alexander Stubbin': 'Александра Стубба', // частый падеж в финских заголовках
   'Petteri Orpo': 'Петтери Орпо',
   'Riikka Purra': 'Риикка Пурра',
+  'Mauri Peltokangas': 'Маури Пелтокангас',
+
+  // --- Политические партии и государственные организации ---
+  'Perussuomalaiset': '«Истинные финны» (Perussuomalaiset)',
+  'Suomen Sosialidemokraattinen Puolue': 'Социал-демократическая партия Финляндии (SDP)',
+  'SDP': 'SDP',
+  'Kansallinen Kokoomus': 'Национальная коалиционная партия (Kokoomus)',
+  'Keskusta': 'Финляндский центр (Keskusta)',
+  'Vihreä liitto': '«Зелёный союз» (Vihreä liitto)',
+  'Vasemmistoliitto': '«Левый союз» (Vasemmistoliitto)',
+  'Svenska folkpartiet': 'Шведская народная партия (SFP)',
+  'Kristillisdemokraatit': '«Христианские демократы» (Kristillisdemokraatit)',
+  'Eduskunta': 'парламент Финляндии (Eduskunta)',
 
   // --- Мировые политики ---
   'Donald Trump': 'Дональд Трамп',
@@ -55,7 +68,7 @@ const GLOSSARY = {
   'Oulu': 'Оулу',
   'Seinäjoki': 'Сейняйоки',
   'Munkkivuori': 'Мункквуори',
-  'Munkkiniemi': 'Мункkiniеми',
+  'Munkkiniemi': 'Мунккиниеми',
   'Kempele': 'Кемпеле',
   'Kauklahti': 'Кауклахти',
   'Hanko': 'Ханко',
@@ -72,4 +85,24 @@ function formatGlossaryForPrompt() {
   return lines.join('\n');
 }
 
-module.exports = { GLOSSARY, formatGlossaryForPrompt };
+const RUSSIAN_CORRECTIONS = Object.freeze([
+  [/(?<![А-ЯЁа-яё])Перуссуомалайсет(?:а|ом|е|у)?(?![А-ЯЁа-яё])/giu, '«Истинные финны» (Perussuomalaiset)'],
+  [/(?<![А-ЯЁа-яё])Перуссуомалайстен(?![А-ЯЁа-яё])/giu, 'партии «Истинные финны» (Perussuomalaiset)'],
+  [/(?<![А-ЯЁа-яё])Маури\s+Пельтокангас(?![А-ЯЁа-яё])/giu, 'Маури Пелтокангас'],
+  [/(?<![А-ЯЁа-яё])Мункkiniеми(?![А-ЯЁа-яё])/gu, 'Мунккиниеми'],
+]);
+
+function normalizeRussianProperNames(text) {
+  let result = String(text || '');
+  for (const [pattern, replacement] of RUSSIAN_CORRECTIONS) result = result.replace(pattern, replacement);
+  return result;
+}
+
+function normalizeRussianArticle({ titleRu = '', summaryRu = '' } = {}) {
+  return {
+    titleRu: normalizeRussianProperNames(titleRu),
+    summaryRu: normalizeRussianProperNames(summaryRu),
+  };
+}
+
+module.exports = { GLOSSARY, formatGlossaryForPrompt, normalizeRussianArticle, normalizeRussianProperNames };

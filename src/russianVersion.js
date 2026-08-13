@@ -17,6 +17,7 @@ const {
 } = require('./openAiRetell');
 const { translateArticleWithGoogleFree } = require('./freeTranslate');
 const { createAdminNotification } = require('./db');
+const { normalizeRussianArticle } = require('./glossary');
 
 const PROVIDER = (process.env.RUSSIAN_PROVIDER || 'openai').toLowerCase();
 const FALLBACK_PROVIDER = (process.env.RUSSIAN_FALLBACK_PROVIDER || '').toLowerCase();
@@ -101,22 +102,21 @@ async function getRussianVersion(article) {
     if (PROVIDER === 'openai') {
       const { titleRu, summaryRu } = await openAiRetellArticle(article);
       return {
-        titleRu,
-        summaryRu,
+        ...normalizeRussianArticle({ titleRu, summaryRu }),
         method: 'openai-retelling',
         promptVersion: OPENAI_PROMPT_VERSION,
       };
     }
     if (PROVIDER === 'claude') {
       const { titleRu, summaryRu } = await retellArticle(article);
-      return { titleRu, summaryRu, method: 'ai-retelling', promptVersion: PROMPT_VERSION };
+      return { ...normalizeRussianArticle({ titleRu, summaryRu }), method: 'ai-retelling', promptVersion: PROMPT_VERSION };
     }
     if (PROVIDER === 'deepl') {
       const [titleRu, summaryRu] = await Promise.all([deeplTranslate(titleFi), deeplTranslate(summaryFi)]);
-      return { titleRu, summaryRu, method: 'deepl-literal' };
+      return { ...normalizeRussianArticle({ titleRu, summaryRu }), method: 'deepl-literal' };
     }
     if (PROVIDER === 'libretranslate') {
-      return translateWithLibre(titleFi, summaryFi);
+      return { ...normalizeRussianArticle(await translateWithLibre(titleFi, summaryFi)), method: 'libretranslate-literal' };
     }
     // mock
     return { titleRu: `[RU] ${titleFi}`, summaryRu: `[RU] ${summaryFi}`, method: 'mock' };

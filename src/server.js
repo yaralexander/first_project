@@ -45,6 +45,7 @@ const {
 } = require('./telegramDelivery');
 const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
 const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
+const { emptyOnboarding, onboardingView, applyOnboardingAction, onboardingSummary } = require('./telegramOnboarding');
 const {
   articleMatchesFollowedTopics,
   detectAssistantIntent,
@@ -151,6 +152,7 @@ const {
   createTelegramLinkCode,
   getTelegramUserLink,
   getTelegramUserByChatId,
+  ensureTelegramUser,
   getTelegramAssistantProfile,
   saveTelegramAssistantProfile,
   getTelegramConversation,
@@ -870,6 +872,76 @@ async function answerTelegramCallback(callbackId, text = '') {
   await callTelegramBotMethod('answerCallbackQuery', { callback_query_id: callbackId, text: String(text).slice(0, 180) });
 }
 
+function onboardingState(chatId) {
+  const conversation = getTelegramConversation(chatId);
+  if (conversation?.pendingAction !== 'onboarding') return null;
+  try { return { ...emptyOnboarding(), ...JSON.parse(conversation.draftText || '{}') }; } catch { return emptyOnboarding(); }
+}
+
+async function sendOnboardingStep(chatId, state, messageId = null) {
+  const view = onboardingView(state);
+  const options = { parse_mode: 'HTML', reply_markup: view.reply_markup };
+  if (messageId) return callTelegramBotMethod('editMessageText', { chat_id: chatId, message_id: messageId, text: view.text, ...options });
+  return sendTelegramMessageToChat(chatId, view.text, options);
+}
+
+async function startTelegramOnboarding(chatId, { restart = false } = {}) {
+  const user = ensureTelegramUser(chatId);
+  const existing = getUserSubscription(user.userId);
+  if (existing.persisted && !restart) return false;
+  const state = emptyOnboarding();
+  saveTelegramConversation({ chatId, userId: user.userId, pendingAction: 'onboarding', draftText: JSON.stringify(state) });
+  await sendTelegramMessageToChat(chatId, [
+    '👋 <b>Добро пожаловать в «Финские Новости»!</b>',
+    '',
+    'Я соберу для вас персональную ленту новостей Финляндии, могу объяснять события, показывать HSL, слова дня и акции магазинов.',
+    '',
+    'Настройка займёт 1–2 минуты: 10 коротких вопросов с кнопками.',
+  ].join('\n'), { parse_mode: 'HTML' });
+  await sendOnboardingStep(chatId, state);
+  return true;
+}
+
+async function handleOnboardingCallback(callback) {
+  const chatId = callback?.message?.chat?.id;
+  const data = String(callback?.data || '');
+  if (!chatId || !data.startsWith('onb:')) return false;
+  const state = onboardingState(chatId);
+  if (!state) { await answerTelegramCallback(callback.id, 'Начните настройку командой /start'); return true; }
+  const result = applyOnboardingAction(state, data.slice(4));
+  if (result.error) { await answerTelegramCallback(callback.id, result.error); return true; }
+  const user = ensureTelegramUser(chatId);
+  if (result.finished) {
+    const categoryMap = { politika: 'Политика', ekonomika: 'Экономика', immigratsiya: 'Иммиграция', rabota: 'Работа', obshchestvo: 'Общество', obrazovanie: 'Образование' };
+    const contentTypes = ['news'];
+    if (result.state.word) contentTypes.push('word');
+    if (result.state.offers) contentTypes.push('offers');
+    upsertUserSubscription({ ...getUserSubscription(user.userId), userId: user.userId, enabled: true,
+      frequency: result.state.frequency, categories: result.state.topics.map((id) => categoryMap[id]).filter(Boolean),
+      scope: result.state.region === 'all' ? 'all' : 'finland', importance: result.state.importance,
+      maxPostsPerDay: result.state.maxPosts, contentTypes, wordLevels: result.state.levels,
+      deliveryTimes: result.state.frequency === 'daily' ? [result.state.time] : [],
+      regionCodes: result.state.region === 'capital' ? ['uusimaa'] : [],
+    });
+    saveTelegramAssistantProfile(user.userId, { ...getTelegramAssistantProfile(user.userId),
+      city: result.state.region === 'capital' ? 'Helsinki region' : '', interests: result.state.topics,
+      groceryOffersEnabled: result.state.offers, groceryChains: result.state.chains,
+    });
+    clearTelegramConversation(chatId);
+    await answerTelegramCallback(callback.id, 'Настройки сохранены');
+    await callTelegramBotMethod('editMessageText', { chat_id: chatId, message_id: callback.message.message_id,
+      text: onboardingSummary(result.state, SITE_URL), parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '📰 Главные новости сегодня', callback_data: 'quick:today' }], [{ text: '⚙️ Расширенные настройки', url: `${SITE_URL}/account` }]] },
+    });
+    queueAdminTelegramNotification('subscription_changed', 'Новый пользователь настроил Telegram-ленту', [`Пользователь: ${user.userId}`]);
+    return true;
+  }
+  saveTelegramConversation({ chatId, userId: user.userId, pendingAction: 'onboarding', draftText: JSON.stringify(result.state) });
+  await answerTelegramCallback(callback.id);
+  await sendOnboardingStep(chatId, result.state, callback.message.message_id);
+  return true;
+}
+
 function telegramArticleContext(article) {
   return article ? `${article.titleRu || article.titleFi}\n\n${article.summaryRu || article.summaryFi || ''}` : '';
 }
@@ -905,6 +977,12 @@ async function sendAssistantAnswer(chatId, user, question, { article = null, fas
 async function handleTelegramCallbackQuery(callback) {
   const chatId = callback?.message?.chat?.id;
   const data = String(callback?.data || '');
+  if (chatId && data === 'quick:today') {
+    await answerTelegramCallback(callback.id);
+    await sendAssistantAnswer(chatId, getTelegramUserByChatId(chatId), 'Какие сегодня главные новости?', { fast: true, announce: true });
+    return true;
+  }
+  if (await handleOnboardingCallback(callback)) return true;
   if (!chatId || !data.startsWith('news:')) return false;
   const [, action, rawArticleId] = data.split(':');
   const articleId = Number.parseInt(rawArticleId, 10);
@@ -2335,6 +2413,14 @@ app.post('/telegram/webhook', express.json(), async (req, res) => {
   }
   if (chatId && TELEGRAM_BOT_TOKEN) {
     try {
+      if (/^\/onboarding(?:@[A-Za-z0-9_]{5,32})?$/i.test(text)) {
+        await startTelegramOnboarding(chatId, { restart: true });
+        return res.status(200).json({ ok: true });
+      }
+      if (/^\/start(?:@[A-Za-z0-9_]{5,32})?(?:\s+[A-Za-z0-9_-]{8,64})?$/i.test(text)) {
+        const started = await startTelegramOnboarding(chatId);
+        if (started) return res.status(200).json({ ok: true });
+      }
       const groceryHandled = await handleGroceryTelegramMessage(message);
       if (groceryHandled) return res.status(200).json({ ok: true });
       const hslHandled = await handleHslTelegramMessage(message);

@@ -7,6 +7,7 @@ const { assessArticleQuality } = require('./articleQuality');
 const { applyFoundationSchema } = require('./schemaFoundation');
 const { createTaxonomyRepository } = require('./taxonomyRepository');
 const { SOURCES } = require('./config');
+const { normalizeRussianArticle } = require('./glossary');
 
 const databasePath = process.env.DATABASE_PATH
   || path.join(__dirname, '..', 'data', 'finskienovosti.db');
@@ -841,15 +842,16 @@ function estimateReadMinutes(text = '') {
 }
 
 function toApiArticle(row) {
+  const russian = normalizeRussianArticle({ titleRu: row.title_ru, summaryRu: row.summary_ru });
   return {
     id: row.external_guid || row.original_url,
     source: row.source_id,
     sourceName: row.source_name,
     category: row.category,
     titleFi: row.title_fi,
-    titleRu: row.title_ru,
+    titleRu: russian.titleRu,
     summaryFi: row.summary_fi,
-    summaryRu: row.summary_ru,
+    summaryRu: russian.summaryRu,
     translationMethod: row.translation_method,
     link: row.original_url,
     pubDate: row.published_at,
@@ -858,6 +860,7 @@ function toApiArticle(row) {
 }
 
 function toArticle(row) {
+  const russian = normalizeRussianArticle({ titleRu: row.title_ru, summaryRu: row.summary_ru });
   return {
     id: row.id,
     sourceId: row.source_id,
@@ -868,8 +871,8 @@ function toArticle(row) {
     category: row.category,
     titleFi: row.title_fi,
     summaryFi: row.summary_fi,
-    titleRu: row.title_ru,
-    summaryRu: row.summary_ru,
+    titleRu: russian.titleRu,
+    summaryRu: russian.summaryRu,
     translationMethod: row.translation_method,
     promptVersion: row.prompt_version,
     publishedAt: row.published_at,
@@ -2010,8 +2013,27 @@ function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepar
 function linkTelegramUser({ linkCodeHash, telegramChatId }) {
   const link = db.prepare("SELECT user_id FROM telegram_user_links WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").get(linkCodeHash);
   if (!link) return null;
-  const result = db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE user_id = ? AND link_code_hash = ?").run(String(telegramChatId), link.user_id, linkCodeHash);
-  return result.changes === 1 ? link.user_id : null;
+  const chat = String(telegramChatId);
+  const attach = db.transaction(() => {
+    const existing = db.prepare('SELECT user_id FROM telegram_user_links WHERE telegram_chat_id = ?').get(chat);
+    if (existing && existing.user_id !== link.user_id && String(existing.user_id).startsWith('telegram:')) {
+      if (!db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id = ?').get(link.user_id)) db.prepare('UPDATE user_subscriptions SET user_id = ? WHERE user_id = ?').run(link.user_id, existing.user_id);
+      if (!db.prepare('SELECT 1 FROM telegram_assistant_profiles WHERE user_id = ?').get(link.user_id)) db.prepare('UPDATE telegram_assistant_profiles SET user_id = ? WHERE user_id = ?').run(link.user_id, existing.user_id);
+      db.prepare('DELETE FROM telegram_user_links WHERE user_id = ?').run(existing.user_id);
+    }
+    return db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE user_id = ? AND link_code_hash = ?").run(chat, link.user_id, linkCodeHash).changes === 1;
+  });
+  return attach() ? link.user_id : null;
+}
+
+function ensureTelegramUser(chatId) {
+  const chat = String(chatId);
+  const existing = getTelegramUserByChatId(chat);
+  if (existing) return existing;
+  const userId = `telegram:${chat}`;
+  db.prepare(`INSERT INTO telegram_user_links (user_id, telegram_chat_id, linked_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET telegram_chat_id=excluded.telegram_chat_id, linked_at=CURRENT_TIMESTAMP`).run(userId, chat);
+  return { userId, email: '', displayName: '' };
 }
 function getTelegramUserLink(userId) {
   try {
@@ -2709,6 +2731,7 @@ module.exports = {
   linkTelegramUser,
   getTelegramUserLink,
   getTelegramUserByChatId,
+  ensureTelegramUser,
   getTelegramAssistantProfile,
   saveTelegramAssistantProfile,
   getTelegramConversation,
