@@ -70,7 +70,20 @@ function applyOnboardingAction(state, action) {
 
 function onboardingSummary(state, accountUrl) {
   const topicNames = TOPICS.filter(([id]) => state.topics.includes(id)).map(([, name]) => name.replace(/^\S+\s/, '')).join(', ');
-  return [`✅ <b>Ваша персональная лента готова</b>`, `Темы: ${topicNames || 'главные новости'}`, `Доставка: ${state.frequency === 'instant' ? 'сразу' : `ежедневно в ${state.time}`}, до ${state.maxPosts} новостей`, `Слово дня: ${state.word ? 'включено' : 'выключено'} · Акции: ${state.offers ? 'включены' : 'выключены'}`, '', 'Можно сразу нажать /today или задать вопрос боту.', `Больше настроек: ${String(accountUrl).replace(/\/$/, '')}/account`].join('\n');
+  const accountLink = `${String(accountUrl).replace(/\/$/, '')}/account`;
+  return [
+    '✅ <b>Ваша персональная лента готова</b>',
+    `Темы: ${topicNames || 'главные новости'}`,
+    `Доставка: ${state.frequency === 'instant' ? 'сразу' : `ежедневно в ${state.time}`}, до ${state.maxPosts} новостей`,
+    `Слово дня: ${state.word ? 'включено' : 'выключено'} · Акции: ${state.offers ? 'включены' : 'выключены'}`,
+    '',
+    'Можно сразу нажать /today или задать вопрос боту.',
+    '',
+    '⚙️ <b>Хотите настроить ленту ещё точнее?</b>',
+    'В личном кабинете на сайте можно выбрать конкретные источники новостей, дни и время доставки, тихие часы, регионы, уровни важности и другие параметры.',
+    '',
+    `Открыть личный кабинет: ${accountLink}`,
+  ].join('\n');
 }
 
 module.exports = { TOPICS, CHAINS, emptyOnboarding, onboardingView, applyOnboardingAction, onboardingSummary };

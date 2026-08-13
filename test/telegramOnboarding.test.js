@@ -33,5 +33,9 @@ test('Telegram onboarding collects delivery, words and grocery preferences', () 
   assert.equal(completed.state.offers, true);
   assert.ok(completed.state.levels.includes('B1-B2'));
   assert.deepEqual(completed.state.chains, ['prisma']);
-  assert.match(onboardingSummary(completed.state, 'https://finskienovosti.fi'), /персональная лента готова/i);
+  const summary = onboardingSummary(completed.state, 'https://finskienovosti.fi');
+  assert.match(summary, /персональная лента готова/i);
+  assert.match(summary, /конкретные источники новостей/);
+  assert.match(summary, /тихие часы/);
+  assert.match(summary, /https:\/\/finskienovosti\.fi\/account/);
 });
