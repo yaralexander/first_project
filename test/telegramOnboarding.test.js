@@ -39,3 +39,12 @@ test('Telegram onboarding collects delivery, words and grocery preferences', () 
   assert.match(summary, /тихие часы/);
   assert.match(summary, /https:\/\/finskienovosti\.fi\/account/);
 });
+
+test('Telegram onboarding finishes immediately when grocery offers are declined', () => {
+  const state = { ...emptyOnboarding(), step: 8, topics: ['obshchestvo'], chains: ['lidl'] };
+  const completed = applyOnboardingAction(state, 'offers:no');
+  assert.equal(completed.finished, true);
+  assert.equal(completed.state.offers, false);
+  assert.deepEqual(completed.state.chains, []);
+  assert.equal(completed.state.step, 8);
+});

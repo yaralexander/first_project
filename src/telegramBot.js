@@ -3,6 +3,7 @@ const RUSSIAN_BOT_COMMANDS = Object.freeze([
   { command: 'forme', description: 'Новости, важные лично для меня' },
   { command: 'hsl', description: 'Расписание транспорта HSL' },
   { command: 'offers', description: 'Акции магазинов рядом' },
+  { command: 'onboarding', description: 'Настроить бота заново' },
   { command: 'settings', description: 'Открыть настройки рассылки' },
   { command: 'help', description: 'Показать инструкцию' },
 ]);
@@ -82,6 +83,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
       'Здравствуйте! Это бот «Финские Новости». 🇫🇮',
       'Он отправляет персональную подборку новостей на русском языке.',
       'Команда /hsl показывает расписание транспорта по номеру остановки или геопозиции.',
+      'Команда /onboarding позволяет в любой момент пройти настройку бота заново.',
       'Можно спросить: «Какие сегодня важные новости?», «Как это повлияет на меня?» или «Что будет с ценами?».',
       'Чтобы подключить рассылку, войдите в личный кабинет и нажмите «Подключить Telegram». Имя канала вводить не нужно.',
       accountLink,
@@ -109,6 +111,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
     '/settings — открыть настройки',
     '/hsl — расписание транспорта HSL',
     '/offers — акции Lidl, Prisma, S-market, Alepa и K-магазинов рядом',
+    '/onboarding — пройти настройку бота заново',
     '/today — главные новости сегодня',
     '/forme — новости с учётом вашего профиля',
     '/saved — сохранённые статьи',

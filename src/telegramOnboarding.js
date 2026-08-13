@@ -63,9 +63,13 @@ function applyOnboardingAction(state, action) {
   else if (kind === 'time') { s.time = value; s.step += 1; }
   else if (kind === 'importance') { s.importance = value; s.step += 1; }
   else if (kind === 'word') { s.word = value === 'yes'; s.step += 1; }
-  else if (kind === 'offers') { s.offers = value === 'yes'; s.step += 1; }
+  else if (kind === 'offers') {
+    s.offers = value === 'yes';
+    if (s.offers) s.step += 1;
+    else s.chains = [];
+  }
   else if (kind === 'next') { if (s.step === 0 && !s.topics.length) return { state: s, error: 'Выберите хотя бы одну тему.' }; if (s.step === 7 && !s.levels.length) return { state: s, error: 'Выберите хотя бы один уровень.' }; s.step += 1; }
-  return { state: s, finished: kind === 'finish' };
+  return { state: s, finished: kind === 'finish' || (kind === 'offers' && value === 'no') };
 }
 
 function onboardingSummary(state, accountUrl) {
