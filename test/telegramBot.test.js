@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   RUSSIAN_BOT_COMMANDS,
+  RUSSIAN_BOT_NAME,
   configureRussianTelegramBot,
   configureTelegramWebhook,
   getRussianTelegramReply,
@@ -14,18 +15,22 @@ test('configures Russian Telegram commands and descriptions for default and ru l
     return true;
   });
 
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 8);
   assert.deepEqual(calls[0], {
+    method: 'setMyName',
+    body: { name: RUSSIAN_BOT_NAME },
+  });
+  assert.deepEqual(calls[1], {
     method: 'setMyCommands',
     body: { commands: RUSSIAN_BOT_COMMANDS },
   });
-  assert.equal(calls[1].method, 'setMyDescription');
-  assert.match(calls[1].body.description, /Персональная рассылка/);
-  assert.equal(calls[2].method, 'setMyShortDescription');
-  assert.match(calls[2].body.short_description, /Новости Финляндии/);
-  assert.equal(calls[3].body.language_code, 'ru');
-  assert.equal(calls[4].body.language_code, 'ru');
-  assert.equal(calls[5].body.language_code, 'ru');
+  assert.equal(calls[2].method, 'setMyDescription');
+  assert.match(calls[2].body.description, /Персональная рассылка/);
+  assert.equal(calls[3].method, 'setMyShortDescription');
+  assert.match(calls[3].body.short_description, /Новости Финляндии/);
+  assert.equal(calls[4].method, 'setMyName');
+  assert.equal(calls[4].body.name, 'Финские Новости');
+  assert.ok(calls.slice(4).every(({ body }) => body.language_code === 'ru'));
   assert.ok(calls.every(({ body }) => JSON.stringify(body).match(/[А-Яа-яЁё]/)));
   assert.deepEqual(RUSSIAN_BOT_COMMANDS.map(({ command }) => command), [
     'today', 'forme', 'hsl', 'offers', 'settings', 'help',

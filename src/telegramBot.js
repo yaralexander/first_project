@@ -13,12 +13,15 @@ const RUSSIAN_BOT_DESCRIPTION = [
 ].join(' ');
 
 const RUSSIAN_BOT_SHORT_DESCRIPTION = 'Новости Финляндии и расписание транспорта HSL на русском языке.';
+const RUSSIAN_BOT_NAME = 'Финские Новости';
 
 async function configureRussianTelegramBot(callMethod) {
   const localizedSettings = [
+    ['setMyName', { name: RUSSIAN_BOT_NAME }],
     ['setMyCommands', { commands: RUSSIAN_BOT_COMMANDS }],
     ['setMyDescription', { description: RUSSIAN_BOT_DESCRIPTION }],
     ['setMyShortDescription', { short_description: RUSSIAN_BOT_SHORT_DESCRIPTION }],
+    ['setMyName', { name: RUSSIAN_BOT_NAME, language_code: 'ru' }],
     ['setMyCommands', { commands: RUSSIAN_BOT_COMMANDS, language_code: 'ru' }],
     ['setMyDescription', { description: RUSSIAN_BOT_DESCRIPTION, language_code: 'ru' }],
     ['setMyShortDescription', { short_description: RUSSIAN_BOT_SHORT_DESCRIPTION, language_code: 'ru' }],
@@ -116,6 +119,7 @@ function getRussianTelegramReply(text, { accountUrl, linkSucceeded = false, chat
 
 module.exports = {
   RUSSIAN_BOT_COMMANDS,
+  RUSSIAN_BOT_NAME,
   RUSSIAN_BOT_DESCRIPTION,
   RUSSIAN_BOT_SHORT_DESCRIPTION,
   configureRussianTelegramBot,
