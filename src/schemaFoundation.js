@@ -6,6 +6,7 @@ const DEFAULT_CATEGORIES = [
   { code: 'economy', name: 'Экономика', slug: 'ekonomika', emoji: '💶', color: '#ca8a04', sortOrder: 20 },
   { code: 'immigration', name: 'Иммиграция', slug: 'immigratsiya', emoji: '✈️', color: '#0284c7', sortOrder: 30 },
   { code: 'work', name: 'Работа', slug: 'rabota', emoji: '💼', color: '#7c3aed', sortOrder: 40 },
+  { code: 'incidents', name: 'Происшествия', slug: 'proisshestviya', emoji: '🚨', color: '#dc2626', sortOrder: 45 },
   { code: 'society', name: 'Общество', slug: 'obshchestvo', emoji: '👥', color: '#059669', sortOrder: 50 },
   { code: 'education', name: 'Образование', slug: 'obrazovanie', emoji: '🎓', color: '#4f46e5', sortOrder: 60 },
   { code: 'russia', name: 'Россия', slug: 'rossiya', emoji: '🇷🇺', color: '#dc2626', sortOrder: 70 },

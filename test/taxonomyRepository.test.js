@@ -32,11 +32,12 @@ test('справочники создаются с системными кате
   const db = createTestDatabase();
   const repository = createTaxonomyRepository(db);
 
-  assert.equal(repository.list('categories').length, 8);
+  assert.equal(repository.list('categories').length, 9);
   assert.equal(repository.list('regions').length, 2);
   assert.equal(repository.list('audiences').length, 6);
   assert.equal(repository.list('tags').length, 0);
   assert.equal(repository.categoryBySlug('politika').name, 'Политика');
+  assert.equal(repository.categoryBySlug('proisshestviya').name, 'Происшествия');
 
   db.close();
 });

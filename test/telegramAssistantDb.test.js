@@ -36,3 +36,28 @@ test('stores assistant profile, conversation, followed topics and saved articles
   assert.equal(db.getDueTelegramReminders('2026-08-11T11:00:00.000Z')[0].id, reminderId);
   assert.equal(db.markTelegramReminderSent(reminderId), true);
 });
+
+test('links phone onboarding to a Google account and preserves bot settings', () => {
+  const phoneUser = db.ensureTelegramUser('77777');
+  db.upsertUserSubscription({
+    ...db.getUserSubscription(phoneUser.userId),
+    enabled: true,
+    frequency: 'instant',
+    categories: ['Происшествия'],
+  });
+  db.saveTelegramAssistantProfile(phoneUser.userId, {
+    city: 'Vantaa',
+    interests: ['полиция'],
+    groceryOffersEnabled: false,
+  });
+  db.toggleTelegramTopicFollow(phoneUser.userId, 'Безопасность района');
+
+  db.createUserSession({ tokenHash: 'linked-session', googleSub: 'linked-google-user', email: 'linked@example.com', displayName: 'Linked Reader', expiresAt: '2030-01-01T00:00:00Z' });
+  db.createTelegramLinkCode({ userId: 'linked-google-user', linkCodeHash: 'phone-link-hash', expiresAt: '2030-01-01T00:00:00Z' });
+  assert.equal(db.linkTelegramUser({ linkCodeHash: 'phone-link-hash', telegramChatId: '77777' }), 'linked-google-user');
+
+  assert.equal(db.getTelegramUserByChatId('77777').userId, 'linked-google-user');
+  assert.deepEqual(db.getUserSubscription('linked-google-user').categories, ['Происшествия']);
+  assert.equal(db.getTelegramAssistantProfile('linked-google-user').city, 'Vantaa');
+  assert.deepEqual(db.getTelegramTopicFollows('linked-google-user'), ['Безопасность района']);
+});

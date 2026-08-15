@@ -118,7 +118,9 @@ test('account page keeps subscription controls inside the shared design', () => 
   assert.match(html, /class="account-page"/);
   assert.match(html, /action="\/account\/subscription"/);
   assert.match(html, /action="\/account\/telegram\/connect"/);
-  assert.match(html, /Имя канала вводить не нужно/);
+  assert.match(html, /id="telegram-setup"/);
+  assert.match(html, /action="\/account\/telegram\/code"/);
+  assert.match(html, /Telegram только на телефоне/);
   assert.match(html, /Подключить Telegram/);
   assert.match(html, /name="source_ids" value="yle" checked/);
   assert.match(html, /name="quiet_start" type="time" value="22:00"/);
@@ -147,6 +149,16 @@ test('account page keeps subscription controls inside the shared design', () => 
   });
   assert.match(connectedHtml, /action="\/account\/telegram\/test"/);
   assert.match(connectedHtml, /Проверить доставку/);
+
+  const codeHtml = renderAccountPage({
+    siteUrl,
+    user: { email: 'reader@example.com', displayName: 'Reader' },
+    subscription: { enabled: false, frequency: 'daily', scope: 'finland', importance: 'all', maxPostsPerDay: 5, categories: [], sourceIds: [], contentTypes: ['news'] },
+    telegramLinkCode: 'safe-one-time-code',
+  });
+  assert.match(codeHtml, /\/start safe-one-time-code/);
+  assert.match(codeHtml, /действует 15 минут/);
+  assert.match(codeHtml, /не накапливаются и утром не отправляются/);
 });
 
 test('contact and login states retain accessible feedback', () => {

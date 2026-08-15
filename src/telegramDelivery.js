@@ -206,7 +206,7 @@ function canDeliverArticleNow(article, subscription, now = new Date()) {
     && ((Number(article?.importanceLevel) || 1) >= 5 || article?.editorialStatus === 'urgent');
 }
 
-function isArticleSuppressedByQuietHours(article, subscription) {
+function isArticleSuppressedByQuietHours(article, subscription, now = new Date()) {
   if (!subscription?.quietHoursEnabled || !article?.publishedAt) return false;
 
   const publishedAt = new Date(article.publishedAt);
@@ -216,7 +216,9 @@ function isArticleSuppressedByQuietHours(article, subscription) {
 
   const isCritical = (Number(article.importanceLevel) || 1) >= 5
     || article.editorialStatus === 'urgent';
-  return !(subscription.allowCriticalDuringQuiet && isCritical);
+  // A critical article may pass only while quiet hours are still active. If the
+  // process was offline, it must not become a morning backlog after quiet time.
+  return !(subscription.allowCriticalDuringQuiet && isCritical && isQuietTime(subscription, now));
 }
 
 function isDeliveryScheduleDue(subscription, now = new Date()) {

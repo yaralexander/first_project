@@ -145,7 +145,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
 }
 
 function categoryToStaticSlug(category) {
-  const values = { Политика: 'politika', Экономика: 'ekonomika', Иммиграция: 'immigratsiya', Работа: 'rabota', Общество: 'obshchestvo', Образование: 'obrazovanie', Россия: 'rossiya', Мир: 'mir' };
+  const values = { Политика: 'politika', Экономика: 'ekonomika', Иммиграция: 'immigratsiya', Работа: 'rabota', Происшествия: 'proisshestviya', Общество: 'obshchestvo', Образование: 'obrazovanie', Россия: 'rossiya', Мир: 'mir' };
   return values[category] || 'obshchestvo';
 }
 
@@ -1106,17 +1106,21 @@ function renderAccountPage({
     : '';
   let telegramSetup;
   if (telegramConnected) {
-    telegramSetup = '<div class="account-callout account-callout--success"><strong>✓ Telegram подключён</strong><span>Выберите темы и сохраните настройки — рассылка будет приходить в привязанный чат.</span></div>';
+    telegramSetup = `<section class="account-card account-telegram-setup" id="telegram-setup"><div><p class="eyebrow">Telegram настроен</p><h2>✓ Бот связан с этим кабинетом</h2><p class="account-muted">Настройки онбординга и дальнейшие настройки сайта относятся к одному аккаунту. Можно сразу проверить доставку.</p></div><form method="post" action="/account/telegram/test" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Проверить доставку</button></form></section>`;
   } else {
-    telegramSetup = `<div class="account-callout"><strong>Подключение почти автоматическое</strong><span>Нажмите кнопку ниже — откроется именно ${escapeHtml(botLabel)} с готовой безопасной привязкой.</span><span><b>Имя канала вводить не нужно.</b> В Telegram останется нажать только «Запустить» — это обязательное подтверждение Telegram.</span></div>`;
+    const manualCommand = telegramLinkCode
+      ? `<div class="account-callout account-link-code" role="status"><strong>Команда действует 15 минут</strong><code class="account-command">/start ${escapeHtml(telegramLinkCode)}</code><span>Откройте ${escapeHtml(botLabel)} на телефоне, отправьте эту команду одним сообщением и затем обновите страницу кабинета.</span></div>`
+      : '';
+    telegramSetup = `<section class="account-card account-telegram-setup" id="telegram-setup"><div><p class="eyebrow">Шаг 1 · подключение</p><h2>Свяжите Telegram с личным кабинетом</h2><p class="account-muted">Если вы уже прошли онбординг в боте, выбранные темы и настройки будут перенесены в этот Google-аккаунт. Telegram на компьютере не обязателен.</p></div><div class="account-connect-options"><div><strong>Telegram есть на этом устройстве</strong><p class="account-muted">Откроем ${escapeHtml(botLabel)} с безопасной ссылкой.</p><form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Открыть и подключить бота</button></form></div><div><strong>Telegram только на телефоне</strong><p class="account-muted">Покажем одноразовую команду, которую можно отправить с телефона.</p><form method="post" action="/account/telegram/code" class="account-actions"><button class="account-button account-button--ghost" type="submit">Получить код для телефона</button></form></div></div>${manualCommand}</section>`;
   }
   const content = `<article class="account-page">
     <section class="account-hero">
-      <div><p class="eyebrow">Личный кабинет</p><h1>Персональная Telegram-рассылка</h1><p>Здравствуйте, <strong>${escapeHtml(user.displayName || user.email)}</strong>. Настройте темы, частоту и количество новостей — бот пришлёт только выбранное.</p></div>
+      <div><p class="eyebrow">Личный кабинет</p><h1>Персональная Telegram-рассылка</h1><p>Здравствуйте, <strong>${escapeHtml(user.displayName || user.email)}</strong>. Настройте темы, частоту и количество новостей — бот пришлёт только выбранное.</p><a class="account-button account-hero-action" href="#telegram-setup">${telegramConnected ? 'Настроить Telegram' : 'Подключить Telegram'}</a></div>
       <span class="account-hero-icon" aria-hidden="true">✈</span>
     </section>
     ${statusMessage}
     ${deliveryWarning}
+    ${telegramSetup}
     <dl class="account-stats">
       <div><dt>Telegram</dt><dd class="${telegramConnected ? 'is-connected' : ''}">${telegramStatus}</dd></div>
       <div><dt>Частота</dt><dd>${subscription.frequency === 'instant' ? 'Сразу' : 'Ежедневно'}</dd></div>
@@ -1207,15 +1211,15 @@ function renderAccountPage({
         </form>
       </section>
       <aside class="account-side">
-        <section class="account-card">
+        <section class="account-card" id="telegram-settings">
           <div class="account-section-head"><div><p class="eyebrow">Подключение</p><h2>Telegram</h2></div><span>02</span></div>
           <p class="account-muted">${telegramConnected ? `Привязанный чат: ${escapeHtml(telegramLink.telegramChatId)}` : `Для рассылки используется ${escapeHtml(botLabel)}.`}</p>
-          ${telegramSetup}
+          <div class="account-callout${telegramConnected ? ' account-callout--success' : ''}"><strong>${telegramConnected ? '✓ Telegram подключён' : 'Telegram ещё не подключён'}</strong><span>${telegramConnected ? 'Все настройки этой страницы относятся к привязанному боту.' : 'Удобные варианты подключения находятся в начале страницы.'}</span></div>
           ${telegramConnected
             ? '<form method="post" action="/account/telegram/test" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Проверить доставку</button></form>'
-            : '<form method="post" action="/account/telegram/connect" class="account-actions"><button class="account-button account-button--telegram" type="submit">✈ Подключить Telegram</button></form>'}
+            : '<div class="account-actions"><a class="account-button account-button--telegram" href="#telegram-setup">✈ Подключить Telegram</a></div>'}
         </section>
-        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Каждая новость содержит заголовок, краткое описание и ссылку «Читать далее» на сайт.</li><li>Ночные сообщения откладываются, а не теряются.</li><li>Можно отключить рассылку в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li></ul></section>
+        <section class="account-card account-help"><p class="eyebrow">Подсказка</p><h2>Вы управляете рассылкой</h2><ul><li>Каждая новость содержит заголовок, краткое описание и ссылку «Читать далее» на сайт.</li><li>Новости, опубликованные в тихие часы, не накапливаются и утром не отправляются.</li><li>Можно отключить рассылку в любой момент.</li><li>Редакционный канал и личная рассылка работают отдельно.</li></ul></section>
       </aside>
     </div>
     <form class="account-logout" method="post" action="/account/logout"><button class="account-button account-button--ghost" type="submit">Выйти из кабинета</button></form>

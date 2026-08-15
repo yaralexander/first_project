@@ -3,6 +3,7 @@ const CATEGORY_SLUGS = {
   Экономика: 'ekonomika',
   Иммиграция: 'immigratsiya',
   Работа: 'rabota',
+  Происшествия: 'proisshestviya',
   Общество: 'obshchestvo',
   Образование: 'obrazovanie',
   Россия: 'rossiya',
