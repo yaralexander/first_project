@@ -3,6 +3,7 @@ const DEFAULT_CATEGORY_TERMS = Object.freeze({
   economy: ['talous', 'osake', 'pörssi', 'yritys', 'inflaatio', 'korko', 'vero', 'budjetti', 'экономик', 'бизнес', 'компани', 'инфляц', 'налог', 'бюджет'],
   immigration: ['maahanmuutto', 'oleskelulupa', 'turvapaikka', 'ulkomaalais', 'kansalaisuus', 'viisumi', 'иммиграц', 'мигрант', 'вид на жительство', 'гражданств', 'виз'],
   work: ['työpaikka', 'työntekijä', 'rekrytointi', 'palkka', 'ura', 'kausityö', 'работ', 'зарплат', 'ваканси', 'трудоустрой'],
+  incidents: ['poliisi', 'rikos', 'rikollis', 'onnettomuus', 'kolari', 'tulipalo', 'henkirikos', 'murha', 'pahoinpitely', 'ryöstö', 'varkaus', 'ampuminen', 'происшеств', 'криминал', 'преступ', 'полиц', 'авари', 'дтп', 'пожар', 'убий', 'нападен', 'ограб', 'краж', 'стрельб'],
   society: ['kunta', 'kaupunki', 'terveys', 'sosiaali', 'liikenne', 'sää', 'общество', 'город', 'здоров', 'социальн', 'транспорт', 'погод'],
   education: ['koulu', 'yliopisto', 'opiskelija', 'koulutus', 'tutkimus', 'opetus', 'образован', 'школ', 'университет', 'студент', 'обучен'],
   russia: ['venäjä', 'venäläis', 'putin', 'moskova', 'ukraina', 'росси', 'путин', 'москв', 'украин'],

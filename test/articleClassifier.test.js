@@ -69,3 +69,14 @@ test('мировая новость получает международный 
   assert.equal(result.category, 'Мир');
   assert.equal(result.regionCode, 'international');
 });
+
+test('криминальная новость попадает в раздел происшествий', () => {
+  const result = classifyArticle({
+    titleFi: 'Poliisi tutkii Espoossa tapahtunutta ryöstöä',
+    summaryFi: 'Rikos tapahtui yöllä ja poliisi etsii epäiltyä.',
+    category: 'Общество',
+  }, taxonomy());
+
+  assert.equal(result.category, 'Происшествия');
+  assert.equal(result.regionCode, 'uusimaa');
+});

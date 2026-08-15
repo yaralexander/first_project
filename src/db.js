@@ -2028,6 +2028,30 @@ function upsertUserSubscription({
   save();
 }
 function createTelegramLinkCode({ userId, linkCodeHash, expiresAt }) { db.prepare('INSERT INTO telegram_user_links (user_id,link_code_hash,code_expires_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET link_code_hash=excluded.link_code_hash,code_expires_at=excluded.code_expires_at,telegram_chat_id=NULL,linked_at=NULL').run(userId, linkCodeHash, expiresAt); }
+function migrateTelegramAccountData(sourceUserId, targetUserId) {
+  if (!db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id = ?').get(targetUserId)) {
+    db.prepare('UPDATE user_subscriptions SET user_id = ? WHERE user_id = ?').run(targetUserId, sourceUserId);
+  } else {
+    db.prepare('DELETE FROM user_subscriptions WHERE user_id = ?').run(sourceUserId);
+  }
+  if (!db.prepare('SELECT 1 FROM telegram_assistant_profiles WHERE user_id = ?').get(targetUserId)) {
+    db.prepare('UPDATE telegram_assistant_profiles SET user_id = ? WHERE user_id = ?').run(targetUserId, sourceUserId);
+  } else {
+    db.prepare('DELETE FROM telegram_assistant_profiles WHERE user_id = ?').run(sourceUserId);
+  }
+  for (const table of ['telegram_topic_follows', 'telegram_saved_articles']) {
+    db.prepare(`INSERT OR IGNORE INTO ${table} SELECT ?, ${table === 'telegram_topic_follows' ? 'topic, created_at' : 'article_id, created_at'} FROM ${table} WHERE user_id = ?`).run(targetUserId, sourceUserId);
+    db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(sourceUserId);
+  }
+  db.prepare('INSERT OR IGNORE INTO telegram_user_deliveries (user_id, article_id, sent_at, telegram_message_id) SELECT ?, article_id, sent_at, telegram_message_id FROM telegram_user_deliveries WHERE user_id = ?').run(targetUserId, sourceUserId);
+  db.prepare('DELETE FROM telegram_user_deliveries WHERE user_id = ?').run(sourceUserId);
+  db.prepare('INSERT OR IGNORE INTO telegram_content_deliveries (user_id, content_key, content_type, sent_at, telegram_message_id) SELECT ?, content_key, content_type, sent_at, telegram_message_id FROM telegram_content_deliveries WHERE user_id = ?').run(targetUserId, sourceUserId);
+  db.prepare('DELETE FROM telegram_content_deliveries WHERE user_id = ?').run(sourceUserId);
+  for (const table of ['telegram_reminders', 'telegram_bot_events', 'user_preference_history', 'telegram_delivery_log']) {
+    db.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id = ?`).run(targetUserId, sourceUserId);
+  }
+  db.prepare('UPDATE telegram_conversations SET user_id = ? WHERE user_id = ?').run(targetUserId, sourceUserId);
+}
 function linkTelegramUser({ linkCodeHash, telegramChatId }) {
   const link = db.prepare("SELECT user_id FROM telegram_user_links WHERE link_code_hash = ? AND datetime(code_expires_at) > datetime('now')").get(linkCodeHash);
   if (!link) return null;
@@ -2035,8 +2059,7 @@ function linkTelegramUser({ linkCodeHash, telegramChatId }) {
   const attach = db.transaction(() => {
     const existing = db.prepare('SELECT user_id FROM telegram_user_links WHERE telegram_chat_id = ?').get(chat);
     if (existing && existing.user_id !== link.user_id && String(existing.user_id).startsWith('telegram:')) {
-      if (!db.prepare('SELECT 1 FROM user_subscriptions WHERE user_id = ?').get(link.user_id)) db.prepare('UPDATE user_subscriptions SET user_id = ? WHERE user_id = ?').run(link.user_id, existing.user_id);
-      if (!db.prepare('SELECT 1 FROM telegram_assistant_profiles WHERE user_id = ?').get(link.user_id)) db.prepare('UPDATE telegram_assistant_profiles SET user_id = ? WHERE user_id = ?').run(link.user_id, existing.user_id);
+      migrateTelegramAccountData(existing.user_id, link.user_id);
       db.prepare('DELETE FROM telegram_user_links WHERE user_id = ?').run(existing.user_id);
     }
     return db.prepare("UPDATE telegram_user_links SET telegram_chat_id = ?, linked_at = CURRENT_TIMESTAMP, link_code_hash = NULL, code_expires_at = NULL WHERE user_id = ? AND link_code_hash = ?").run(chat, link.user_id, linkCodeHash).changes === 1;

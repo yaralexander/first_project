@@ -1,6 +1,7 @@
 const TOPICS = Object.freeze([
   ['politika', '🏛 Политика'], ['ekonomika', '💶 Экономика'], ['immigratsiya', '✈️ Иммиграция'],
-  ['rabota', '💼 Работа'], ['obshchestvo', '👥 Общество'], ['obrazovanie', '🎓 Образование'],
+  ['rabota', '💼 Работа'], ['proisshestviya', '🚨 Происшествия'], ['obshchestvo', '👥 Общество'],
+  ['obrazovanie', '🎓 Образование'],
 ]);
 const CHAINS = Object.freeze([
   ['lidl', 'Lidl'], ['prisma', 'Prisma'], ['smarket', 'S-market'], ['alepa', 'Alepa'],

@@ -97,6 +97,7 @@ const CATEGORY_KEYWORDS = {
   'Экономика': ['talous', 'osake', 'pörssi', 'yritys', 'työttömyys', 'inflaatio', 'korko', 'vero', 'budjetti'],
   'Иммиграция': ['maahanmuutto', 'oleskelulupa', 'turvapaikka', 'ulkomaalais', 'kansalaisuus', 'viisumi'],
   'Работа': ['työpaikka', 'työntekijä', 'rekrytointi', 'palkka', 'ura', 'kausityö'],
+  'Происшествия': ['poliisi', 'rikos', 'rikollis', 'onnettomuus', 'kolari', 'tulipalo', 'henkirikos', 'murha', 'pahoinpitely', 'ryöstö', 'varkaus', 'ampuminen'],
   'Общество': ['kunta', 'kaupunki', 'koulu', 'terveys', 'sosiaali', 'liikenne', 'sää', 'ilmasto'],
   'Образование': ['yliopisto', 'opiskelija', 'koulutus', 'tutkimus', 'opetus'],
   'Россия': ['venäjä', 'venäläis', 'putin', 'moskova', 'ukraina'],

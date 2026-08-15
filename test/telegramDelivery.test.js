@@ -155,7 +155,9 @@ test('news published during quiet hours is skipped instead of delivered as a mor
     publishedAt: '2026-01-10T21:30:00.000Z',
   };
 
-  assert.equal(isArticleSuppressedByQuietHours(nighttimeArticle, quiet), true);
+  const duringQuiet = new Date('2026-01-10T22:00:00.000Z');
+  const afterQuiet = new Date('2026-01-11T06:00:00.000Z');
+  assert.equal(isArticleSuppressedByQuietHours(nighttimeArticle, quiet, afterQuiet), true);
   assert.equal(isArticleSuppressedByQuietHours({
     ...nighttimeArticle,
     importanceLevel: 5,
@@ -163,7 +165,15 @@ test('news published during quiet hours is skipped instead of delivered as a mor
   }, {
     ...quiet,
     allowCriticalDuringQuiet: true,
-  }), false);
+  }, duringQuiet), false);
+  assert.equal(isArticleSuppressedByQuietHours({
+    ...nighttimeArticle,
+    importanceLevel: 5,
+    editorialStatus: 'urgent',
+  }, {
+    ...quiet,
+    allowCriticalDuringQuiet: true,
+  }, afterQuiet), true);
   assert.equal(isArticleSuppressedByQuietHours({
     ...article,
     publishedAt: '2026-01-10T10:00:00.000Z',

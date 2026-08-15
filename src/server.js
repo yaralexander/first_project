@@ -913,7 +913,7 @@ async function handleOnboardingCallback(callback) {
   if (result.error) { await answerTelegramCallback(callback.id, result.error); return true; }
   const user = ensureTelegramUser(chatId);
   if (result.finished) {
-    const categoryMap = { politika: 'Политика', ekonomika: 'Экономика', immigratsiya: 'Иммиграция', rabota: 'Работа', obshchestvo: 'Общество', obrazovanie: 'Образование' };
+    const categoryMap = { politika: 'Политика', ekonomika: 'Экономика', immigratsiya: 'Иммиграция', rabota: 'Работа', proisshestviya: 'Происшествия', obshchestvo: 'Общество', obrazovanie: 'Образование' };
     const contentTypes = ['news'];
     if (result.state.word) contentTypes.push('word');
     if (result.state.offers) contentTypes.push('offers');
@@ -2334,6 +2334,16 @@ app.post('/account/subscription', async (req, res) => {
   }
   return simpleAccountPage(req, res, 'Настройки сохранены.');
 });
+function createAccountTelegramLinkCode(userId) {
+  const raw = randomBase64Url(16);
+  createTelegramLinkCode({
+    userId,
+    linkCodeHash: sha256(raw),
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  return raw;
+}
+
 app.post('/account/telegram/connect', async (req, res) => {
   const user = getUserAuth(req);
   if (!user) return res.redirect(303, '/account/login');
@@ -2341,15 +2351,14 @@ app.post('/account/telegram/connect', async (req, res) => {
   if (!botProfile?.username) {
     return simpleAccountPage(req, res, 'Не удалось открыть Telegram. Проверьте настройку TELEGRAM_BOT_TOKEN.');
   }
-  const raw = randomBase64Url(16);
-  createTelegramLinkCode({
-    userId: user.googleSub,
-    linkCodeHash: sha256(raw),
-    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-  });
+  const raw = createAccountTelegramLinkCode(user.googleSub);
   return res.redirect(303, `https://t.me/${botProfile.username}?start=${encodeURIComponent(raw)}`);
 });
-app.post('/account/telegram/code', (req, res) => res.redirect(307, '/account/telegram/connect'));
+app.post('/account/telegram/code', (req, res) => {
+  const user = getUserAuth(req);
+  if (!user) return res.redirect(303, '/account/login');
+  return simpleAccountPage(req, res, 'Одноразовый код создан. Отправьте показанную команду боту с телефона.', createAccountTelegramLinkCode(user.googleSub));
+});
 app.post('/account/telegram/test', async (req, res) => {
   const user = getUserAuth(req);
   if (!user) return res.redirect(303, '/account/login');
