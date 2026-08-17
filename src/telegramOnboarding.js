@@ -9,7 +9,7 @@ const CHAINS = Object.freeze([
 ]);
 
 function emptyOnboarding() {
-  return { step: 0, topics: [], region: 'finland', frequency: 'daily', maxPosts: 5, time: '08:00', importance: 'all', word: false, levels: ['A1-A2'], offers: false, chains: [] };
+  return { step: 0, topics: [], region: 'finland', frequency: 'daily', maxPosts: 10, time: '19:00', importance: 'all', word: false, levels: ['A1-A2'], offers: false, chains: [] };
 }
 
 function keyboard(rows) {
@@ -35,7 +35,7 @@ function onboardingView(state = emptyOnboarding()) {
     [choice('frequency:daily', 'Одна удобная подборка')], [choice('frequency:instant', 'Сразу после публикации')],
   ]) };
   if (s.step === 3) return { text: `${prefix}<b>Сколько новостей в день?</b>`, reply_markup: keyboard([[choice('max:3', '3 — только главное'), choice('max:5', '5 — оптимально')], [choice('max:10', 'До 10 новостей')]]) };
-  if (s.step === 4) return { text: `${prefix}<b>Когда присылать ежедневную подборку?</b>\nВремя Финляндии.`, reply_markup: keyboard([[choice('time:08:00', '08:00'), choice('time:12:00', '12:00')], [choice('time:18:00', '18:00'), choice('time:21:00', '21:00')]]) };
+  if (s.step === 4) return { text: `${prefix}<b>Когда присылать ежедневную подборку?</b>\nВремя Финляндии. Рекомендуем вечерний дайджест.`, reply_markup: keyboard([[choice('time:08:00', '08:00'), choice('time:12:00', '12:00')], [choice('time:19:00', '19:00 — рекомендуем'), choice('time:21:00', '21:00')]]) };
   if (s.step === 5) return { text: `${prefix}<b>Какие новости включать?</b>`, reply_markup: keyboard([[choice('importance:all', 'Все по моим темам')], [choice('importance:important', 'Только важные')]]) };
   if (s.step === 6) return { text: `${prefix}<b>Добавить «Слово дня»?</b>\nТри новых финских слова, повторение вчерашних и полезная фраза.`, reply_markup: keyboard([[choice('word:yes', '🇫🇮 Да, добавить')], [choice('word:no', 'Нет')]]) };
   if (s.step === 7) return { text: `${prefix}<b>Ваш уровень финского</b>\nМожно выбрать несколько уровней и нажать «Дальше».`, reply_markup: keyboard([

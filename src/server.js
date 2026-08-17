@@ -31,6 +31,7 @@ const {
 const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   articleMatchesSubscription,
+  buildTelegramDigestMessage,
   buildTelegramMessage,
   escapeTelegramHtml,
   canDeliverArticleNow,
@@ -43,7 +44,8 @@ const {
   renderTelegramChannelTemplate,
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
-const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
+const { buildDailyContentMessage, contentForDate, normalizeWordLevels, vocabularyContentForDate } = require('./dailyContent');
+const { getVocabularyCards } = require('./finnishVocabulary');
 const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
 const { emptyOnboarding, onboardingView, applyOnboardingAction, onboardingSummary } = require('./telegramOnboarding');
 const {
@@ -145,6 +147,7 @@ const {
   createUserSession,
   getUserStatistics,
   getTelegramBotStatistics,
+  getSystemSetting,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -194,6 +197,7 @@ const {
   recordTelegramDeliveryAttempt,
   recordSearchQuery,
   recordTelegramBotEvent,
+  setSystemSettings,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
@@ -1464,7 +1468,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       skipped += 1;
       continue;
     }
-    const quota = subscription.maxPostsPerDay || 5;
+    const quota = subscription.maxPostsPerDay || 15;
     let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
     if (retryOnly && sentToday > 0) {
       skipped += 1;
@@ -1475,48 +1479,44 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       continue;
     }
     const followedTopics = getTelegramTopicFollows(subscription.userId);
-    const eligible = articles.filter((article) => (
-      (articleMatchesSubscription(article, subscription) || articleMatchesFollowedTopics(article, followedTopics))
-      && canDeliverArticleNow(article, subscription)
-      && !isArticleSuppressedByQuietHours(article, subscription)
-      && !hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })
-    ));
-    if (sinceIso) {
-      eligible.sort((a, b) => new Date(a.publishedAt || 0) - new Date(b.publishedAt || 0));
-    }
+    const eligible = articles.map((article) => {
+      const followed = articleMatchesFollowedTopics(article, followedTopics);
+      if ((!articleMatchesSubscription(article, subscription) && !followed)
+        || !canDeliverArticleNow(article, subscription)
+        || isArticleSuppressedByQuietHours(article, subscription)
+        || hasTelegramUserDelivery({ userId: subscription.userId, articleId: article.id })) return null;
+      const ranking = calculateArticleRanking(article, getArticleRankingSignals(article.id));
+      if (!followed && ranking.score < 55) return null;
+      return { article, score: ranking.score };
+    }).filter(Boolean).sort((left, right) => right.score - left.score
+      || new Date(right.article.publishedAt || 0) - new Date(left.article.publishedAt || 0))
+      .map((item) => item.article);
     const remaining = quota - sentToday;
-    const batch = sinceIso ? eligible.slice(-remaining) : eligible.slice(0, remaining);
+    const batch = eligible.slice(0, remaining);
     if (!batch.length) {
       skipped += 1;
       continue;
     }
     if (frequency === 'daily') {
-      for (const article of batch) {
+      for (let offset = 0; offset < batch.length; offset += 8) {
+        const digestArticles = batch.slice(offset, offset + 8);
         try {
           const telegramMessageId = await sendTelegramMessageToChat(
             subscription.telegramChatId,
-            buildTelegramMessage(article, {
-              siteUrl: SITE_URL,
-              includeOriginal: subscription.includeOriginal !== false,
-            }),
-            personalArticleTelegramOptions(article),
+            buildTelegramDigestMessage(digestArticles, subscription, { siteUrl: SITE_URL }),
           );
-          if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
-            delivered += 1;
-            sentToday += 1;
-            recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'sent', telegramMessageId });
+          for (const article of digestArticles) {
+            if (recordTelegramUserDelivery({ userId: subscription.userId, articleId: article.id, telegramMessageId })) {
+              delivered += 1;
+              sentToday += 1;
+              recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily_digest', status: 'sent', telegramMessageId });
+            }
           }
         } catch (error) {
           console.error('[telegram-digest] ошибка отправки:', error.message);
-          recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily', status: 'failed', errorCode: error.message });
-          enqueueTask({
-            taskType: 'personal_telegram',
-            payload: { userId: subscription.userId, articleId: article.id },
-            idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
-          });
-          skipped += 1;
+          for (const article of digestArticles) recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily_digest', status: 'failed', errorCode: error.message });
+          skipped += digestArticles.length;
         }
-        if (sentToday >= quota) break;
       }
       continue;
     }
@@ -1554,7 +1554,8 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
   let skipped = 0;
   for (const subscription of subscriptions) {
     const profile = getTelegramAssistantProfile(subscription.userId);
-    const items = contentForDate(now, { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel });
+    const wordOptions = { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel };
+    const items = contentForDate(now, wordOptions);
     if (profile.groceryOffersEnabled) items.push(groceryOfferDigest(now, profile));
     const selected = new Set(subscription.contentTypes || []);
     if (profile.groceryOffersEnabled) selected.add('offers');
@@ -1562,6 +1563,38 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
       || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
       skipped += 1;
       continue;
+    }
+    const fallbackWordIndex = items.findIndex((item) => item.type === 'word');
+    const fallbackWord = items[fallbackWordIndex];
+    if (selected.has('word') && fallbackWord
+      && !hasTelegramContentDelivery({ userId: subscription.userId, contentKey: fallbackWord.key })) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Europe/Helsinki', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now);
+        const part = (type) => Number(parts.find((entry) => entry.type === type)?.value);
+        const dayNumber = Math.floor(Date.UTC(part('year'), part('month') - 1, part('day')) / 86400000);
+        const levels = normalizeWordLevels(subscription.wordLevels, subscription.wordLevel);
+        const loadDay = async (offset) => Promise.all(levels.map((level) => getVocabularyCards({
+          dayNumber: dayNumber + offset,
+          level,
+          getCached: getSystemSetting,
+          setCached: setSystemSettings,
+        })));
+        const [todayByLevel, yesterdayByLevel] = await Promise.all([loadDay(0), loadDay(-1)]);
+        const pickThree = (sets) => Array.from({ length: 3 }, (_, index) => {
+          const levelIndex = index % levels.length;
+          const cardIndex = Math.floor(index / levels.length);
+          return sets[levelIndex][cardIndex];
+        });
+        items[fallbackWordIndex] = vocabularyContentForDate(now, {
+          ...wordOptions,
+          todayCards: pickThree(todayByLevel),
+          yesterdayCards: pickThree(yesterdayByLevel),
+        });
+      } catch (error) {
+        console.error('[telegram-daily-words] Kotus/OpenAI недоступны, используется резервный набор:', error.message);
+      }
     }
     for (const item of items) {
       if (!selected.has(item.type)
@@ -2310,7 +2343,7 @@ app.post('/account/subscription', async (req, res) => {
     scope: req.body.scope === 'all' ? 'all' : 'finland',
     importance: ['all', 'important', 'urgent'].includes(req.body.importance) ? req.body.importance : 'all',
     sourceIds: requestedSources.filter((sourceId) => allowedSourceIds.has(sourceId)),
-    maxPostsPerDay: Math.min(100, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 5)),
+    maxPostsPerDay: Math.min(100, Math.max(1, Number.parseInt(req.body.max_posts_per_day, 10) || 15)),
     includeOriginal: req.body.include_original === 'on',
     quietHoursEnabled: req.body.quiet_hours_enabled === 'on',
     quietStart,

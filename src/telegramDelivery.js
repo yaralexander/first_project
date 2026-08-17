@@ -225,12 +225,12 @@ function isDeliveryScheduleDue(subscription, now = new Date()) {
   if (subscription.frequency !== 'daily') return true;
   const deliveryTimes = Array.isArray(subscription.deliveryTimes) && subscription.deliveryTimes.length
     ? subscription.deliveryTimes
-    : ['08:00'];
+    : ['19:00'];
   const current = localMinutes(now, subscription.timezone);
   const targets = deliveryTimes.map(minutesFromTime).filter((value) => value !== null);
   // Delivery records prevent duplicates. Treat the configured time as the
   // earliest send time so a restart or a slow cron tick does not lose a digest.
-  return targets.length ? current >= Math.min(...targets) : current >= 8 * 60;
+  return targets.length ? current >= Math.min(...targets) : current >= 19 * 60;
 }
 
 function isDailyContentDue(subscription, now = new Date()) {
@@ -255,10 +255,16 @@ function buildTelegramMessage(article, {
 }
 
 function buildTelegramDigestMessage(articles, subscription, { siteUrl } = {}) {
-  return articles.map((article) => buildTelegramMessage(article, {
-    siteUrl,
-    includeOriginal: subscription.includeOriginal !== false,
-  })).join('\n\n──────────\n\n').slice(0, 4096);
+  const parts = ['🌙 <b>Вечерний дайджест: главное за день</b>', 'Самые важные и интересные новости по вашим темам.'];
+  for (const [index, article] of articles.entries()) {
+    const title = escapeTelegramHtml(article.titleRu || article.titleFi || 'Новость');
+    const summary = escapeTelegramHtml(trimExcerpt(article.summaryRu || article.summaryFi || '', 180));
+    const url = article.slug && siteUrl ? `${String(siteUrl).replace(/\/$/, '')}/news/${encodeURIComponent(article.slug)}` : '';
+    const block = `${index + 1}. <b>${title}</b>${summary ? `\n${summary}` : ''}${url ? `\n<a href="${escapeTelegramHtml(url)}">Читать далее</a>` : ''}`;
+    if (`${parts.join('\n\n')}\n\n${block}`.length > 4000) break;
+    parts.push(block);
+  }
+  return parts.join('\n\n');
 }
 
 function normalizeContentTypes(values) {

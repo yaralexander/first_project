@@ -199,7 +199,8 @@ test('instant and digest messages contain title, excerpt and read-more link', ()
   assert.match(instant, /<a href="https:\/\/yle\.fi\/example">Оригинал<\/a>/);
 
   const digest = buildTelegramDigestMessage([article], subscription, { siteUrl: 'https://finskienovosti.fi' });
-  assert.match(digest, /<b>🔥 Важная новость из Финляндии<\/b>/);
+  assert.match(digest, /Вечерний дайджест: главное за день/);
+  assert.match(digest, /1\. <b>Важная новость из Финляндии<\/b>/);
   assert.match(digest, /Краткое описание новости/);
   assert.match(digest, /<a href="https:\/\/finskienovosti\.fi\/news\/test-news">Читать далее<\/a>/);
 });

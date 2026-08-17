@@ -1500,6 +1500,25 @@ function getAdminStatistics(filters = {}) {
     LIMIT 5
   `).all(normalized).map((row) => ({ slug: row.slug, title: row.title_ru || row.title_fi, count: row.count }));
   const daily = getDailyAdminStatistics(normalized);
+  const bySource = db.prepare(`
+    SELECT COALESCE(NULLIF(source_name, ''), NULLIF(source_id, ''), 'Неизвестный источник') AS name,
+      COUNT(*) AS articles
+    FROM articles
+    WHERE publication_status = 'published' AND date(published_at) BETWEEN @from AND @to
+      AND (@category = '' OR category = @category)
+      AND (@sourceId = '' OR source_id = @sourceId)
+    GROUP BY COALESCE(NULLIF(source_name, ''), NULLIF(source_id, ''), 'Неизвестный источник')
+    ORDER BY articles DESC, name ASC
+  `).all(normalized);
+  const byCategory = db.prepare(`
+    SELECT COALESCE(NULLIF(category, ''), 'Без темы') AS name, COUNT(*) AS articles
+    FROM articles
+    WHERE publication_status = 'published' AND date(published_at) BETWEEN @from AND @to
+      AND (@category = '' OR category = @category)
+      AND (@sourceId = '' OR source_id = @sourceId)
+    GROUP BY COALESCE(NULLIF(category, ''), 'Без темы')
+    ORDER BY articles DESC, name ASC
+  `).all(normalized);
   const report = daily.reduce((sum, day) => ({
     articles: sum.articles + day.articles,
     visitors: sum.visitors + day.visitors,
@@ -1508,7 +1527,7 @@ function getAdminStatistics(filters = {}) {
     reactions: sum.reactions + day.reactions,
     duplicates: sum.duplicates + day.duplicates,
   }), { articles: 0, visitors: 0, articleViews: 0, comments: 0, reactions: 0, duplicates: 0 });
-  return { ...totals, topRead, topCommented, daily, report, filters: normalized };
+  return { ...totals, topRead, topCommented, daily, bySource, byCategory, report, filters: normalized };
 }
 
 function getDailyAdminStatistics(filters = {}) {
@@ -1816,7 +1835,7 @@ function getUserSubscription(userId) {
     scope: 'finland',
     importance: 'all',
     sourceIds: [],
-    maxPostsPerDay: 5,
+    maxPostsPerDay: 15,
     includeOriginal: true,
     quietHoursEnabled: false,
     quietStart: '22:00',
@@ -1830,7 +1849,7 @@ function getUserSubscription(userId) {
     regionCodes: [],
     audienceCodes: [],
     minimumImportance: 1,
-    deliveryTimes: [],
+    deliveryTimes: ['19:00'],
     deliveryWeekdays: ['1', '2', '3', '4', '5', '6', '0'],
     quietWeekdays: ['1', '2', '3', '4', '5', '6', '0'],
     allowCriticalDuringQuiet: false,
