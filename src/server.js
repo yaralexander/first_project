@@ -44,7 +44,8 @@ const {
   renderTelegramChannelTemplate,
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
-const { buildDailyContentMessage, contentForDate } = require('./dailyContent');
+const { buildDailyContentMessage, contentForDate, normalizeWordLevels, vocabularyContentForDate } = require('./dailyContent');
+const { getVocabularyCards } = require('./finnishVocabulary');
 const { GROCERY_CHAINS, buildGroceryOffersMessage, groceryOfferDigest } = require('./groceryOffers');
 const { emptyOnboarding, onboardingView, applyOnboardingAction, onboardingSummary } = require('./telegramOnboarding');
 const {
@@ -146,6 +147,7 @@ const {
   createUserSession,
   getUserStatistics,
   getTelegramBotStatistics,
+  getSystemSetting,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -195,6 +197,7 @@ const {
   recordTelegramDeliveryAttempt,
   recordSearchQuery,
   recordTelegramBotEvent,
+  setSystemSettings,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
@@ -1551,7 +1554,8 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
   let skipped = 0;
   for (const subscription of subscriptions) {
     const profile = getTelegramAssistantProfile(subscription.userId);
-    const items = contentForDate(now, { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel });
+    const wordOptions = { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel };
+    const items = contentForDate(now, wordOptions);
     if (profile.groceryOffersEnabled) items.push(groceryOfferDigest(now, profile));
     const selected = new Set(subscription.contentTypes || []);
     if (profile.groceryOffersEnabled) selected.add('offers');
@@ -1559,6 +1563,38 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
       || !canDeliverArticleNow({ importanceLevel: 1 }, subscription, now)) {
       skipped += 1;
       continue;
+    }
+    const fallbackWordIndex = items.findIndex((item) => item.type === 'word');
+    const fallbackWord = items[fallbackWordIndex];
+    if (selected.has('word') && fallbackWord
+      && !hasTelegramContentDelivery({ userId: subscription.userId, contentKey: fallbackWord.key })) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Europe/Helsinki', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now);
+        const part = (type) => Number(parts.find((entry) => entry.type === type)?.value);
+        const dayNumber = Math.floor(Date.UTC(part('year'), part('month') - 1, part('day')) / 86400000);
+        const levels = normalizeWordLevels(subscription.wordLevels, subscription.wordLevel);
+        const loadDay = async (offset) => Promise.all(levels.map((level) => getVocabularyCards({
+          dayNumber: dayNumber + offset,
+          level,
+          getCached: getSystemSetting,
+          setCached: setSystemSettings,
+        })));
+        const [todayByLevel, yesterdayByLevel] = await Promise.all([loadDay(0), loadDay(-1)]);
+        const pickThree = (sets) => Array.from({ length: 3 }, (_, index) => {
+          const levelIndex = index % levels.length;
+          const cardIndex = Math.floor(index / levels.length);
+          return sets[levelIndex][cardIndex];
+        });
+        items[fallbackWordIndex] = vocabularyContentForDate(now, {
+          ...wordOptions,
+          todayCards: pickThree(todayByLevel),
+          yesterdayCards: pickThree(yesterdayByLevel),
+        });
+      } catch (error) {
+        console.error('[telegram-daily-words] Kotus/OpenAI недоступны, используется резервный набор:', error.message);
+      }
     }
     for (const item of items) {
       if (!selected.has(item.type)

@@ -159,6 +159,23 @@ function formatWords(items, { numbered = true } = {}) {
   return items.map(({ level, word }, index) => `${numbered ? `${index + 1}. ` : ''}<b>${word[0]}</b> (${level}) — ${word[1]}`).join('\n');
 }
 
+function formatVocabularyCards(items, { numbered = true } = {}) {
+  return items.map((item, index) => `${numbered ? `${index + 1}. ` : ''}<b>${item.word}</b> (${item.level}) — ${item.translationRu}`).join('\n');
+}
+
+function vocabularyContentForDate(now, { wordLevels, wordLevel = 'A1-A2', todayCards, yesterdayCards }) {
+  const parts = helsinkiDateParts(now);
+  const key = dateKey(parts);
+  const normalizedWordLevels = normalizeWordLevels(wordLevels, wordLevel);
+  const phrase = todayCards[0];
+  return {
+    type: 'word',
+    key: `word:${key}:${normalizedWordLevels.join('+')}`,
+    title: `💬 Три финских слова дня (${normalizedWordLevels.join(' + ')})`,
+    message: `🆕 <b>Три новых слова</b>\n${formatVocabularyCards(todayCards)}\n\n🔁 <b>Повторяем вчерашние</b>\n${formatVocabularyCards(yesterdayCards)}\n\n💡 <b>Фраза дня</b>\n🇫🇮 ${phrase.exampleFi}\n🇷🇺 ${phrase.exampleRu}\n\nИсточник слов: Kotus, Nykysuomen sanalista (CC BY 4.0).`,
+  };
+}
+
 function contentForDate(now = new Date(), { wordLevels, wordLevel = 'A1-A2' } = {}) {
   const parts = helsinkiDateParts(now);
   const key = dateKey(parts);
@@ -213,5 +230,6 @@ module.exports = {
   easterSunday,
   helsinkiDateParts,
   normalizeWordLevels,
+  vocabularyContentForDate,
   wordsForDay,
 };
