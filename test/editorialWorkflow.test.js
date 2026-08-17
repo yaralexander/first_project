@@ -153,6 +153,8 @@ test('stores duplicate decisions, audit entries and filtered statistics', () => 
   });
   assert.equal(statistics.report.articles, 1);
   assert.equal(statistics.filters.sourceId, 'editorial');
+  assert.equal(statistics.bySource.reduce((sum, item) => sum + item.articles, 0), 1);
+  assert.deepEqual(statistics.byCategory, [{ name: 'Общество', articles: 1 }]);
   assert.ok(db.getAdminSources().some((source) => source.sourceId === 'editorial'));
 });
 

@@ -4,6 +4,8 @@ const { emptyOnboarding, onboardingView, applyOnboardingAction, onboardingSummar
 
 test('Telegram onboarding presents ten short button steps', () => {
   let state = emptyOnboarding();
+  assert.equal(state.maxPosts, 10);
+  assert.equal(state.time, '19:00');
   assert.match(onboardingView(state).text, /Шаг 1 из 10/);
   let result = applyOnboardingAction(state, 'next');
   assert.match(result.error, /хотя бы одну тему/);

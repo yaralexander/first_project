@@ -127,6 +127,7 @@ test('account page keeps subscription controls inside the shared design', () => 
   assert.match(html, /name="content_types" value="holidays" checked/);
   assert.match(html, /Срочные — уровень 5/);
   assert.match(html, /name="max_posts_per_day" type="number" min="1" max="100"/);
+  assert.match(html, /Бот сначала отбирает только самые важные/);
   assert.match(html, /Что означает важность 1–5/);
   assert.match(html, /&lt;Reader&gt;/);
   assert.doesNotMatch(html, /<Reader>/);
@@ -201,6 +202,8 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
         duplicates: 0,
       },
       daily: [],
+      bySource: [{ name: 'YLE', articles: 12 }],
+      byCategory: [{ name: 'Общество', articles: 7 }],
       topRead: [],
       topCommented: [],
       filters: { from: '', to: '', category: '', sourceId: '' },
@@ -222,6 +225,8 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /action="\/admin\/rss\/refresh" method="post"/);
   assert.match(html, /Обновить RSS сейчас/);
   assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
+  assert.match(html, /Статьи по источникам/);
+  assert.match(html, /Статьи по темам/);
   assert.match(html, /href="\/rss\.xml"/);
   assert.match(html, /name="interval_minutes"/);
   assert.match(html, /name="quiet_hours_enabled"/);
