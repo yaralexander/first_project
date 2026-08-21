@@ -1795,6 +1795,7 @@ function getAdminTelegramNotificationSettings() {
     userRegistered: getSystemSetting('admin_telegram_notify_user_registered', '1') === '1',
     telegramLinked: getSystemSetting('admin_telegram_notify_telegram_linked', '1') === '1',
     subscriptionChanged: getSystemSetting('admin_telegram_notify_subscription_changed', '1') === '1',
+    openAiBilling: getSystemSetting('admin_telegram_notify_openai_billing', '1') === '1',
   };
 }
 
@@ -1805,6 +1806,7 @@ function saveAdminTelegramNotificationSettings(settings) {
     admin_telegram_notify_user_registered: settings.userRegistered ? '1' : '0',
     admin_telegram_notify_telegram_linked: settings.telegramLinked ? '1' : '0',
     admin_telegram_notify_subscription_changed: settings.subscriptionChanged ? '1' : '0',
+    admin_telegram_notify_openai_billing: settings.openAiBilling ? '1' : '0',
   });
 }
 function getUserSession(tokenHash) {

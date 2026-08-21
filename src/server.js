@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
-const { getRussianVersion } = require('./russianVersion');
+const { getRussianVersion, setProviderFailureNotifier } = require('./russianVersion');
 const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
 const { googleTranslateFree } = require('./freeTranslate');
@@ -1306,6 +1306,7 @@ async function sendAdminTelegramNotification(event, title, lines = []) {
   const settings = getAdminTelegramNotificationSettings();
   const eventEnabled = event === 'user_registered' ? settings.userRegistered
     : event === 'telegram_linked' ? settings.telegramLinked
+      : event === 'openai_billing' ? settings.openAiBilling
       : settings.subscriptionChanged;
   if (!settings.enabled || !eventEnabled || !settings.chatId || !TELEGRAM_BOT_CONFIGURED) return false;
   await sendTelegramMessageToChat(settings.chatId, [`🔔 ${title}`, ...lines].filter(Boolean).join('\n'));
@@ -1321,6 +1322,10 @@ function queueAdminTelegramNotification(event, title, lines) {
     console.error('[admin-telegram-notification] ошибка:', error.message);
   });
 }
+
+setProviderFailureNotifier(({ title, body }) => {
+  queueAdminTelegramNotification('openai_billing', title, [body]);
+});
 
 async function sendTelegramMessage(article) {
   return sendTelegramMessageToChat(
@@ -2652,6 +2657,7 @@ app.post('/admin/telegram-notifications/settings', requireAdminOrigin, requireAd
     userRegistered: req.body.user_registered === 'on',
     telegramLinked: req.body.telegram_linked === 'on',
     subscriptionChanged: req.body.subscription_changed === 'on',
+    openAiBilling: req.body.openai_billing === 'on',
   });
   auditAdminAction(req, 'telegram_notifications.settings', 'telegram_notifications', chatId);
   return res.redirect(303, '/admin?tab=notifications&adminTelegram=saved');
