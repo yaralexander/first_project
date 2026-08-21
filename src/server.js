@@ -379,6 +379,7 @@ function getUserGoogleAuthProvider(req) {
 }
 const ANALYTICS_SECRET = getAnalyticsSecret();
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const ADMIN_TELEGRAM_BOT_TOKEN = process.env.ADMIN_TELEGRAM_BOT_TOKEN || '';
 const DIGITRANSIT_API_KEY = process.env.DIGITRANSIT_API_KEY || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET
@@ -398,6 +399,7 @@ function getTelegramApiBaseUrl() {
 
 const TELEGRAM_API_BASE_URL = getTelegramApiBaseUrl();
 const TELEGRAM_BOT_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN);
+const ADMIN_TELEGRAM_BOT_CONFIGURED = Boolean(ADMIN_TELEGRAM_BOT_TOKEN);
 const TELEGRAM_CONFIGURED = Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID);
 const TELEGRAM_BOT_USERNAME = String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
 let telegramBotProfileCache = null;
@@ -473,6 +475,25 @@ async function callTelegramBotMethod(method, body) {
     if (!response.ok || !payload || payload.ok !== true) {
       throw new Error(`telegram ${method} failed`);
     }
+    return payload.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function callAdminTelegramBotMethod(method, body) {
+  if (!ADMIN_TELEGRAM_BOT_TOKEN) throw new Error('admin telegram bot token is not configured');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TELEGRAM_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${TELEGRAM_API_BASE_URL}/bot${ADMIN_TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) throw new Error(`admin telegram ${method} failed`);
     return payload.result;
   } finally {
     clearTimeout(timeout);
@@ -850,6 +871,12 @@ function getAnonymousVisitorHash(req, day) {
 async function sendTelegramMessageToChat(chatId, text, options = {}) {
   const result = await callTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
   if (!result || result.message_id === undefined) throw new Error('telegram sendMessage returned no message id');
+  return result.message_id;
+}
+
+async function sendAdminTelegramMessageToChat(chatId, text, options = {}) {
+  const result = await callAdminTelegramBotMethod('sendMessage', { chat_id: chatId, text, ...options });
+  if (!result || result.message_id === undefined) throw new Error('admin telegram sendMessage returned no message id');
   return result.message_id;
 }
 
@@ -1308,8 +1335,8 @@ async function sendAdminTelegramNotification(event, title, lines = []) {
     : event === 'telegram_linked' ? settings.telegramLinked
       : event === 'openai_billing' ? settings.openAiBilling
       : settings.subscriptionChanged;
-  if (!settings.enabled || !eventEnabled || !settings.chatId || !TELEGRAM_BOT_CONFIGURED) return false;
-  await sendTelegramMessageToChat(settings.chatId, [`🔔 ${title}`, ...lines].filter(Boolean).join('\n'));
+  if (!settings.enabled || !eventEnabled || !settings.chatId || !ADMIN_TELEGRAM_BOT_CONFIGURED) return false;
+  await sendAdminTelegramMessageToChat(settings.chatId, [`🔔 ${title}`, ...lines].filter(Boolean).join('\n'));
   return true;
 }
 
@@ -2666,8 +2693,8 @@ app.post('/admin/telegram-notifications/settings', requireAdminOrigin, requireAd
 app.post('/admin/telegram-notifications/test', requireAdminOrigin, requireAdministrator, async (req, res) => {
   try {
     const settings = getAdminTelegramNotificationSettings();
-    if (!TELEGRAM_BOT_CONFIGURED || !settings.chatId) throw new Error('not configured');
-    await sendTelegramMessageToChat(settings.chatId, '✅ Уведомления админ-панели «Финских Новостей» подключены.');
+    if (!ADMIN_TELEGRAM_BOT_CONFIGURED || !settings.chatId) throw new Error('not configured');
+    await sendAdminTelegramMessageToChat(settings.chatId, '✅ Уведомления админ-панели «Финских Новостей» подключены.');
     return res.redirect(303, '/admin?tab=notifications&adminTelegram=test-sent');
   } catch (error) {
     console.error('[admin-telegram-test] ошибка:', error.message);
