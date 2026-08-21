@@ -16,7 +16,7 @@ const {
   PROMPT_VERSION: OPENAI_PROMPT_VERSION,
 } = require('./openAiRetell');
 const { translateArticleWithGoogleFree } = require('./freeTranslate');
-const { createAdminNotification } = require('./db');
+const { createAdminNotification, getSystemSetting, setSystemSettings } = require('./db');
 const { normalizeRussianArticle } = require('./glossary');
 
 const PROVIDER = (process.env.RUSSIAN_PROVIDER || 'openai').toLowerCase();
@@ -26,6 +26,11 @@ const FREE_FALLBACK_PROVIDER = (process.env.RUSSIAN_FREE_FALLBACK || 'google').t
 const DEEPL_KEY = process.env.DEEPL_API_KEY || '';
 const LIBRE_URL = process.env.LIBRETRANSLATE_URL || 'http://localhost:5000/translate';
 const LIBRE_KEY = process.env.LIBRETRANSLATE_API_KEY || '';
+let providerFailureNotifier = null;
+
+function setProviderFailureNotifier(notifier) {
+  providerFailureNotifier = typeof notifier === 'function' ? notifier : null;
+}
 
 function deeplHost() {
   return DEEPL_KEY.endsWith(':fx')
@@ -70,14 +75,22 @@ async function translateWithLibre(titleFi, summaryFi) {
 
 function notifyProviderFailure(provider, error) {
   if (!error?.billing && error?.code !== 'missing_api_key') return;
+  const title = error?.code === 'missing_api_key'
+    ? `Не настроен ключ ${provider === 'openai' ? 'OpenAI' : provider}`
+    : `Закончился баланс ${provider === 'openai' ? 'OpenAI' : provider}`;
+  const body = `Новые статьи временно переводятся резервным методом. Пополните баланс и проверьте ключ API. Код: ${error.code || error.status || 'billing_error'}.`;
   createAdminNotification({
     notificationKey: `${provider}-billing`,
     level: 'error',
-    title: error?.code === 'missing_api_key'
-      ? `Не настроен ключ ${provider === 'openai' ? 'OpenAI' : provider}`
-      : `Закончился баланс ${provider === 'openai' ? 'OpenAI' : provider}`,
-    body: `Новые статьи временно переводятся резервным методом. Пополните баланс и проверьте ключ API. Код: ${error.code || error.status || 'billing_error'}.`,
+    title,
+    body,
   });
+  const rateLimitKey = `admin_telegram_last_${provider}_billing_notification`;
+  const lastSent = Date.parse(getSystemSetting(rateLimitKey, ''));
+  if (providerFailureNotifier && (!Number.isFinite(lastSent) || Date.now() - lastSent > 6 * 60 * 60 * 1000)) {
+    setSystemSettings({ [rateLimitKey]: new Date().toISOString() });
+    providerFailureNotifier({ provider, title, body });
+  }
 }
 
 function canUseEmergencyFreeFallback(provider, error) {
@@ -143,4 +156,4 @@ async function getRussianVersion(article) {
   }
 }
 
-module.exports = { getRussianVersion };
+module.exports = { getRussianVersion, setProviderFailureNotifier };
