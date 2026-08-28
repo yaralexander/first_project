@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_PATH: /app/data/finskienovosti.db
+      BACKUP_DIRECTORY: /app/data/backups
+      TZ: Europe/Helsinki
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - finskie_novosti_data:/app/data
+
+volumes:
+  finskie_novosti_data:

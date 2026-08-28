@@ -1,6 +1,6 @@
 const { formatGlossaryForPrompt } = require('./glossary');
 
-const API_URL = 'https://api.openai.com/v1/chat/completions';
+const API_URL = 'https://api.openai.com/v1/responses';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
 const API_KEY = process.env.OPENAI_API_KEY || '';
 const PROMPT_VERSION = 5;
@@ -49,16 +49,16 @@ async function openAiRetellArticle({ titleFi, summaryFi, sourceName, hasFullArti
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+      instructions: SYSTEM_PROMPT,
+      input: [
         {
           role: 'user',
           content: `Источник: ${sourceName}\nТип материала: ${hasFullArticle ? 'основной текст оригинальной статьи' : 'короткий RSS-анонс'}\nЗаголовок (FI): ${titleFi}\nИсходный текст (FI): ${summaryFi || '(нет описания)'}`,
         },
       ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
+      text: {
+        format: {
+          type: 'json_schema',
           name: 'russian_news_retelling',
           strict: true,
           schema: {
@@ -93,7 +93,8 @@ async function openAiRetellArticle({ titleFi, summaryFi, sourceName, hasFullArti
   }
 
   const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
+  const content = payload?.output_text
+    || payload?.output?.flatMap((item) => item?.content || []).find((item) => item?.type === 'output_text')?.text;
   if (!content) throw new OpenAiProviderError('OpenAI вернул пустой ответ', { code: 'empty_response' });
   let parsed;
   try {

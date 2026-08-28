@@ -9,6 +9,7 @@ const {
 const SITE_NAME = 'Финские Новости';
 const SITE_NAME_LATIN = 'Finskie Novosti';
 const DEFAULT_SEO_KEYWORDS = 'Финские Новости, Finskie Novosti, новости Финляндии, новости Финляндии на русском, Финляндия сегодня';
+const ADSENSE_PUBLISHER_ID = process.env.ADSENSE_PUBLISHER_ID || 'ca-pub-7517908564247131';
 
 function escapeHtml(value = '') {
   return String(value)
@@ -125,6 +126,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   <link rel="alternate" hreflang="ru" href="${escapeHtml(canonical)}">
   <link rel="alternate" hreflang="x-default" href="${escapeHtml(canonical)}">
   <link rel="alternate" type="application/rss+xml" title="Финские Новости — общая лента" href="${escapeHtml(`${siteUrl}/rss.xml`)}">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_PUBLISHER_ID)}" crossorigin="anonymous"></script>
   <script type="application/ld+json">${JSON.stringify(seoGraph).replace(/</g, '\\u003c')}</script>
   <style>${siteStyles}</style>
 </head>

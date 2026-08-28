@@ -1,4 +1,4 @@
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_URL = 'https://api.openai.com/v1/responses';
 
 const STOP_WORDS = new Set(['какие', 'какой', 'сегодня', 'новости', 'новость', 'были', 'было', 'меня', 'может', 'это', 'этот', 'этой', 'как', 'что', 'для', 'про', 'или', 'чем', 'самые', 'важные', 'расскажи', 'покажи']);
 
@@ -124,8 +124,8 @@ async function generateGroundedAnswer(question, articles, { siteUrl, profile = {
       headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || 'gpt-5-nano',
-        messages: [
-          { role: 'system', content: 'Ты персональный новостной помощник о Финляндии. Отвечай только по переданным материалам. Чётко разделяй: подтверждённые факты, возможное влияние и то, что пока неизвестно. Не давай юридических, медицинских или финансовых гарантий. Не используй HTML. В конце перечисли номера использованных источников.' },
+        instructions: 'Ты персональный новостной помощник о Финляндии. Отвечай только по переданным материалам. Чётко разделяй: подтверждённые факты, возможное влияние и то, что пока неизвестно. Не давай юридических, медицинских или финансовых гарантий. Не используй HTML. В конце перечисли номера использованных источников.',
+        input: [
           { role: 'user', content: `Профиль пользователя: ${JSON.stringify(profile)}\nВопрос: ${question}\nМатериалы: ${JSON.stringify(sources)}` },
         ],
       }),
@@ -136,7 +136,9 @@ async function generateGroundedAnswer(question, articles, { siteUrl, profile = {
   }
   if (!response.ok) return fallbackAnswer(question, articles, { siteUrl, intent, profile });
   const payload = await response.json();
-  const answer = String(payload?.choices?.[0]?.message?.content || '').trim();
+  const answer = String(payload?.output_text
+    || payload?.output?.flatMap((item) => item?.content || []).find((item) => item?.type === 'output_text')?.text
+    || '').trim();
   if (!answer) return fallbackAnswer(question, articles, { siteUrl, intent, profile });
   const links = sources.map((source) => `${source.number}. <a href="${source.url}">${escapeHtml(source.title)}</a>`).join('\n');
   return `${escapeHtml(answer)}\n\n<b>Источники:</b>\n${links}`.slice(0, 4096);

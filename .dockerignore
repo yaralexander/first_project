@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+data
+output
+coverage
+*.db
+*.db-wal
+*.db-shm
+*.log
+finskie-novosti-backend.zip

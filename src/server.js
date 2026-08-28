@@ -542,6 +542,11 @@ if (CORS_ORIGINS.length) app.use(cors({ origin: CORS_ORIGINS }));
 app.use('/assets', express.static('public/assets', { fallthrough: false, maxAge: '7d' }));
 app.use(express.urlencoded({ extended: false }));
 
+// Google AdSense требует ads.txt в корне домена; отдаём его явно, независимо от static-каталога.
+app.get('/ads.txt', (req, res) => {
+  res.type('text/plain').send('google.com, pub-7517908564247131, DIRECT, f08c47fec0942fa0\n');
+});
+
 let isRefreshing = false;
 let lastManualRefreshAt = 0;
 const commentRequestsByIp = new Map();

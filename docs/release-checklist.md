@@ -47,8 +47,8 @@
 
 ## Ввод владельца в момент cutover
 
-- доступ к Coolify и DNS;
-- Anthropic API key и подтверждённый биллинг;
+- доступ к серверу/Coolify и DNS;
+- OpenAI API key и подтверждённый биллинг;
 - Google OAuth Client ID/Secret, allowlist Gmail-адресов и `REFRESH_TOKEN`;
 - сильный `ADMIN_PASSWORD`, только если временный аварийный вход сохраняется;
 - Telegram token/chat ID и тестовый канал, если Telegram включается сразу;
