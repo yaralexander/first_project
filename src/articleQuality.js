@@ -96,7 +96,9 @@ function assessArticleQuality(article, classification) {
     issues.push('тестовый перевод');
     confidence -= 0.35;
   }
-  if (classificationConfidence < 0.55) {
+  // 50% is a pragmatic gate: it lets reasonably clear articles through while
+  // still routing genuinely ambiguous classifications to an editor.
+  if (classificationConfidence < 0.50) {
     issues.push(`низкая уверенность классификатора (${Math.round(classificationConfidence * 100)}%)`);
     confidence -= 0.25;
   }
