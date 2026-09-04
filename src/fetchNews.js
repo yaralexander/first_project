@@ -12,6 +12,7 @@ const {
   insertArticle,
   recordDuplicateArticle,
   isNewsSourceEnabled,
+  getSystemSetting,
 } = require('./db');
 const { slugify } = require('./slugify');
 const { compareArticles } = require('./articleSimilarity');
@@ -80,6 +81,27 @@ function stripHtml(html = '') {
     .trim();
 }
 
+// Limit translation work before calling the paid provider.  RSS feeds usually
+// put the most relevant stories first; keyword boosts make the reduced batch
+// prefer urgent Finnish news instead of arbitrary tail items.
+function translationPercent() {
+  const value = Number.parseInt(getSystemSetting('content_intensity_percent', process.env.TRANSLATION_PERCENT || '100'), 10);
+  return Math.min(100, Math.max(1, Number.isFinite(value) ? value : 100));
+}
+
+function selectItemsForTranslation(items) {
+  const percent = translationPercent();
+  if (percent >= 100 || !Array.isArray(items) || items.length < 2) return items;
+  const urgent = /(sota|kuollut|kuolema|hätä|vaara|hallitus|president|lakko|onnettom|безопас|срочно|правительств|закон)/iu;
+  const ranked = items.map((item, index) => {
+    const text = `${item.title || ''} ${item.contentSnippet || item.summary || ''}`;
+    const date = new Date(item.isoDate || item.pubDate || 0).getTime();
+    return { item, index, score: (urgent.test(text) ? 100 : 0) + (Number.isNaN(date) ? 0 : date / 1e12) };
+  }).sort((a, b) => b.score - a.score || a.index - b.index);
+  const count = Math.max(1, Math.ceil(items.length * percent / 100));
+  return ranked.slice(0, count).map(({ item }) => item);
+}
+
 async function fetchArticleText(originalUrl, {
   fetcher = fetchExternalHtml,
   extractor = extractArticleContent,
@@ -101,7 +123,7 @@ async function fetchSource(source) {
   const insertedArticles = [];
   try {
     const feed = await parser.parseURL(source.url);
-    for (const entry of feed.items || []) {
+    for (const entry of selectItemsForTranslation(feed.items || [])) {
       if (source.creator && String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') !== source.creator) {
         continue;
       }

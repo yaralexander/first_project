@@ -41,6 +41,7 @@ const {
   isQuietTime,
   isTelegramChannelIntervalDue,
   normalizeContentTypes,
+  effectiveDailyQuota,
   renderTelegramChannelTemplate,
   validateTelegramChannelTemplate,
 } = require('./telegramDelivery');
@@ -1392,6 +1393,7 @@ function normalizeTelegramChannelSettings(input = {}) {
     ),
     intervalMinutes: Math.min(Math.max(Number.parseInt(input.intervalMinutes, 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(input.maxPostsPerDay, 10) || 20, 1), 100),
+    deliveryPercent: Math.min(100, Math.max(1, Number.parseInt(input.deliveryPercent, 10) || 100)),
     quietHoursEnabled: input.quietHoursEnabled === true || input.quietHoursEnabled === '1' || input.quietHoursEnabled === 'on',
     quietStart,
     quietEnd,
@@ -1403,6 +1405,10 @@ function normalizeTelegramChannelSettings(input = {}) {
       .trim()
       .slice(0, 3000),
   };
+}
+
+function getContentIntensityPercent() {
+  return Math.min(100, Math.max(1, Number.parseInt(getSystemSetting('content_intensity_percent', process.env.TRANSLATION_PERCENT || '100'), 10) || 100));
 }
 
 function articleMatchesTelegramChannel(article, settings, ranking) {
@@ -1431,7 +1437,8 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
     return { sent: false, reason: 'filtered', ranking };
   }
   if (getTelegramChannelPublication(article.id)) return { sent: false, reason: 'already_sent' };
-  if (countTelegramChannelPublicationsToday(settings.chatId) >= settings.maxPostsPerDay) {
+  const dailyQuota = effectiveDailyQuota(settings.maxPostsPerDay, Math.min(settings.deliveryPercent, getContentIntensityPercent()));
+  if (countTelegramChannelPublicationsToday(settings.chatId) >= dailyQuota) {
     return { sent: false, reason: 'daily_limit' };
   }
   const lastPublication = getLastTelegramChannelPublication(settings.chatId);
@@ -1457,7 +1464,12 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
 
 async function publishArticlesToTelegramChannel(articles) {
   const results = { sent: 0, skipped: 0 };
-  for (const article of Array.isArray(articles) ? articles : []) {
+  const orderedArticles = (Array.isArray(articles) ? articles : []).slice().sort((left, right) => {
+    const leftRank = calculateArticleRanking(left, getArticleRankingSignals(left.id)).score;
+    const rightRank = calculateArticleRanking(right, getArticleRankingSignals(right.id)).score;
+    return rightRank - leftRank || new Date(right.publishedAt || 0) - new Date(left.publishedAt || 0);
+  });
+  for (const article of orderedArticles) {
     try {
       const result = await sendArticleToTelegramChannel(article);
       if (result.sent) results.sent += 1;
@@ -1505,7 +1517,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       skipped += 1;
       continue;
     }
-    const quota = subscription.maxPostsPerDay || 15;
+    const quota = effectiveDailyQuota(subscription.maxPostsPerDay || 15, Math.min(subscription.deliveryPercent || 100, getContentIntensityPercent()));
     let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
     if (retryOnly && sentToday > 0) {
       skipped += 1;
@@ -2600,7 +2612,15 @@ app.get('/admin', (req, res) => {
     adminTelegramNotificationSettings: getAdminTelegramNotificationSettings(),
     adminTelegramNotificationStatus: typeof req.query.adminTelegram === 'string' ? req.query.adminTelegram : '',
     untranslatedArticleCount: countUntranslatedArticles(),
+    contentIntensityPercent: getContentIntensityPercent(),
   }));
+});
+
+app.post('/admin/content-intensity', requireAdminOrigin, (req, res) => {
+  const percent = Math.min(100, Math.max(1, Number.parseInt(req.body.percent, 10) || 100));
+  setSystemSettings({ content_intensity_percent: String(percent) });
+  auditAdminAction(req, 'content_intensity.update', 'system', 'content_intensity', { percent });
+  return res.redirect(303, '/admin?tab=articles&intensity=saved');
 });
 
 app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
@@ -2636,6 +2656,7 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     minimumScore: req.body.minimum_score,
     intervalMinutes: req.body.interval_minutes,
     maxPostsPerDay: req.body.max_posts_per_day,
+    deliveryPercent: req.body.delivery_percent,
     quietHoursEnabled: req.body.quiet_hours_enabled,
     quietStart: req.body.quiet_start,
     quietEnd: req.body.quiet_end,

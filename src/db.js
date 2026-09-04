@@ -220,6 +220,7 @@ function createDatabase() {
       categories TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'finland' CHECK (scope IN ('finland','all')),
       importance TEXT NOT NULL DEFAULT 'all' CHECK (importance IN ('all','important')),
       source_ids TEXT NOT NULL DEFAULT '', max_posts_per_day INTEGER NOT NULL DEFAULT 5,
+      delivery_percent INTEGER NOT NULL DEFAULT 100,
       include_original INTEGER NOT NULL DEFAULT 1,
       quiet_hours_enabled INTEGER NOT NULL DEFAULT 0,
       quiet_start TEXT NOT NULL DEFAULT '22:00',
@@ -367,6 +368,7 @@ function createDatabase() {
   const userSubscriptionColumns = new Set(db.prepare('PRAGMA table_info(user_subscriptions)').all().map((column) => column.name));
   if (!userSubscriptionColumns.has('source_ids')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN source_ids TEXT NOT NULL DEFAULT ''");
   if (!userSubscriptionColumns.has('max_posts_per_day')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN max_posts_per_day INTEGER NOT NULL DEFAULT 5");
+  if (!userSubscriptionColumns.has('delivery_percent')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN delivery_percent INTEGER NOT NULL DEFAULT 100");
   if (!userSubscriptionColumns.has('include_original')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN include_original INTEGER NOT NULL DEFAULT 1');
   if (!userSubscriptionColumns.has('quiet_hours_enabled')) db.exec('ALTER TABLE user_subscriptions ADD COLUMN quiet_hours_enabled INTEGER NOT NULL DEFAULT 0');
   if (!userSubscriptionColumns.has('quiet_start')) db.exec("ALTER TABLE user_subscriptions ADD COLUMN quiet_start TEXT NOT NULL DEFAULT '22:00'");
@@ -1838,6 +1840,7 @@ function getUserSubscription(userId) {
     importance: 'all',
     sourceIds: [],
     maxPostsPerDay: 15,
+    deliveryPercent: 100,
     includeOriginal: true,
     quietHoursEnabled: false,
     quietStart: '22:00',
@@ -1870,6 +1873,7 @@ function getUserSubscription(userId) {
       importance: normalizeSubscriptionImportance(row.importance_filter || row.importance),
       sourceIds: csvValues(row.source_ids),
       maxPostsPerDay: row.max_posts_per_day,
+      deliveryPercent: Math.min(100, Math.max(1, Number(row.delivery_percent) || 100)),
       includeOriginal: Boolean(row.include_original),
       quietHoursEnabled: Boolean(row.quiet_hours_enabled),
       quietStart: row.quiet_start || defaults.quietStart,
@@ -1898,7 +1902,7 @@ function getActiveUserSubscriptions() {
     SELECT subscriptions.user_id, subscriptions.enabled, subscriptions.frequency,
       subscriptions.categories, subscriptions.scope, subscriptions.importance,
       subscriptions.importance_filter,
-      subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.include_original,
+      subscriptions.source_ids, subscriptions.max_posts_per_day, subscriptions.delivery_percent, subscriptions.include_original,
       subscriptions.quiet_hours_enabled, subscriptions.quiet_start, subscriptions.quiet_end,
       subscriptions.timezone, subscriptions.content_types, subscriptions.excluded_categories,
       subscriptions.word_level, subscriptions.word_levels,
@@ -1920,6 +1924,7 @@ function getActiveUserSubscriptions() {
     importance: normalizeSubscriptionImportance(row.importance_filter || row.importance),
     sourceIds: csvValues(row.source_ids),
     maxPostsPerDay: row.max_posts_per_day,
+    deliveryPercent: Math.min(100, Math.max(1, Number(row.delivery_percent) || 100)),
     includeOriginal: Boolean(row.include_original),
     quietHoursEnabled: Boolean(row.quiet_hours_enabled),
     quietStart: row.quiet_start || '22:00',
@@ -1950,6 +1955,7 @@ function upsertUserSubscription({
   importance,
   sourceIds,
   maxPostsPerDay,
+  deliveryPercent = 100,
   includeOriginal,
   quietHoursEnabled = false,
   quietStart = '22:00',
@@ -1976,6 +1982,7 @@ function upsertUserSubscription({
     importance: normalizeSubscriptionImportance(importance),
     sourceIds,
     maxPostsPerDay,
+    deliveryPercent: Math.min(100, Math.max(1, Number(deliveryPercent) || 100)),
     includeOriginal: Boolean(includeOriginal),
     quietHoursEnabled: Boolean(quietHoursEnabled),
     quietStart,
@@ -1999,11 +2006,11 @@ function upsertUserSubscription({
     db.prepare(`
       INSERT INTO user_subscriptions (
         user_id, enabled, frequency, categories, scope, importance, importance_filter, source_ids,
-        max_posts_per_day, include_original, quiet_hours_enabled, quiet_start,
+        max_posts_per_day, delivery_percent, include_original, quiet_hours_enabled, quiet_start,
         quiet_end, timezone, content_types, word_level, word_levels, excluded_categories, tag_ids,
         region_codes, audience_codes, minimum_importance, delivery_times,
         delivery_weekdays, quiet_weekdays, allow_critical_during_quiet, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(user_id) DO UPDATE SET
         enabled=excluded.enabled,
         frequency=excluded.frequency,
@@ -2013,6 +2020,7 @@ function upsertUserSubscription({
         importance_filter=excluded.importance_filter,
         source_ids=excluded.source_ids,
         max_posts_per_day=excluded.max_posts_per_day,
+        delivery_percent=excluded.delivery_percent,
         include_original=excluded.include_original,
         quiet_hours_enabled=excluded.quiet_hours_enabled,
         quiet_start=excluded.quiet_start,
@@ -2034,7 +2042,7 @@ function upsertUserSubscription({
     `).run(
       userId, settings.enabled ? 1 : 0, frequency, categories.join(','), scope,
       settings.importance === 'urgent' ? 'important' : settings.importance, settings.importance,
-      sourceIds.join(','), maxPostsPerDay, settings.includeOriginal ? 1 : 0,
+      sourceIds.join(','), maxPostsPerDay, settings.deliveryPercent, settings.includeOriginal ? 1 : 0,
       settings.quietHoursEnabled ? 1 : 0, quietStart, quietEnd, timezone,
       contentTypes.join(','), settings.wordLevels[0] || settings.wordLevel, settings.wordLevels.join(','), excludedCategories.join(','), tagIds.join(','),
       regionCodes.join(','), audienceCodes.join(','), settings.minimumImportance,
@@ -2573,6 +2581,7 @@ function getTelegramChannelSettings() {
     minimumScore: Math.min(Math.max(Number.isInteger(parsedMinimumScore) ? parsedMinimumScore : 65, 0), 100),
     intervalMinutes: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_interval_minutes', '0'), 10) || 0, 0), 1440),
     maxPostsPerDay: Math.min(Math.max(Number.parseInt(getSystemSetting('telegram_channel_max_posts_per_day', '20'), 10) || 20, 1), 100),
+    deliveryPercent: Math.min(100, Math.max(1, Number.parseInt(getSystemSetting('telegram_channel_delivery_percent', '100'), 10) || 100)),
     quietHoursEnabled: getSystemSetting('telegram_channel_quiet_hours_enabled', '0') === '1',
     quietStart: getSystemSetting('telegram_channel_quiet_start', '22:00'),
     quietEnd: getSystemSetting('telegram_channel_quiet_end', '07:00'),
@@ -2596,6 +2605,7 @@ function saveTelegramChannelSettings(settings) {
     telegram_channel_minimum_score: settings.minimumScore,
     telegram_channel_interval_minutes: settings.intervalMinutes,
     telegram_channel_max_posts_per_day: settings.maxPostsPerDay,
+    telegram_channel_delivery_percent: settings.deliveryPercent,
     telegram_channel_quiet_hours_enabled: settings.quietHoursEnabled ? '1' : '0',
     telegram_channel_quiet_start: settings.quietStart,
     telegram_channel_quiet_end: settings.quietEnd,

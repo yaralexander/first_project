@@ -273,6 +273,14 @@ function normalizeContentTypes(values) {
   return normalized.length ? normalized : ['news'];
 }
 
+// Percentage quota keeps the existing daily limit as the 100% baseline.
+// A lower value deliberately favors the highest-ranked articles at the call site.
+function effectiveDailyQuota(maxPostsPerDay, deliveryPercent = 100) {
+  const max = Math.max(1, Number.parseInt(maxPostsPerDay, 10) || 1);
+  const percent = Math.min(100, Math.max(1, Number.parseInt(deliveryPercent, 10) || 100));
+  return Math.max(1, Math.floor((max * percent) / 100));
+}
+
 module.exports = {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
@@ -288,6 +296,7 @@ module.exports = {
   isTelegramChannelIntervalDue,
   localWeekday,
   normalizeContentTypes,
+  effectiveDailyQuota,
   renderTelegramChannelTemplate,
   trimExcerpt,
   validateTelegramChannelTemplate,
