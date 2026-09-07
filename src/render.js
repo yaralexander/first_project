@@ -1,6 +1,7 @@
 const { categories: defaultCategories } = require('./categories');
 const { siteStyles, brandMark, themeScript } = require('./siteDesign');
 const { contextualSummary, contextualTitle, peopleForArticle } = require('./peopleContext');
+const { hasLowValueSummary } = require('./articleQuality');
 const {
   DEFAULT_TELEGRAM_CHANNEL_TEMPLATE,
   TELEGRAM_CHANNEL_TEMPLATE_VARIABLES,
@@ -62,6 +63,11 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   const seoDescription = String(description || '')
     .replace(/\bFinskiye Novosti\b/gi, SITE_NAME_LATIN)
     .trim();
+  // AdSense code belongs only on public content pages. Do not load it on
+  // login, account, admin, and error pages marked noindex.
+  const adsenseScript = robots && String(robots).toLowerCase().includes('noindex')
+    ? ''
+    : `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_PUBLISHER_ID)}" crossorigin="anonymous"></script>`;
   const baseGraph = [
     {
       '@type': 'Organization',
@@ -126,7 +132,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   <link rel="alternate" hreflang="ru" href="${escapeHtml(canonical)}">
   <link rel="alternate" hreflang="x-default" href="${escapeHtml(canonical)}">
   <link rel="alternate" type="application/rss+xml" title="Финские Новости — общая лента" href="${escapeHtml(`${siteUrl}/rss.xml`)}">
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(ADSENSE_PUBLISHER_ID)}" crossorigin="anonymous"></script>
+  ${adsenseScript}
   <script type="application/ld+json">${JSON.stringify(seoGraph).replace(/</g, '\\u003c')}</script>
   <style>${siteStyles}</style>
 </head>
@@ -344,7 +350,19 @@ function renderArticlePage({ article, siteUrl, categoryToSlug, comments = [], co
     publisher: { '@id': `${siteUrl}/#organization` },
     isBasedOn: safeExternalUrl(article.originalUrl) === '#' ? undefined : safeExternalUrl(article.originalUrl),
   };
-  return documentPage({ title, description, canonicalPath: `/news/${encodeURIComponent(article.slug)}`, siteUrl, content, breakingArticle: article.editorialStatus === 'urgent' ? article : null, structuredData });
+  const shouldNoindex = article.qualityStatus === 'manual_review'
+    || article.qualityStatus === 'rejected'
+    || (article.sourceId && article.translationMethod !== 'editorial' && hasLowValueSummary(articleSummary));
+  return documentPage({
+    title,
+    description,
+    canonicalPath: `/news/${encodeURIComponent(article.slug)}`,
+    siteUrl,
+    content,
+    robots: shouldNoindex ? 'noindex,follow' : undefined,
+    breakingArticle: article.editorialStatus === 'urgent' ? article : null,
+    structuredData,
+  });
 }
 
 function optionMarkup(value, label, selected) {
@@ -916,12 +934,13 @@ function renderAboutPage({ siteUrl }) {
       <div class="info-hero-mark" aria-hidden="true">${brandMark}</div>
     </section>
     <div class="info-grid">
-      <section class="info-card"><span class="info-card-icon">🇫🇮</span><h2>Что мы публикуем</h2><p>Мы собираем открытые RSS-анонсы финских СМИ и публикуем краткие русскоязычные пересказы. У каждой новости указан источник и доступна ссылка на оригинальный материал.</p></section>
-      <section class="info-card"><span class="info-card-icon">✨</span><h2>Как используется ИИ</h2><p>ИИ помогает подготовить пересказ, но не заменяет оригинальную статью. Редакционные материалы и обсуждения всегда имеют понятную маркировку.</p></section>
+      <section class="info-card"><span class="info-card-icon">🇫🇮</span><h2>Что мы публикуем</h2><p>Мы отслеживаем открытые ленты финских СМИ, проверяем доступный полный текст и готовим самостоятельные русскоязычные публикации. У каждой новости указаны дата, категория, источник и постоянная ссылка на оригинал.</p></section>
+      <section class="info-card"><span class="info-card-icon">✨</span><h2>Как используется ИИ</h2><p>ИИ помогает структурировать подтверждённые факты и объяснить контекст простым языком. Он не должен добавлять сведения, которых нет в источнике: сомнительные и шаблонные материалы автоматически откладываются для проверки.</p></section>
+      <section class="info-card"><span class="info-card-icon">📝</span><h2>Редакционный стандарт</h2><p>Публикация отвечает на вопросы «что произошло, где, когда и кого касается», содержит блок «Почему это важно?» и честно отмечает, если источник не сообщает дополнительных последствий. Ошибки исправляются с указанием даты обновления.</p></section>
       <section class="info-card"><span class="info-card-icon">💬</span><h2>Комментарии</h2><p>Комментарий сначала попадает на премодерацию. После одобрения редакцией его имя и текст становятся видны на странице соответствующей новости.</p></section>
       <section class="info-card" id="privacy"><span class="info-card-icon">🛡️</span><h2>Конфиденциальность</h2><p>Сайт учитывает просмотры и реакции с помощью анонимного дневного идентификатора. IP-адреса и User-Agent не сохраняются в открытом виде.</p></section>
     </div>
-    <aside class="info-note"><strong>Главный принцип:</strong> краткий пересказ помогает быстро понять событие, а оригинальный источник остаётся основой материала.</aside>
+    <aside class="info-note"><strong>Главный принцип:</strong> мы добавляем понятную структуру и контекст, но не подменяем первоисточник. Если полный текст недоступен или данных недостаточно, материал не считается готовым к автоматической публикации.</aside>
   </article>`;
   return documentPage({ title: 'О проекте и конфиденциальность — Финские Новости', description: 'Как «Финские Новости» публикуют русскоязычные пересказы новостей Финляндии.', canonicalPath: '/about', siteUrl, content });
 }

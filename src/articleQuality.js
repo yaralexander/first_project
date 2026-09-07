@@ -22,6 +22,29 @@ function matchedTerms(text, terms) {
   return terms.filter((term) => text.includes(term));
 }
 
+// RSS summaries that only repeat the feed boilerplate do not give a reader
+// enough original value. Keep them out of the automatic publication flow so
+// the editor can add context, facts and a useful Russian summary first.
+const LOW_VALUE_SUMMARY_MARKERS = [
+  'в rss-анонсе не приводятся',
+  'в коротком сообщении не приводятся',
+  'подробности не уточняются',
+  'дополнительные детали не приводятся',
+  'текст новости не содержит подробностей',
+  'в публикации не сообщается',
+  'в публикации не приводятся',
+  'в тексте не приводятся',
+  'в анонсе не приводятся',
+  'не содержит дополнительных деталей',
+  'дополнительная информация не приводится',
+];
+
+function hasLowValueSummary(value) {
+  const summary = normalize(value);
+  return summary.length < 80
+    || LOW_VALUE_SUMMARY_MARKERS.some((marker) => summary.includes(marker));
+}
+
 function assessImportance(article) {
   const text = normalize([
     article.titleRu,
@@ -84,13 +107,19 @@ function assessArticleQuality(article, classification) {
   if (!summaryRu) {
     issues.push('нет русского текста');
     confidence -= 0.45;
-  } else if (summaryRu.length < 80) {
-    issues.push('русский текст слишком короткий');
+  } else if (hasLowValueSummary(summaryRu)) {
+    issues.push(summaryRu.length < 80
+      ? 'русский текст слишком короткий (нужно не менее 80 символов)'
+      : 'текст похож на шаблонный пересказ без дополнительных деталей');
     confidence -= 0.2;
   }
   if (method === 'fallback-original') {
     issues.push('использован оригинал вместо перевода');
     confidence -= 0.45;
+  }
+  if (article.sourceId && article.sourceId !== 'editorial' && !/^https?:\/\//i.test(String(article.originalUrl || ''))) {
+    issues.push('нет ссылки на первоисточник');
+    confidence -= 0.25;
   }
   if (method === 'mock' || titleRu.startsWith('[RU]') || summaryRu.startsWith('[RU]')) {
     issues.push('тестовый перевод');
@@ -121,4 +150,5 @@ function assessArticleQuality(article, classification) {
 module.exports = {
   assessArticleQuality,
   assessImportance,
+  hasLowValueSummary,
 };

@@ -3,7 +3,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { compareArticles } = require('./articleSimilarity');
 const { classifyArticle } = require('./articleClassifier');
-const { assessArticleQuality } = require('./articleQuality');
+const { assessArticleQuality, hasLowValueSummary } = require('./articleQuality');
 const { applyFoundationSchema } = require('./schemaFoundation');
 const { createTaxonomyRepository } = require('./taxonomyRepository');
 const { SOURCES } = require('./config');
@@ -393,6 +393,42 @@ function createDatabase() {
 
 const db = createDatabase();
 const taxonomyRepository = createTaxonomyRepository(db);
+
+// One-time safety net for archives created before the quality gate existed.
+// Keep editor-approved materials intact, but move obvious RSS boilerplate out
+// of the public index so AdSense and search crawlers see useful pages only.
+function quarantineLegacyLowValueArticles() {
+  const rows = db.prepare(`
+    SELECT id, summary_ru, title_ru, translation_method
+    FROM articles
+    WHERE source_id <> 'editorial'
+      AND publication_status = 'published'
+      AND COALESCE(quality_status, 'unchecked') <> 'passed'
+  `).all();
+  const update = db.prepare(`
+    UPDATE articles
+    SET quality_status = 'manual_review',
+        quality_confidence = MIN(COALESCE(quality_confidence, 0.35), 0.35),
+        quality_reason = 'Нужна проверка редактора: старый RSS-материал признан шаблонным или слишком коротким.',
+        quality_publish_on_approval = 1,
+        publication_status = 'draft'
+    WHERE id = ?
+  `);
+  const migrate = db.transaction(() => {
+    let changed = 0;
+    rows.forEach((row) => {
+      const isTestMaterial = row.translation_method === 'mock'
+        || /^\[ru\]/i.test(String(row.title_ru || ''));
+      if (isTestMaterial || hasLowValueSummary(row.summary_ru)) {
+        changed += update.run(row.id).changes;
+      }
+    });
+    return changed;
+  });
+  return migrate();
+}
+
+quarantineLegacyLowValueArticles();
 
 const findArticleByUrl = db.prepare('SELECT id FROM articles WHERE original_url = ?');
 const insertArticleStatement = db.prepare(`
@@ -928,7 +964,9 @@ function normalizePagination(limit, offset) {
 function getArticles({ limit = 50, offset = 0 } = {}) {
   const pagination = normalizePagination(limit, offset);
   return db.prepare(`
-    SELECT * FROM articles WHERE publication_status = 'published'
+    SELECT * FROM articles
+    WHERE publication_status = 'published'
+      AND (source_id = 'editorial' OR quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY published_at DESC, id DESC
     LIMIT ? OFFSET ?
   `).all(pagination.limit, pagination.offset).map(toArticle);
@@ -936,7 +974,7 @@ function getArticles({ limit = 50, offset = 0 } = {}) {
 
 function getHomeArticles({ limit = 50, offset = 0, source = '', sort = 'newest' } = {}) {
   const pagination = normalizePagination(limit, offset);
-  const conditions = ["publication_status = 'published'"];
+  const conditions = ["publication_status = 'published'", "(source_id = 'editorial' OR quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))"];
   const values = [];
   if (source) {
     conditions.push('source_id = ?');
@@ -956,7 +994,7 @@ function getHomeArticles({ limit = 50, offset = 0, source = '', sort = 'newest' 
 }
 
 function getArticleBySlug(slug) {
-  const row = db.prepare("SELECT * FROM articles WHERE slug = ? AND publication_status = 'published'").get(slug);
+  const row = db.prepare("SELECT * FROM articles WHERE slug = ? AND publication_status = 'published' AND (source_id = 'editorial' OR quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))").get(slug);
   if (!row) return null;
   const article = toArticle(row);
   return { ...article, classification: getArticleClassification(article.id) };
@@ -964,9 +1002,9 @@ function getArticleBySlug(slug) {
 
 function countArticles({ source = '' } = {}) {
   if (source) {
-    return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE publication_status = 'published' AND source_id = ?").get(source).count;
+    return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE publication_status = 'published' AND (source_id = 'editorial' OR quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected')) AND source_id = ?").get(source).count;
   }
-  return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE publication_status = 'published'").get().count;
+  return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE publication_status = 'published' AND (source_id = 'editorial' OR quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))").get().count;
 }
 
 function getArticlesByCategory(category, { limit = 50, offset = 0 } = {}) {
@@ -974,13 +1012,14 @@ function getArticlesByCategory(category, { limit = 50, offset = 0 } = {}) {
   return db.prepare(`
     SELECT * FROM articles
     WHERE category = ? AND publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY published_at DESC, id DESC
     LIMIT ? OFFSET ?
   `).all(category, pagination.limit, pagination.offset).map(toArticle);
 }
 
 function countArticlesByCategory(category) {
-  return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE category = ? AND publication_status = 'published'").get(category).count;
+  return db.prepare("SELECT COUNT(*) AS count FROM articles WHERE category = ? AND publication_status = 'published' AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))").get(category).count;
 }
 
 function withClassification(article) {
@@ -996,6 +1035,7 @@ function getArticlesByTagSlug(slug, { limit = 50, offset = 0 } = {}) {
     JOIN managed_tags ON managed_tags.id = article_tags.tag_id
     WHERE managed_tags.slug = ? AND managed_tags.is_visible = 1
       AND articles.publication_status = 'published'
+      AND (articles.quality_status IS NULL OR articles.quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY articles.published_at DESC, articles.id DESC
     LIMIT ? OFFSET ?
   `).all(slug, pagination.limit, pagination.offset).map(toArticle);
@@ -1009,6 +1049,7 @@ function countArticlesByTagSlug(slug) {
     JOIN managed_tags ON managed_tags.id = article_tags.tag_id
     WHERE managed_tags.slug = ? AND managed_tags.is_visible = 1
       AND articles.publication_status = 'published'
+      AND (articles.quality_status IS NULL OR articles.quality_status NOT IN ('manual_review', 'rejected'))
   `).get(slug).count;
 }
 
@@ -1017,6 +1058,7 @@ function getArticlesByRegionCode(code, { limit = 50, offset = 0 } = {}) {
   return db.prepare(`
     SELECT * FROM articles
     WHERE region_code = ? AND publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY published_at DESC, id DESC
     LIMIT ? OFFSET ?
   `).all(code, pagination.limit, pagination.offset).map(toArticle);
@@ -1026,6 +1068,7 @@ function countArticlesByRegionCode(code) {
   return db.prepare(`
     SELECT COUNT(*) AS count FROM articles
     WHERE region_code = ? AND publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
   `).get(code).count;
 }
 
@@ -1078,6 +1121,7 @@ function getCategories() {
     SELECT DISTINCT category
     FROM articles
     WHERE category IS NOT NULL AND category <> '' AND publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY category
   `).all().map((row) => row.category);
 }
@@ -1088,6 +1132,7 @@ function getSitemapArticles() {
     FROM articles
     WHERE slug IS NOT NULL AND slug <> ''
       AND publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
     ORDER BY published_at DESC, id DESC
   `).all().map((row) => ({
     slug: row.slug,
@@ -1110,6 +1155,7 @@ function getNews({ category, source, limit } = {}) {
   }
 
   conditions.push("publication_status = 'published'");
+  conditions.push("(quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))");
   let query = 'SELECT * FROM articles';
   if (conditions.length) query += ` WHERE ${conditions.join(' AND ')}`;
   query += ' ORDER BY published_at DESC, id DESC';
