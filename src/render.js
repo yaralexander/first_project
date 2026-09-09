@@ -104,7 +104,7 @@ function documentPage({ title, description, canonicalPath, siteUrl, content, rob
   const breakingHref = breakingArticle ? articleUrl(breakingArticle) : '/';
   const breakingLabel = breakingArticle?.editorialStatus === 'urgent' ? 'СРОЧНО ⚡' : 'BREAKING ⚡';
   const breaking = `<section class="breaking" aria-label="Важная новость"><div class="wrap"><span class="breaking-label">${breakingLabel}</span><a class="breaking-link" href="${breakingHref}">${escapeHtml(breakingTitle)}</a><button class="breaking-close" type="button" data-breaking-close aria-label="Закрыть">×</button></div></section>`;
-  const categoryIcons = { Политика: '🏛️', Экономика: '💰', Иммиграция: '✈️', Работа: '💼', Общество: '👥', Образование: '🎓', Россия: '🇷🇺', Мир: '🌍' };
+  const categoryIcons = { Политика: '🏛️', Экономика: '💰', Иммиграция: '✈️', Работа: '💼', Происшествия: '🚨', Общество: '👥', Образование: '🎓', Россия: '🇷🇺', Мир: '🌍' };
   const nav = defaultCategories.map((category) => `<a href="/category/${encodeURIComponent(categoryToStaticSlug(category))}">${categoryIcons[category]} ${escapeHtml(category)}</a>`).join('');
   const interestButtons = defaultCategories.map((category) => `<button type="button" class="interest-chip" data-interest="${escapeHtml(category)}" aria-pressed="false">${categoryIcons[category]} ${escapeHtml(category)}</button>`).join('');
   const interestControl = showInterestModal ? '<button class="icon-btn" type="button" data-interests-open aria-label="Настроить интересы">✦</button>' : '';
