@@ -8,6 +8,7 @@ const { applyFoundationSchema } = require('./schemaFoundation');
 const { createTaxonomyRepository } = require('./taxonomyRepository');
 const { SOURCES } = require('./config');
 const { normalizeRussianArticle } = require('./glossary');
+const { initializeVisitStatistics, incrementDailyVisits, getVisitOverview } = require('./visitStatistics');
 
 const databasePath = process.env.DATABASE_PATH
   || path.join(__dirname, '..', 'data', 'finskienovosti.db');
@@ -387,6 +388,7 @@ function createDatabase() {
   if (!telegramUserLinkColumns.has('linked_at')) db.exec('ALTER TABLE telegram_user_links ADD COLUMN linked_at TEXT');
 
   applyFoundationSchema(db);
+  initializeVisitStatistics(db);
 
   return db;
 }
@@ -1473,6 +1475,7 @@ function recordView({ articleId, visitorHash, viewedOn }) {
   `);
   const record = db.transaction(() => {
     const site = insert.run(0, visitorHash, viewedOn).changes === 1;
+    if (site) incrementDailyVisits(db, viewedOn);
     const article = articleId ? insert.run(articleId, visitorHash, viewedOn).changes === 1 : false;
     return { site, article };
   });
@@ -1519,7 +1522,6 @@ function getAdminStatistics(filters = {}) {
       (SELECT COUNT(*) FROM comments WHERE status = 'pending') AS pendingComments,
       (SELECT COUNT(*) FROM comments WHERE date(created_at) = date('now')) AS commentsToday,
       (SELECT COUNT(*) FROM analytics_views WHERE article_id = 0 AND viewed_on = date('now')) AS siteViewsToday,
-      (SELECT COUNT(DISTINCT visitor_hash) FROM analytics_views WHERE article_id = 0 AND viewed_on >= date('now', '-29 days')) AS siteVisitorsMonth,
       (SELECT COUNT(*) FROM article_reactions) AS reactionCount,
       (SELECT COUNT(*) FROM article_duplicate_log WHERE date(last_seen_at) = date('now')) AS duplicatesToday
   `).get();
@@ -1575,7 +1577,7 @@ function getAdminStatistics(filters = {}) {
     reactions: sum.reactions + day.reactions,
     duplicates: sum.duplicates + day.duplicates,
   }), { articles: 0, visitors: 0, articleViews: 0, comments: 0, reactions: 0, duplicates: 0 });
-  return { ...totals, topRead, topCommented, daily, bySource, byCategory, report, filters: normalized };
+  return { ...totals, visits: getVisitOverview(db), topRead, topCommented, daily, bySource, byCategory, report, filters: normalized };
 }
 
 function getDailyAdminStatistics(filters = {}) {

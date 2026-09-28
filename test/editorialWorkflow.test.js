@@ -214,3 +214,13 @@ test('user statistics render persisted users and subscription topics', () => {
   assert.deepEqual(db.getUserSubscription('reader-google-sub').wordLevels, ['B1-B2', 'C1-C2']);
   assert.equal(statistics.topics.find((topic) => topic.name === 'Экономика').count, 1);
 });
+
+test('daily visit totals deduplicate within a day and survive analytics cleanup', () => {
+  const view = { articleId: null, visitorHash: 'monthly-visitor', viewedOn: '2025-01-15' };
+  assert.equal(db.recordView(view).site, true);
+  assert.equal(db.recordView(view).site, false);
+  assert.equal(db.recordView({ ...view, viewedOn: '2025-01-16' }).site, true);
+  assert.equal(db.getAdminStatistics().visits.months.find((month) => month.month === '2025-01').visits, 2);
+  db.cleanupAnalytics(90);
+  assert.equal(db.getAdminStatistics().visits.months.find((month) => month.month === '2025-01').visits, 2);
+});

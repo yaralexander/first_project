@@ -1,6 +1,7 @@
 // src/server.js
 require('dotenv').config();
 const crypto = require('crypto');
+const { shouldCountVisit } = require('./visitStatistics');
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
@@ -863,6 +864,7 @@ function renderStatisticsCsv(statistics) {
 }
 
 function recordPublicView(req, articleId = null) {
+  if (!shouldCountVisit(req)) return;
   const viewedOn = new Date().toISOString().slice(0, 10);
   const visitorHash = getAnonymousVisitorHash(req, viewedOn);
   recordView({ articleId, visitorHash, viewedOn });
