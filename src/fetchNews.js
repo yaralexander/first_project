@@ -13,10 +13,12 @@ const {
   recordDuplicateArticle,
   isNewsSourceEnabled,
   getSystemSetting,
+  countRssArticlesImportedOn,
 } = require('./db');
 const { slugify } = require('./slugify');
 const { compareArticles } = require('./articleSimilarity');
 const { extractArticleContent, fetchExternalHtml } = require('./importArticle');
+const { balancedEntries, dailyRssLimit, helsinkiDay } = require('./rssDailyLimit');
 
 const parser = new Parser({
   timeout: 15000,
@@ -81,27 +83,6 @@ function stripHtml(html = '') {
     .trim();
 }
 
-// Limit translation work before calling the paid provider.  RSS feeds usually
-// put the most relevant stories first; keyword boosts make the reduced batch
-// prefer urgent Finnish news instead of arbitrary tail items.
-function translationPercent() {
-  const value = Number.parseInt(getSystemSetting('content_intensity_percent', process.env.TRANSLATION_PERCENT || '100'), 10);
-  return Math.min(100, Math.max(1, Number.isFinite(value) ? value : 100));
-}
-
-function selectItemsForTranslation(items) {
-  const percent = translationPercent();
-  if (percent >= 100 || !Array.isArray(items) || items.length < 2) return items;
-  const urgent = /(sota|kuollut|kuolema|hätä|vaara|hallitus|president|lakko|onnettom|безопас|срочно|правительств|закон)/iu;
-  const ranked = items.map((item, index) => {
-    const text = `${item.title || ''} ${item.contentSnippet || item.summary || ''}`;
-    const date = new Date(item.isoDate || item.pubDate || 0).getTime();
-    return { item, index, score: (urgent.test(text) ? 100 : 0) + (Number.isNaN(date) ? 0 : date / 1e12) };
-  }).sort((a, b) => b.score - a.score || a.index - b.index);
-  const count = Math.max(1, Math.ceil(items.length * percent / 100));
-  return ranked.slice(0, count).map(({ item }) => item);
-}
-
 async function fetchArticleText(originalUrl, {
   fetcher = fetchExternalHtml,
   extractor = extractArticleContent,
@@ -117,113 +98,95 @@ async function fetchArticleText(originalUrl, {
   }
 }
 
-async function fetchSource(source) {
-  let inserted = 0;
-  let skipped = 0;
-  const insertedArticles = [];
-  try {
-    const feed = await parser.parseURL(source.url);
-    for (const entry of selectItemsForTranslation(feed.items || [])) {
-      if (source.creator && String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') !== source.creator) {
-        continue;
-      }
-      const titleFi = (entry.title || '').trim();
-      const summaryFi = stripHtml(entry.contentSnippet || entry.content || entry.summary || '');
-      const originalUrl = entry.link || entry.guid;
-      const publishedAt = entry.isoDate || entry.pubDate || null;
-      const category = categorize(titleFi, summaryFi);
-      if (!titleFi || !originalUrl) {
-        skipped += 1;
-        continue;
-      }
-      if (articleExists(originalUrl)) {
-        skipped += 1;
-        continue;
-      }
-      const similarArticle = findSimilarArticle({
-        sourceId: source.id,
-        titleFi,
-        summaryFi: summaryFi.slice(0, 800),
-        publishedAt,
-      }) || findPendingSimilarArticle({ sourceId: source.id, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
-      if (similarArticle) {
-        recordDuplicateArticle({
-          originalUrl,
-          sourceId: source.id,
-          sourceName: source.name,
-          titleFi,
-          summaryFi: summaryFi.slice(0, 800),
-          externalGuid: entry.guid || null,
-          category,
-          publishedAt,
-          matchedArticleId: similarArticle.id || null,
-          similarity: similarArticle.similarity,
-        });
-        skipped += 1;
-        console.log(`[fetchSource] похожая тема пропущена: ${source.name} → ${similarArticle.sourceName} (${Math.round(similarArticle.similarity * 100)}%)`);
-        continue;
-      }
-
-      rememberPendingArticle({ sourceId: source.id, sourceName: source.name, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
-
-      const articleTextFi = await fetchArticleText(originalUrl);
-      const translationSourceFi = articleTextFi.length > summaryFi.length ? articleTextFi : summaryFi;
-      const usesFullArticle = translationSourceFi === articleTextFi && Boolean(articleTextFi);
-
-      const result = await limitAiCalls(() => getRussianVersion({
-        titleFi,
-        summaryFi: translationSourceFi,
-        sourceName: source.name,
-        hasFullArticle: usesFullArticle,
-      }));
-
-      if (result.method === 'fallback-original') {
-        skipped += 1;
-        continue;
-      }
-
-      const article = {
-        sourceId: source.id,
-        sourceName: source.name,
-        originalUrl,
-        externalGuid: entry.guid || null,
-        slug: slugify(result.titleRu || titleFi, originalUrl || entry.guid),
-        category,
-        titleFi,
-        // Keep only the public RSS excerpt in our database. The source page text
-        // is used transiently to create the Russian retelling and is not republished.
-        summaryFi,
-        titleRu: result.titleRu,
-        summaryRu: result.summaryRu,
-        translationMethod: result.method,
-        promptVersion: PROMPT_VERSION,
-        publishedAt,
-        editorialStatus: 'normal',
-      };
-
-      const articleId = insertArticle(article);
-      if (articleId) {
-        inserted += 1;
-        const storedArticle = getArticleById(articleId);
-        if (storedArticle) insertedArticles.push(storedArticle);
-      } else {
-        skipped += 1;
-      }
-    }
-  } catch (err) {
-    console.error(`[fetchSource] ${source.name} (${source.url}) — ошибка:`, err.message);
+async function importFeedEntry(source, entry) {
+  const titleFi = (entry.title || '').trim();
+  const summaryFi = stripHtml(entry.contentSnippet || entry.content || entry.summary || '');
+  const originalUrl = entry.link || entry.guid;
+  const publishedAt = entry.isoDate || entry.pubDate || null;
+  const category = categorize(titleFi, summaryFi);
+  if (!titleFi || !originalUrl || articleExists(originalUrl)) return null;
+  const similarArticle = findSimilarArticle({
+    sourceId: source.id, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt,
+  }) || findPendingSimilarArticle({ sourceId: source.id, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
+  if (similarArticle) {
+    recordDuplicateArticle({
+      originalUrl, sourceId: source.id, sourceName: source.name, titleFi,
+      summaryFi: summaryFi.slice(0, 800), externalGuid: entry.guid || null,
+      category, publishedAt, matchedArticleId: similarArticle.id || null,
+      similarity: similarArticle.similarity,
+    });
+    console.log(`[fetchSource] похожая тема пропущена: ${source.name} → ${similarArticle.sourceName} (${Math.round(similarArticle.similarity * 100)}%)`);
+    return null;
   }
-  return { inserted, skipped, insertedArticles };
+
+  rememberPendingArticle({ sourceId: source.id, sourceName: source.name, titleFi, summaryFi: summaryFi.slice(0, 800), publishedAt });
+
+  const articleTextFi = await fetchArticleText(originalUrl);
+  const translationSourceFi = articleTextFi.length > summaryFi.length ? articleTextFi : summaryFi;
+  const result = await limitAiCalls(() => getRussianVersion({
+    titleFi, summaryFi: translationSourceFi, sourceName: source.name,
+    hasFullArticle: translationSourceFi === articleTextFi && Boolean(articleTextFi),
+  }));
+  if (result.method === 'fallback-original') return null;
+
+  const articleId = insertArticle({
+    sourceId: source.id, sourceName: source.name, originalUrl,
+    externalGuid: entry.guid || null,
+    slug: slugify(result.titleRu || titleFi, originalUrl || entry.guid),
+    category, titleFi,
+    // The source page text is used transiently for retelling, not republished.
+    summaryFi, titleRu: result.titleRu, summaryRu: result.summaryRu,
+    translationMethod: result.method, promptVersion: PROMPT_VERSION,
+    publishedAt, editorialStatus: 'normal',
+  });
+  return articleId ? getArticleById(articleId) : null;
 }
 
-async function fetchAllNews() {
-  console.log('[fetchAllNews] старт обновления —', new Date().toISOString());
+async function fetchAllNews({ sources = SOURCES, loadFeed = (source) => parser.parseURL(source.url), importEntry = importFeedEntry } = {}) {
+  const limit = dailyRssLimit(getSystemSetting('rss_daily_limit', '50'));
+  let day = helsinkiDay();
+  let used = countRssArticlesImportedOn(day);
+  console.log(`[fetchAllNews] обновление RSS: ${used}/${limit} за ${day} (Хельсинки)`);
+  if (used >= limit) return [];
+
   resetPendingArticles();
-  const results = await Promise.all(SOURCES.filter((source) => isNewsSourceEnabled(source.id)).map(fetchSource));
-  const inserted = results.reduce((sum, result) => sum + result.inserted, 0);
-  const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
-  const insertedArticles = results.flatMap((result) => result.insertedArticles || []);
-  console.log(`[fetchAllNews] добавлено: ${inserted}, пропущено: ${skipped}`);
+  const enabled = sources.filter((source) => isNewsSourceEnabled(source.id));
+  const feeds = (await Promise.all(enabled.map(async (source) => {
+    try {
+      const feed = await loadFeed(source);
+      const entries = (feed.items || [])
+        .filter((entry) => !source.creator || String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') === source.creator)
+        .sort((a, b) => new Date(b.isoDate || b.pubDate || 0) - new Date(a.isoDate || a.pubDate || 0));
+      return { source, entries };
+    } catch (error) {
+      console.error(`[fetchSource] ${source.name} (${source.url}) — ошибка:`, error.message);
+      return { source, entries: [] };
+    }
+  })));
+
+  const insertedArticles = [];
+  let skipped = 0;
+  for (const { source, entry } of balancedEntries(feeds)) {
+    const currentDay = helsinkiDay();
+    if (currentDay !== day) {
+      day = currentDay;
+      used = countRssArticlesImportedOn(day);
+    }
+    const currentLimit = dailyRssLimit(getSystemSetting('rss_daily_limit', '50'));
+    if (used >= currentLimit) break;
+    if (!isNewsSourceEnabled(source.id)) continue;
+    try {
+      const article = await importEntry(source, entry);
+      if (article) {
+        insertedArticles.push(article);
+        used += 1;
+      } else skipped += 1;
+    } catch (error) {
+      skipped += 1;
+      console.error(`[fetchSource] ${source.name}:`, error.message);
+    }
+  }
+  console.log(`[fetchAllNews] добавлено: ${insertedArticles.length}, пропущено: ${skipped}; сегодня ${used}/${dailyRssLimit(getSystemSetting('rss_daily_limit', '50'))}`);
   return insertedArticles;
 }
 

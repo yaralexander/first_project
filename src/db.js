@@ -8,6 +8,7 @@ const { applyFoundationSchema } = require('./schemaFoundation');
 const { createTaxonomyRepository } = require('./taxonomyRepository');
 const { SOURCES } = require('./config');
 const { normalizeRussianArticle } = require('./glossary');
+const { helsinkiDay } = require('./rssDailyLimit');
 const { initializeVisitStatistics, incrementDailyVisits, getVisitOverview } = require('./visitStatistics');
 
 const databasePath = process.env.DATABASE_PATH
@@ -45,6 +46,8 @@ function createDatabase() {
       ON articles (category);
     CREATE INDEX IF NOT EXISTS idx_articles_source_id
       ON articles (source_id);
+    CREATE INDEX IF NOT EXISTS idx_articles_source_created_at
+      ON articles (source_id, created_at);
 
     CREATE TABLE IF NOT EXISTS comments (
       id INTEGER PRIMARY KEY,
@@ -2604,6 +2607,18 @@ function getSystemSetting(key, fallback = '') {
   return row ? row.setting_value : fallback;
 }
 
+function countRssArticlesImportedOn(day = helsinkiDay()) {
+  const midnight = new Date(`${day}T00:00:00.000Z`);
+  if (Number.isNaN(midnight.getTime())) return 0;
+  const previous = new Date(midnight.getTime() - 86400000).toISOString().slice(0, 10);
+  const next = new Date(midnight.getTime() + 86400000).toISOString().slice(0, 10);
+  const sourceIds = SOURCES.map(({ id }) => id);
+  const rows = db.prepare(`SELECT created_at FROM articles
+    WHERE source_id IN (${sourceIds.map(() => '?').join(',')})
+      AND created_at >= ? AND created_at < ?`).all(...sourceIds, previous, next);
+  return rows.filter(({ created_at }) => helsinkiDay(new Date(`${created_at.replace(' ', 'T')}Z`)) === day).length;
+}
+
 function setSystemSettings(entries) {
   const statement = db.prepare(`
     INSERT INTO system_settings (setting_key, setting_value, updated_at)
@@ -2896,6 +2911,7 @@ module.exports = {
   markAdminNotificationRead,
   countUnreadAdminNotifications,
   getSystemSetting,
+  countRssArticlesImportedOn,
   setSystemSettings,
   getTelegramChannelSettings,
   saveTelegramChannelSettings,

@@ -6,6 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
+const { dailyRssLimit } = require('./rssDailyLimit');
 const { getRussianVersion, setProviderFailureNotifier } = require('./russianVersion');
 const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
@@ -200,6 +201,7 @@ const {
   recordSearchQuery,
   recordTelegramBotEvent,
   setSystemSettings,
+  countRssArticlesImportedOn,
   countTelegramUserDeliveries,
   recordTelegramUserDelivery,
   hasTelegramUserDelivery,
@@ -1409,8 +1411,8 @@ function normalizeTelegramChannelSettings(input = {}) {
   };
 }
 
-function getContentIntensityPercent() {
-  return Math.min(100, Math.max(1, Number.parseInt(getSystemSetting('content_intensity_percent', process.env.TRANSLATION_PERCENT || '100'), 10) || 100));
+function getRssDailyLimit() {
+  return dailyRssLimit(getSystemSetting('rss_daily_limit', '50'));
 }
 
 function articleMatchesTelegramChannel(article, settings, ranking) {
@@ -2614,15 +2616,21 @@ app.get('/admin', (req, res) => {
     adminTelegramNotificationSettings: getAdminTelegramNotificationSettings(),
     adminTelegramNotificationStatus: typeof req.query.adminTelegram === 'string' ? req.query.adminTelegram : '',
     untranslatedArticleCount: countUntranslatedArticles(),
-    contentIntensityPercent: getContentIntensityPercent(),
+    rssDailyLimit: getRssDailyLimit(),
+    rssImportedToday: countRssArticlesImportedOn(),
+    rssLimitStatus: req.query.rssLimit === 'saved' ? 'saved' : req.query.rssLimit === 'invalid' ? 'invalid' : '',
   }));
 });
 
-app.post('/admin/content-intensity', requireAdminOrigin, (req, res) => {
-  const percent = Math.min(100, Math.max(1, Number.parseInt(req.body.percent, 10) || 100));
-  setSystemSettings({ content_intensity_percent: String(percent) });
-  auditAdminAction(req, 'content_intensity.update', 'system', 'content_intensity', { percent });
-  return res.redirect(303, '/admin?tab=articles&intensity=saved');
+app.post('/admin/rss-daily-limit', requireAdminOrigin, (req, res) => {
+  const raw = String(req.body.limit ?? '').trim();
+  if (!/^(?:0|[1-9]\d{0,2})$/.test(raw) || Number(raw) > 500) {
+    return res.redirect(303, '/admin?tab=articles&rssLimit=invalid');
+  }
+  const limit = Number(raw);
+  setSystemSettings({ rss_daily_limit: String(limit) });
+  auditAdminAction(req, 'rss.daily_limit.update', 'system', 'rss_daily_limit', { limit });
+  return res.redirect(303, '/admin?tab=articles&rssLimit=saved');
 });
 
 app.post('/admin/rss/refresh', requireAdminOrigin, (req, res) => {
