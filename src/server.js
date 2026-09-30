@@ -2,7 +2,7 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const { shouldCountVisit } = require('./visitStatistics');
-const { telegramApiFailure } = require('./telegramApiError');
+const { telegramApiFailure, isTelegramChatUnavailable } = require('./telegramApiError');
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
@@ -156,6 +156,7 @@ const {
   deleteUserSession,
   getUserSubscription,
   getActiveUserSubscriptions,
+  pauseUserSubscriptionForUnavailableChat,
   upsertUserSubscription,
   createTelegramLinkCode,
   getTelegramUserLink,
@@ -1250,6 +1251,7 @@ async function deliverDueTelegramReminders(now = new Date()) {
     } catch (error) {
       failed += 1;
       console.error('[telegram reminder] ошибка доставки:', error.message);
+      if (isTelegramChatUnavailable(error)) cancelTelegramReminder(reminder.userId, reminder.id);
     }
   }
   return { delivered, failed };
@@ -1571,6 +1573,10 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
           console.error('[telegram-digest] ошибка отправки:', error.message);
           for (const article of digestArticles) recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'daily_digest', status: 'failed', errorCode: error.message });
           skipped += digestArticles.length;
+          if (isTelegramChatUnavailable(error)) {
+            pauseUserSubscriptionForUnavailableChat(subscription.userId);
+            break;
+          }
         }
       }
       continue;
@@ -1589,12 +1595,16 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       } catch (error) {
         console.error('[telegram-instant] ошибка отправки:', error.message);
         recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'instant', status: 'failed', errorCode: error.message });
+        skipped += 1;
+        if (isTelegramChatUnavailable(error)) {
+          pauseUserSubscriptionForUnavailableChat(subscription.userId);
+          break;
+        }
         enqueueTask({
           taskType: 'personal_telegram',
           payload: { userId: subscription.userId, articleId: article.id },
           idempotencyKey: `personal-telegram:${subscription.userId}:${article.id}`,
         });
-        skipped += 1;
       }
       if (sentToday >= quota) break;
     }
@@ -1671,6 +1681,10 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
       } catch (error) {
         skipped += 1;
         console.error('[telegram-daily-content] ошибка доставки:', error.message);
+        if (isTelegramChatUnavailable(error)) {
+          pauseUserSubscriptionForUnavailableChat(subscription.userId);
+          break;
+        }
       }
     }
   }
@@ -1681,6 +1695,7 @@ async function processTelegramRetryQueue() {
   if (!TELEGRAM_BOT_CONFIGURED) return { completed: 0, failed: 0 };
   const subscriptions = new Map(getActiveUserSubscriptions().map((subscription) => [subscription.userId, subscription]));
   const tasks = claimDueTasks('personal_telegram', 10);
+  const unavailableUserIds = new Set();
   let completed = 0;
   let failed = 0;
   for (const task of tasks) {
@@ -1695,7 +1710,7 @@ async function processTelegramRetryQueue() {
       || !canDeliverArticleNow(article, subscription)
       || isArticleSuppressedByQuietHours(article, subscription)
     );
-    if (!subscription || !article || alreadyDelivered || suppressedBySettings) {
+    if (unavailableUserIds.has(task.payload.userId) || !subscription || !article || alreadyDelivered || suppressedBySettings) {
       completeTask(task.id);
       completed += 1;
       continue;
@@ -1711,7 +1726,13 @@ async function processTelegramRetryQueue() {
       completed += 1;
     } catch (error) {
       recordTelegramDeliveryAttempt({ userId: subscription.userId, articleId: article.id, deliveryKind: 'retry', status: 'failed', errorCode: error.message });
-      failTask(task.id, error.message);
+      if (isTelegramChatUnavailable(error)) {
+        pauseUserSubscriptionForUnavailableChat(subscription.userId);
+        unavailableUserIds.add(subscription.userId);
+        completeTask(task.id);
+      } else {
+        failTask(task.id, error.message);
+      }
       failed += 1;
     }
   }

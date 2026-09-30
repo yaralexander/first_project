@@ -8,7 +8,13 @@ function telegramApiFailure(method, responseStatus, payload) {
             : responseStatus === 429 ? 'rate_limited'
               : 'unknown';
   const status = Number.isInteger(payload?.error_code) ? payload.error_code : responseStatus;
-  return new Error(`telegram ${method} failed (${status}: ${reason})`);
+  const error = new Error(`telegram ${method} failed (${status}: ${reason})`);
+  error.telegramReason = reason;
+  return error;
 }
 
-module.exports = { telegramApiFailure };
+function isTelegramChatUnavailable(error) {
+  return ['blocked_by_user', 'user_deactivated', 'chat_not_found'].includes(error?.telegramReason);
+}
+
+module.exports = { telegramApiFailure, isTelegramChatUnavailable };

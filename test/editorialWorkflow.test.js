@@ -254,6 +254,12 @@ test('user statistics render persisted users and subscription topics', () => {
   assert.deepEqual(statistics.users[0].categories, ['Экономика', 'Работа']);
   assert.deepEqual(db.getUserSubscription('reader-google-sub').wordLevels, ['B1-B2', 'C1-C2']);
   assert.equal(statistics.topics.find((topic) => topic.name === 'Экономика').count, 1);
+  assert.equal(db.pauseUserSubscriptionForUnavailableChat('reader-google-sub'), true);
+  assert.equal(db.pauseUserSubscriptionForUnavailableChat('reader-google-sub'), false);
+  assert.equal(db.getUserSubscription('reader-google-sub').enabled, false);
+  assert.deepEqual(db.getUserSubscription('reader-google-sub').categories, ['Экономика', 'Работа']);
+  db.upsertUserSubscription({ ...db.getUserSubscription('reader-google-sub'), enabled: true });
+  assert.equal(db.getUserSubscription('reader-google-sub').enabled, true);
 });
 
 test('daily visit totals deduplicate within a day and survive analytics cleanup', () => {

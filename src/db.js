@@ -1996,6 +1996,12 @@ function getActiveUserSubscriptions() {
     linkedAt: row.linked_at,
   }));
 }
+function pauseUserSubscriptionForUnavailableChat(userId) {
+  return db.prepare(`
+    UPDATE user_subscriptions SET enabled = 0, updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND enabled = 1
+  `).run(userId).changes === 1;
+}
 function upsertUserSubscription({
   userId,
   enabled,
@@ -2881,6 +2887,7 @@ module.exports = {
   deleteUserSession,
   getUserSubscription,
   getActiveUserSubscriptions,
+  pauseUserSubscriptionForUnavailableChat,
   upsertUserSubscription,
   createTelegramLinkCode,
   linkTelegramUser,

@@ -1148,7 +1148,7 @@ function renderAccountPage({
   const botLabel = botProfile?.username ? `@${botProfile.username}` : 'бот проекта «Финские Новости»';
   const statusMessage = message ? `<p class="account-notice" role="status">${escapeHtml(message)}</p>` : '';
   const deliveryWarning = telegramConnected && !subscription.enabled
-    ? '<p class="account-notice account-notice--error" role="alert">Telegram подключён, но рассылка выключена. Включите переключатель «Получать новые публикации» и сохраните настройки.</p>'
+    ? '<p class="account-notice account-notice--error" role="alert">Telegram подключён, но рассылка выключена. Если вы блокировали бота, сначала разблокируйте его в Telegram. Затем включите переключатель «Получать новые публикации» и сохраните настройки.</p>'
     : '';
   let telegramSetup;
   if (telegramConnected) {

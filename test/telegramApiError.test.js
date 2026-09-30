@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { telegramApiFailure } = require('../src/telegramApiError');
+const { telegramApiFailure, isTelegramChatUnavailable } = require('../src/telegramApiError');
 
 test('Telegram API failures expose a safe diagnostic without chat details', () => {
   assert.equal(
@@ -21,4 +21,10 @@ test('Telegram API failures expose a safe diagnostic without chat details', () =
     telegramApiFailure('sendMessage', 502, { description: 'unexpected private detail' }).message,
     'telegram sendMessage failed (502: unknown)',
   );
+  assert.equal(isTelegramChatUnavailable(telegramApiFailure('sendMessage', 403, {
+    description: 'Forbidden: bot was blocked by the user',
+  })), true);
+  assert.equal(isTelegramChatUnavailable(telegramApiFailure('sendMessage', 400, {
+    description: "Bad Request: can't parse entities",
+  })), false);
 });
