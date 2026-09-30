@@ -988,7 +988,6 @@ function getHomeArticles({ limit = 50, offset = 0, source = '', sort = 'newest' 
   const order = sort === 'oldest'
     ? 'published_at ASC, id ASC'
     : `CASE WHEN pinned_until IS NOT NULL AND datetime(pinned_until) > datetime('now') THEN 0 ELSE 1 END,
-      CASE editorial_status WHEN 'urgent' THEN 0 WHEN 'important' THEN 1 ELSE 2 END,
       published_at DESC, id DESC`;
   return db.prepare(`
     SELECT * FROM articles

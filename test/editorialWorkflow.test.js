@@ -39,6 +39,23 @@ test('publishes a scheduled draft only when it becomes due', () => {
   assert.equal(db.getArticleBySlug('scheduled-story').id, articleId);
 });
 
+test('the newest home feed puts a recent ordinary article above an older important one', () => {
+  const newerId = db.createManualArticle({
+    title: 'Свежая обычная новость',
+    body: 'Новый материал должен показываться в начале ленты.',
+    category: 'Общество',
+    slug: 'newer-normal-home-story',
+    originalUrl: 'manual:newer-normal-home-story',
+    publishedAt: '2030-01-16T10:00:00.000Z',
+    editorialStatus: 'normal',
+    pinnedUntil: null,
+    scheduledPublishAt: null,
+    publicationStatus: 'published',
+  });
+  const homeIds = db.getHomeArticles({ limit: 10 }).map((article) => article.id);
+  assert.ok(homeIds.indexOf(newerId) < homeIds.indexOf(db.getArticleBySlug('scheduled-story').id));
+});
+
 test('Telegram catch-up finds a newly added article even when its source date is older', () => {
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const articleId = db.createManualArticle({
