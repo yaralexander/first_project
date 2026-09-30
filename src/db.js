@@ -2355,6 +2355,20 @@ function getPublishedArticlesSince(sinceIso) {
   }));
 }
 
+function getPublishedArticlesImportedSince(sinceIso) {
+  return db.prepare(`
+    SELECT *
+    FROM articles
+    WHERE publication_status = 'published'
+      AND (quality_status IS NULL OR quality_status NOT IN ('manual_review', 'rejected'))
+      AND datetime(created_at) >= datetime(?)
+    ORDER BY created_at ASC, id ASC
+  `).all(sinceIso).map(toArticle).map((article) => ({
+    ...article,
+    classification: getArticleClassification(article.id),
+  }));
+}
+
 function enqueueTask({ taskType, payload, idempotencyKey, maxAttempts = 5, availableAt = null }) {
   return db.prepare(`
     INSERT INTO task_queue (task_type, payload_json, idempotency_key, max_attempts, available_at)
@@ -2613,10 +2627,16 @@ function countRssArticlesImportedOn(day = helsinkiDay()) {
   const previous = new Date(midnight.getTime() - 86400000).toISOString().slice(0, 10);
   const next = new Date(midnight.getTime() + 86400000).toISOString().slice(0, 10);
   const sourceIds = SOURCES.map(({ id }) => id);
-  const rows = db.prepare(`SELECT created_at FROM articles
+  const rows = db.prepare(`SELECT created_at, published_at FROM articles
     WHERE source_id IN (${sourceIds.map(() => '?').join(',')})
       AND created_at >= ? AND created_at < ?`).all(...sourceIds, previous, next);
-  return rows.filter(({ created_at }) => helsinkiDay(new Date(`${created_at.replace(' ', 'T')}Z`)) === day).length;
+  return rows.filter(({ created_at, published_at }) => {
+    const importedAt = new Date(`${created_at.replace(' ', 'T')}Z`);
+    const sourceDate = new Date(published_at || '');
+    return !Number.isNaN(sourceDate.getTime())
+      && helsinkiDay(importedAt) === day
+      && helsinkiDay(sourceDate) === day;
+  }).length;
 }
 
 function setSystemSettings(entries) {
@@ -2889,6 +2909,7 @@ module.exports = {
   hasTelegramContentDelivery,
   recordTelegramContentDelivery,
   getPublishedArticlesSince,
+  getPublishedArticlesImportedSince,
   consumeAdminOAuthState,
   recordAdminAction,
   recordView,

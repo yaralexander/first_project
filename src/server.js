@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
-const { dailyRssLimit } = require('./rssDailyLimit');
+const { dailyRssLimit, rssDailyAllowance } = require('./rssDailyLimit');
 const { getRussianVersion, setProviderFailureNotifier } = require('./russianVersion');
 const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
@@ -192,6 +192,7 @@ const {
   classifyAndStoreArticle,
   classifyUnclassifiedArticles,
   getPublishedArticlesSince,
+  getPublishedArticlesImportedSince,
   getReactionTotals,
   recordArticleReaction,
   recordAdminAction,
@@ -1441,7 +1442,7 @@ async function sendArticleToTelegramChannel(article, { deliveryType = 'auto', ig
     return { sent: false, reason: 'filtered', ranking };
   }
   if (getTelegramChannelPublication(article.id)) return { sent: false, reason: 'already_sent' };
-  const dailyQuota = effectiveDailyQuota(settings.maxPostsPerDay, Math.min(settings.deliveryPercent, getContentIntensityPercent()));
+  const dailyQuota = effectiveDailyQuota(settings.maxPostsPerDay, settings.deliveryPercent);
   if (countTelegramChannelPublicationsToday(settings.chatId) >= dailyQuota) {
     return { sent: false, reason: 'daily_limit' };
   }
@@ -1491,7 +1492,7 @@ async function runTelegramChannelCatchup() {
   if (!settings.enabled || !TELEGRAM_BOT_CONFIGURED) return { sent: 0, skipped: 0 };
   const sinceIso = settings.enabledSince
     || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const articles = getPublishedArticlesSince(sinceIso);
+  const articles = getPublishedArticlesImportedSince(sinceIso);
   if (!articles.length) return { sent: 0, skipped: 0 };
   return publishArticlesToTelegramChannel(articles);
 }
@@ -1521,7 +1522,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       skipped += 1;
       continue;
     }
-    const quota = effectiveDailyQuota(subscription.maxPostsPerDay || 15, Math.min(subscription.deliveryPercent || 100, getContentIntensityPercent()));
+    const quota = effectiveDailyQuota(subscription.maxPostsPerDay || 15, subscription.deliveryPercent || 100);
     let sentToday = countTelegramUserDeliveries({ userId: subscription.userId, day: today });
     if (retryOnly && sentToday > 0) {
       skipped += 1;
@@ -2618,6 +2619,7 @@ app.get('/admin', (req, res) => {
     untranslatedArticleCount: countUntranslatedArticles(),
     rssDailyLimit: getRssDailyLimit(),
     rssImportedToday: countRssArticlesImportedOn(),
+    rssAvailableNow: rssDailyAllowance(getRssDailyLimit()),
     rssLimitStatus: req.query.rssLimit === 'saved' ? 'saved' : req.query.rssLimit === 'invalid' ? 'invalid' : '',
   }));
 });

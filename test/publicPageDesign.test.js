@@ -222,12 +222,14 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
     tab: 'articles',
     rssDailyLimit: 50,
     rssImportedToday: 12,
+    rssAvailableNow: 30,
   });
 
   assert.match(html, /action="\/admin\/rss\/refresh" method="post"/);
   assert.match(html, /action="\/admin\/rss-daily-limit" method="post"/);
   assert.match(html, /name="limit"[^>]*value="50"/);
   assert.match(html, /12 из 50/);
+  assert.match(html, /К этому часу по графику доступно до 30 статей/);
   assert.match(html, /Обновить RSS сейчас/);
   assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
   assert.match(html, /Статьи по источникам/);

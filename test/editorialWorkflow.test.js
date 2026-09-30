@@ -39,6 +39,30 @@ test('publishes a scheduled draft only when it becomes due', () => {
   assert.equal(db.getArticleBySlug('scheduled-story').id, articleId);
 });
 
+test('Telegram catch-up finds a newly added article even when its source date is older', () => {
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const articleId = db.createManualArticle({
+    title: 'Недавно добавленная новость',
+    body: 'Содержимое недавно добавленной редакционной новости подробно описывает событие, его обстоятельства и значение для читателей в Финляндии.',
+    category: 'Общество',
+    slug: 'newly-added-older-source-date',
+    originalUrl: 'manual:newly-added-older-source-date',
+    publishedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+    editorialStatus: 'normal',
+    pinnedUntil: null,
+    scheduledPublishAt: null,
+    publicationStatus: 'published',
+  });
+  if (db.getArticleById(articleId).qualityStatus !== 'passed') {
+    db.reviewArticleQuality({
+      id: articleId, decision: 'approve', category: 'Общество',
+      importanceLevel: 3, reviewedBy: 'editor', note: 'Проверено.',
+    });
+  }
+  assert.equal(db.getPublishedArticlesSince(since).some(({ id }) => id === articleId), false);
+  assert.equal(db.getPublishedArticlesImportedSince(since).some(({ id }) => id === articleId), true);
+});
+
 test('keeps a doubtful RSS article hidden until an editor approves publication', () => {
   const articleId = db.insertArticle({
     sourceId: 'yle',

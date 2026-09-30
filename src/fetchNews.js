@@ -18,7 +18,7 @@ const {
 const { slugify } = require('./slugify');
 const { compareArticles } = require('./articleSimilarity');
 const { extractArticleContent, fetchExternalHtml } = require('./importArticle');
-const { balancedEntries, dailyRssLimit, helsinkiDay } = require('./rssDailyLimit');
+const { balancedEntries, dailyRssLimit, helsinkiDay, isRssEntryFromDay, rssDailyAllowance } = require('./rssDailyLimit');
 
 const parser = new Parser({
   timeout: 15000,
@@ -142,12 +142,14 @@ async function importFeedEntry(source, entry) {
   return articleId ? getArticleById(articleId) : null;
 }
 
-async function fetchAllNews({ sources = SOURCES, loadFeed = (source) => parser.parseURL(source.url), importEntry = importFeedEntry } = {}) {
+async function fetchAllNews({ sources = SOURCES, loadFeed = (source) => parser.parseURL(source.url), importEntry = importFeedEntry, now = () => new Date() } = {}) {
   const limit = dailyRssLimit(getSystemSetting('rss_daily_limit', '50'));
-  let day = helsinkiDay();
+  const startedAt = now();
+  const day = helsinkiDay(startedAt);
   let used = countRssArticlesImportedOn(day);
-  console.log(`[fetchAllNews] обновление RSS: ${used}/${limit} за ${day} (Хельсинки)`);
-  if (used >= limit) return [];
+  const allowance = rssDailyAllowance(limit, startedAt);
+  console.log(`[fetchAllNews] обновление RSS: ${used}/${limit} за ${day} (Хельсинки), сейчас доступно ${allowance}`);
+  if (used >= allowance) return [];
 
   resetPendingArticles();
   const enabled = sources.filter((source) => isNewsSourceEnabled(source.id));
@@ -156,6 +158,7 @@ async function fetchAllNews({ sources = SOURCES, loadFeed = (source) => parser.p
       const feed = await loadFeed(source);
       const entries = (feed.items || [])
         .filter((entry) => !source.creator || String(entry.creator || '').trim().toLocaleLowerCase('fi-FI') === source.creator)
+        .filter((entry) => isRssEntryFromDay(entry, day))
         .sort((a, b) => new Date(b.isoDate || b.pubDate || 0) - new Date(a.isoDate || a.pubDate || 0));
       return { source, entries };
     } catch (error) {
@@ -166,14 +169,14 @@ async function fetchAllNews({ sources = SOURCES, loadFeed = (source) => parser.p
 
   const insertedArticles = [];
   let skipped = 0;
+  // A delayed refresh must not release the entire accumulated daily quota at once.
+  const maxForThisRefresh = Math.max(1, Math.ceil(limit / 12));
   for (const { source, entry } of balancedEntries(feeds)) {
-    const currentDay = helsinkiDay();
-    if (currentDay !== day) {
-      day = currentDay;
-      used = countRssArticlesImportedOn(day);
-    }
+    const currentTime = now();
+    if (helsinkiDay(currentTime) !== day) break;
     const currentLimit = dailyRssLimit(getSystemSetting('rss_daily_limit', '50'));
-    if (used >= currentLimit) break;
+    if (used >= rssDailyAllowance(currentLimit, currentTime)) break;
+    if (insertedArticles.length >= maxForThisRefresh) break;
     if (!isNewsSourceEnabled(source.id)) continue;
     try {
       const article = await importEntry(source, entry);
