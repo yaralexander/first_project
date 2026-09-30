@@ -2,6 +2,7 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const { shouldCountVisit } = require('./visitStatistics');
+const { telegramApiFailure } = require('./telegramApiError');
 const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
@@ -478,7 +479,7 @@ async function callTelegramBotMethod(method, body) {
       payload = null;
     }
     if (!response.ok || !payload || payload.ok !== true) {
-      throw new Error(`telegram ${method} failed`);
+      throw telegramApiFailure(method, response.status, payload);
     }
     return payload.result;
   } finally {
