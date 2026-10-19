@@ -2414,6 +2414,14 @@ function completeTask(id) {
   `).run(id).changes === 1;
 }
 
+function releaseTask(id) {
+  return db.prepare(`
+    UPDATE task_queue SET status = 'queued', locked_at = NULL,
+      attempts = MAX(0, attempts - 1), updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status = 'running'
+  `).run(id).changes === 1;
+}
+
 function failTask(id, errorMessage) {
   const row = db.prepare('SELECT attempts, max_attempts FROM task_queue WHERE id = ?').get(id);
   if (!row) return false;
@@ -2678,6 +2686,10 @@ function getTelegramChannelSettings() {
   };
 }
 
+function isPersonalTelegramDeliveryEnabled() {
+  return getSystemSetting('telegram_personal_delivery_enabled', '1') === '1';
+}
+
 function saveTelegramChannelSettings(settings) {
   const wasEnabled = getSystemSetting('telegram_channel_enabled', '0') === '1';
   const currentEnabledSince = getSystemSetting('telegram_channel_enabled_since', '');
@@ -2815,6 +2827,7 @@ module.exports = {
   claimDueTasks,
   cleanupAnalytics,
   completeTask,
+  releaseTask,
   countArticles,
   countArticlesByCategory,
   countArticlesByRegionCode,
@@ -2942,6 +2955,7 @@ module.exports = {
   setSystemSettings,
   getTelegramChannelSettings,
   saveTelegramChannelSettings,
+  isPersonalTelegramDeliveryEnabled,
   getAdminTelegramNotificationSettings,
   saveAdminTelegramNotificationSettings,
   getTelegramChannelPublication,

@@ -256,6 +256,31 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.doesNotThrow(() => new Function(templateStudioScript[1]));
 });
 
+test('admin can control channel and personal Telegram delivery independently', () => {
+  const html = renderAdminPage({
+    comments: [], articles: [], query: '',
+    statistics: {
+      articleCount: 0, pendingComments: 0,
+      report: { articles: 0, visitors: 0, articleViews: 0, comments: 0, reactions: 0, duplicates: 0 },
+      daily: [], bySource: [], byCategory: [], topRead: [], topCommented: [],
+      filters: { from: '', to: '', category: '', sourceId: '' },
+      operational: { queue: {}, delivery: {}, searches: [] },
+    },
+    duplicateArticles: [], auditLog: [], categories: [],
+    currentAccount: { username: 'owner', role: 'admin' },
+    telegramConfigured: false, telegramStatus: '',
+    telegramChannelSettings: { enabled: false, chatId: '@finskienovosti', categories: [] },
+    personalTelegramDeliveryEnabled: true,
+    importProviderConfigured: false, importStatus: '', siteUrl,
+    tab: 'telegram-delivery',
+  });
+
+  assert.match(html, /href="\/admin\?tab=telegram-delivery"/);
+  assert.match(html, /action="\/admin\/telegram-delivery\/channel" method="post"><input type="hidden" name="enabled" value="1"/);
+  assert.match(html, /action="\/admin\/telegram-delivery\/personal" method="post"><input type="hidden" name="enabled" value="0"/);
+  assert.match(html, /Настройки каждого подписчика сохраняются/);
+});
+
 test('public RSS contains Russian summaries, permanent URLs and escaped XML', () => {
   const rss = renderRssFeed({
     siteUrl,

@@ -79,6 +79,7 @@ const {
   countArticles,
   claimDueTasks,
   completeTask,
+  releaseTask,
   countUntranslatedArticles,
   countArticlesByCategory,
   countArticlesByRegionCode,
@@ -152,6 +153,7 @@ const {
   getUserStatistics,
   getTelegramBotStatistics,
   getSystemSetting,
+  isPersonalTelegramDeliveryEnabled,
   getUserSession,
   deleteUserSession,
   getUserSubscription,
@@ -1514,13 +1516,14 @@ async function notifyTelegramSubscribersForArticles(articles, { frequency, since
 }
 
 async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sinceIso = null, retryOnly = false } = {}) {
-  if (!TELEGRAM_BOT_CONFIGURED || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
+  if (!TELEGRAM_BOT_CONFIGURED || !isPersonalTelegramDeliveryEnabled() || !Array.isArray(articles) || !articles.length) return { delivered: 0, skipped: 0 };
   const subscriptions = getActiveUserSubscriptions().filter((subscription) => subscription.frequency === frequency);
   if (!subscriptions.length) return { delivered: 0, skipped: 0 };
   const today = getTelegramTodayKey();
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
+    if (!isPersonalTelegramDeliveryEnabled()) return { delivered, skipped };
     if (!retryOnly && !isDeliveryScheduleDue(subscription)) {
       skipped += 1;
       continue;
@@ -1556,6 +1559,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
     }
     if (frequency === 'daily') {
       for (let offset = 0; offset < batch.length; offset += 8) {
+        if (!isPersonalTelegramDeliveryEnabled()) return { delivered, skipped };
         const digestArticles = batch.slice(offset, offset + 8);
         try {
           const telegramMessageId = await sendTelegramMessageToChat(
@@ -1582,6 +1586,7 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
       continue;
     }
     for (const article of batch) {
+      if (!isPersonalTelegramDeliveryEnabled()) return { delivered, skipped };
       try {
         const telegramMessageId = await sendTelegramMessageToChat(subscription.telegramChatId, buildTelegramMessage(article, {
           siteUrl: SITE_URL,
@@ -1613,11 +1618,12 @@ async function deliverTelegramArticlesToSubscriptions(articles, { frequency, sin
 }
 
 async function deliverDailyContentToSubscriptions(now = new Date()) {
-  if (!TELEGRAM_BOT_CONFIGURED) return { delivered: 0, skipped: 0 };
+  if (!TELEGRAM_BOT_CONFIGURED || !isPersonalTelegramDeliveryEnabled()) return { delivered: 0, skipped: 0 };
   const subscriptions = getActiveUserSubscriptions();
   let delivered = 0;
   let skipped = 0;
   for (const subscription of subscriptions) {
+    if (!isPersonalTelegramDeliveryEnabled()) return { delivered, skipped };
     const profile = getTelegramAssistantProfile(subscription.userId);
     const wordOptions = { wordLevels: subscription.wordLevels, wordLevel: subscription.wordLevel };
     const items = contentForDate(now, wordOptions);
@@ -1662,6 +1668,7 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
       }
     }
     for (const item of items) {
+      if (!isPersonalTelegramDeliveryEnabled()) return { delivered, skipped };
       if (!selected.has(item.type)
         || hasTelegramContentDelivery({ userId: subscription.userId, contentKey: item.key })) {
         continue;
@@ -1692,13 +1699,18 @@ async function deliverDailyContentToSubscriptions(now = new Date()) {
 }
 
 async function processTelegramRetryQueue() {
-  if (!TELEGRAM_BOT_CONFIGURED) return { completed: 0, failed: 0 };
+  if (!TELEGRAM_BOT_CONFIGURED || !isPersonalTelegramDeliveryEnabled()) return { completed: 0, failed: 0 };
   const subscriptions = new Map(getActiveUserSubscriptions().map((subscription) => [subscription.userId, subscription]));
   const tasks = claimDueTasks('personal_telegram', 10);
   const unavailableUserIds = new Set();
   let completed = 0;
   let failed = 0;
-  for (const task of tasks) {
+  for (let index = 0; index < tasks.length; index += 1) {
+    if (!isPersonalTelegramDeliveryEnabled()) {
+      for (const pending of tasks.slice(index)) releaseTask(pending.id);
+      return { completed, failed };
+    }
+    const task = tasks[index];
     const subscription = subscriptions.get(task.payload.userId);
     const article = getArticleById(task.payload.articleId);
     const alreadyDelivered = hasTelegramUserDelivery({
@@ -2625,6 +2637,8 @@ app.get('/admin', (req, res) => {
     telegramChannelConfigured: TELEGRAM_BOT_CONFIGURED,
     telegramChannelSettings: normalizeTelegramChannelSettings(getTelegramChannelSettings()),
     telegramChannelStatus: typeof req.query.telegramChannel === 'string' ? req.query.telegramChannel : '',
+    personalTelegramDeliveryEnabled: isPersonalTelegramDeliveryEnabled(),
+    telegramDeliveryStatus: typeof req.query.telegramDelivery === 'string' ? req.query.telegramDelivery : '',
     importProviderConfigured: IMPORT_PROVIDER_CONFIGURED,
     importStatus: typeof req.query.import === 'string' ? req.query.import : '',
     rssStatus: typeof req.query.rss === 'string' ? req.query.rss : '',
@@ -2713,6 +2727,21 @@ app.post('/admin/telegram-channel/settings', requireAdminOrigin, (req, res) => {
     quietEnd: settings.quietEnd,
   });
   return res.redirect(303, '/admin?tab=telegram-channel&telegramChannel=saved');
+});
+
+app.post('/admin/telegram-delivery/:destination', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const destination = req.params.destination;
+  if (!['channel', 'personal'].includes(destination) || !['0', '1'].includes(req.body.enabled)) {
+    return res.status(400).type('text').send('Некорректная настройка рассылки.');
+  }
+  const enabled = req.body.enabled === '1';
+  if (destination === 'channel') {
+    saveTelegramChannelSettings({ ...getTelegramChannelSettings(), enabled });
+  } else {
+    setSystemSettings({ telegram_personal_delivery_enabled: enabled ? '1' : '0' });
+  }
+  auditAdminAction(req, 'telegram_delivery.toggle', 'telegram_delivery', destination, { enabled });
+  return res.redirect(303, `/admin?tab=telegram-delivery&telegramDelivery=${destination}-${enabled ? 'on' : 'off'}`);
 });
 
 app.post('/admin/telegram-channel/test', requireAdminOrigin, async (req, res) => {
