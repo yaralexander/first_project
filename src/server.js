@@ -2664,10 +2664,18 @@ app.get('/admin', (req, res) => {
   }));
 });
 
-app.post('/admin/translation-provider', requireAdminOrigin, requireAdministrator, (req, res) => {
+app.post('/admin/translation-provider', requireAdminOrigin, requireAdministrator, async (req, res) => {
   const provider = req.body.provider;
   if (!['openai', 'google'].includes(provider)) {
     return res.status(400).type('text').send('Некорректный режим перевода.');
+  }
+  if (provider === 'google' && getArticleTranslationProvider() !== 'google') {
+    try {
+      await googleTranslateFree('Hei');
+    } catch (error) {
+      console.warn('[admin-translation-provider] Google Translate недоступен:', error.message);
+      return res.redirect(303, '/admin?tab=articles&translationProvider=unavailable');
+    }
   }
   setSystemSettings({ article_translation_provider: provider });
   auditAdminAction(req, 'article.translation_provider.update', 'system', 'article_translation_provider', { provider });

@@ -57,6 +57,7 @@ test('Google failure does not silently spend GPT API balance', async () => {
     const result = await getRussianVersion({ titleFi: 'Otsikko', summaryFi: 'Yhteenveto', sourceName: 'Testi' });
     assert.equal(result.method, 'fallback-original');
     assert.ok(calls.every((url) => new URL(url).hostname === 'translate.googleapis.com'));
+    assert.ok(db.getAdminNotifications().some((item) => item.notificationKey === 'google-translate-unavailable'));
   } finally {
     globalThis.fetch = originalFetch;
   }

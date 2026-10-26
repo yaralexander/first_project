@@ -149,6 +149,14 @@ async function getRussianVersion(article) {
     return { titleRu: `[RU] ${titleFi}`, summaryRu: `[RU] ${summaryFi}`, method: 'mock' };
   } catch (err) {
     notifyProviderFailure(provider, err);
+    if (provider === 'google') {
+      createAdminNotification({
+        notificationKey: 'google-translate-unavailable',
+        level: 'error',
+        title: 'Google Translate недоступен',
+        body: 'Бесплатный перевод новых статей не удался. Платный GPT API в этом режиме не используется; без другого настроенного резерва импорт пропускается. Проверьте Google Translate или выберите GPT в разделе «Статьи».',
+      });
+    }
     if (FALLBACK_PROVIDER === 'libretranslate' && process.env.LIBRETRANSLATE_URL) {
       try {
         return await translateWithLibre(titleFi, summaryFi);
