@@ -28,7 +28,9 @@ function isBlockedAddress(address) {
     const mappedHexIpv4 = mappedHex
       ? `${Number.parseInt(mappedHex[1], 16) >> 8}.${Number.parseInt(mappedHex[1], 16) & 255}.${Number.parseInt(mappedHex[2], 16) >> 8}.${Number.parseInt(mappedHex[2], 16) & 255}`
       : null;
-    return value === '::' || value === '::1' || value.startsWith('fe80:')
+    // Reject all link-local (fe80::/10) and deprecated site-local (fec0::/10)
+    // addresses, not only the commonly written fe80:: prefix.
+    return value === '::' || value === '::1' || /^fe[89a-f]/.test(value)
       || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('ff')
       || value.startsWith('2001:db8:') || Boolean(mappedIpv4 && isBlockedAddress(mappedIpv4[1]))
       || Boolean(mappedHexIpv4 && isBlockedAddress(mappedHexIpv4));

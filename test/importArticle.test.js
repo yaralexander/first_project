@@ -97,8 +97,12 @@ test('fetches a valid HTTPS HTML response through verified mock DNS and request 
   assert.match(result.html, /Safe content/);
 });
 
-test('blocks private IPv4 and IPv6 URLs before DNS or HTTP requests', async () => {
-  for (const url of ['https://127.0.0.1/', 'https://10.0.0.1/', 'https://[::1]/', 'https://[fd00::1]/']) {
+test('blocks private and local IPv4 and IPv6 URLs before DNS or HTTP requests', async () => {
+  for (const url of [
+    'https://127.0.0.1/', 'https://10.0.0.1/', 'https://[::1]/',
+    'https://[fd00::1]/', 'https://[fe80::1]/', 'https://[fe90::1]/',
+    'https://[fea0::1]/', 'https://[feb0::1]/', 'https://[fec0::1]/',
+  ]) {
     let resolverCalled = false;
     await assert.rejects(
       () => fetchExternalHtml(url, {
