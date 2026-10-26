@@ -1893,6 +1893,8 @@ app.get('/api/news/sources', (req, res) => {
 app.get('/api/translation-status', (req, res) => {
   res.set('Cache-Control', 'no-store');
   const status = getTranslationServiceStatus();
+  const provider = getArticleTranslationProvider();
+  status.selectedMode = provider === 'google' ? 'google' : provider === 'openai' ? 'ai' : 'unknown';
   const selected = getSystemSetting('article_translation_provider', '');
   if (selected === 'google' || selected === 'openai') {
     status.mode = selected === 'google' ? 'google' : 'ai';
