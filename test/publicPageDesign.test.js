@@ -28,7 +28,7 @@ function assertSharedSiteShell(html) {
   assert.match(html, /data-translation-status/);
   assert.match(html, /translation-status-dot/);
   assert.match(html, /\/api\/translation-status/);
-  assert.match(html, /AI-пересказ работает/);
+  assert.match(html, /Режим: GPT-пересказ/);
   assert.match(html, /Google-перевод/);
   assert.match(html, /class="utility-button utility-theme-status"[^>]*data-theme-toggle/);
   assert.match(html, /localStorage\.getItem\(themeKey\)/);
@@ -211,7 +211,7 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
     },
     duplicateArticles: [],
     auditLog: [],
-    currentAccount: { username: 'editor', role: 'editor' },
+    currentAccount: { username: 'owner', role: 'admin' },
     categories: ['Политика', 'Общество'],
     telegramConfigured: false,
     telegramStatus: '',
@@ -223,6 +223,8 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
     rssDailyLimit: 50,
     rssImportedToday: 12,
     rssAvailableNow: 30,
+    translationProvider: 'google',
+    translationProviderStatus: 'saved',
   });
 
   assert.match(html, /action="\/admin\/rss\/refresh" method="post"/);
@@ -230,6 +232,10 @@ test('articles admin tab exposes the protected manual RSS refresh control', () =
   assert.match(html, /name="limit"[^>]*value="50"/);
   assert.match(html, /12 из 50/);
   assert.match(html, /К этому часу по графику доступно до 30 статей/);
+  assert.match(html, /action="\/admin\/translation-provider" method="post"/);
+  assert.match(html, /name="provider" value="google"><button type="submit" disabled>Текущий режим/);
+  assert.match(html, /name="provider" value="openai"><button type="submit" >Выбрать этот режим/);
+  assert.match(html, /Режим перевода сохранён/);
   assert.match(html, /Обновить RSS сейчас/);
   assert.match(html, /Уже сохранённые материалы повторно не переводятся/);
   assert.match(html, /Статьи по источникам/);

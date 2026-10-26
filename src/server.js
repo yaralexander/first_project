@@ -8,7 +8,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 const { fetchAllNews } = require('./fetchNews');
 const { dailyRssLimit, rssDailyAllowance } = require('./rssDailyLimit');
-const { getRussianVersion, setProviderFailureNotifier } = require('./russianVersion');
+const { getArticleTranslationProvider, getRussianVersion, setProviderFailureNotifier } = require('./russianVersion');
 const { PROMPT_VERSION, generateEditorialDiscussions } = require('./aiRetell');
 const { extractArticleContent, fetchExternalHtml, parseExternalUrl } = require('./importArticle');
 const { googleTranslateFree } = require('./freeTranslate');
@@ -336,7 +336,6 @@ const ARTICLE_BODY_MAX_LENGTH = 20000;
 const EDITORIAL_STATUSES = new Set(['normal', 'important', 'urgent']);
 const TAXONOMY_TYPES = new Set(['categories', 'tags', 'regions', 'audiences']);
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10000;
-const RUSSIAN_PROVIDER = (process.env.RUSSIAN_PROVIDER || 'claude').toLowerCase();
 const configuredAnalyticsRetention = Number.parseInt(process.env.ANALYTICS_RETENTION_DAYS || '90', 10);
 const ANALYTICS_RETENTION_DAYS = Number.isInteger(configuredAnalyticsRetention) && configuredAnalyticsRetention > 0
   ? configuredAnalyticsRetention
@@ -525,15 +524,14 @@ async function configureTelegramBotInterface() {
 }
 
 function isImportProviderConfigured() {
-  if (RUSSIAN_PROVIDER === 'mock') return true;
-  if (RUSSIAN_PROVIDER === 'openai') return Boolean(process.env.OPENAI_API_KEY);
-  if (RUSSIAN_PROVIDER === 'claude') return Boolean(process.env.ANTHROPIC_API_KEY);
-  if (RUSSIAN_PROVIDER === 'deepl') return Boolean(process.env.DEEPL_API_KEY);
-  if (RUSSIAN_PROVIDER === 'libretranslate') return Boolean(process.env.LIBRETRANSLATE_URL);
+  const provider = getArticleTranslationProvider();
+  if (['google', 'mock'].includes(provider)) return true;
+  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY);
+  if (provider === 'claude') return Boolean(process.env.ANTHROPIC_API_KEY);
+  if (provider === 'deepl') return Boolean(process.env.DEEPL_API_KEY);
+  if (provider === 'libretranslate') return Boolean(process.env.LIBRETRANSLATE_URL);
   return false;
 }
-
-const IMPORT_PROVIDER_CONFIGURED = isImportProviderConfigured();
 
 const app = express();
 if (TRUST_PROXY) app.set('trust proxy', 1);
@@ -1895,8 +1893,12 @@ app.get('/api/news/sources', (req, res) => {
 app.get('/api/translation-status', (req, res) => {
   res.set('Cache-Control', 'no-store');
   const status = getTranslationServiceStatus();
+  const selected = getSystemSetting('article_translation_provider', '');
+  if (selected === 'google' || selected === 'openai') {
+    status.mode = selected === 'google' ? 'google' : 'ai';
+  }
   if (status.mode === 'unknown') {
-    status.mode = ['openai', 'claude'].includes(RUSSIAN_PROVIDER) && IMPORT_PROVIDER_CONFIGURED ? 'ai' : 'google';
+    status.mode = ['openai', 'claude'].includes(getArticleTranslationProvider()) && isImportProviderConfigured() ? 'ai' : 'google';
   }
   res.json(status);
 });
@@ -2639,7 +2641,7 @@ app.get('/admin', (req, res) => {
     telegramChannelStatus: typeof req.query.telegramChannel === 'string' ? req.query.telegramChannel : '',
     personalTelegramDeliveryEnabled: isPersonalTelegramDeliveryEnabled(),
     telegramDeliveryStatus: typeof req.query.telegramDelivery === 'string' ? req.query.telegramDelivery : '',
-    importProviderConfigured: IMPORT_PROVIDER_CONFIGURED,
+    importProviderConfigured: isImportProviderConfigured(),
     importStatus: typeof req.query.import === 'string' ? req.query.import : '',
     rssStatus: typeof req.query.rss === 'string' ? req.query.rss : '',
     articleStatus: typeof req.query.article === 'string' ? req.query.article : '',
@@ -2657,7 +2659,19 @@ app.get('/admin', (req, res) => {
     rssImportedToday: countRssArticlesImportedOn(),
     rssAvailableNow: rssDailyAllowance(getRssDailyLimit()),
     rssLimitStatus: req.query.rssLimit === 'saved' ? 'saved' : req.query.rssLimit === 'invalid' ? 'invalid' : '',
+    translationProvider: getArticleTranslationProvider(),
+    translationProviderStatus: typeof req.query.translationProvider === 'string' ? req.query.translationProvider : '',
   }));
+});
+
+app.post('/admin/translation-provider', requireAdminOrigin, requireAdministrator, (req, res) => {
+  const provider = req.body.provider;
+  if (!['openai', 'google'].includes(provider)) {
+    return res.status(400).type('text').send('Некорректный режим перевода.');
+  }
+  setSystemSettings({ article_translation_provider: provider });
+  auditAdminAction(req, 'article.translation_provider.update', 'system', 'article_translation_provider', { provider });
+  return res.redirect(303, '/admin?tab=articles&translationProvider=saved');
 });
 
 app.post('/admin/rss-daily-limit', requireAdminOrigin, (req, res) => {
@@ -2981,7 +2995,7 @@ app.post('/admin/articles', requireAdminOrigin, (req, res) => {
 });
 
 app.post('/admin/import', requireAdminOrigin, async (req, res) => {
-  if (!IMPORT_PROVIDER_CONFIGURED) {
+  if (!isImportProviderConfigured()) {
     return res.status(503).type('text').send('Импорт недоступен: настройте провайдер пересказа.');
   }
   let originalUrl;

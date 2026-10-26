@@ -3,8 +3,10 @@
 // провайдера. По умолчанию — ИИ-пересказ через OpenAI (см. src/openAiRetell.js):
 // не дословный перевод, а самостоятельная переформулировка сути на русском.
 //
-// Провайдер переключается переменной RUSSIAN_PROVIDER в .env:
+// Администратор выбирает провайдера новых статей в админке. До первого выбора
+// действует переменная RUSSIAN_PROVIDER в .env:
 //   openai         — пересказ через OpenAI API
+//   google         — бесплатный дословный перевод через Google Translate
 //   claude         — пересказ через Claude API
 //   deepl          — дословный перевод через DeepL API
 //   libretranslate — дословный перевод через self-hosted LibreTranslate
@@ -30,6 +32,11 @@ let providerFailureNotifier = null;
 
 function setProviderFailureNotifier(notifier) {
   providerFailureNotifier = typeof notifier === 'function' ? notifier : null;
+}
+
+function getArticleTranslationProvider() {
+  const selected = getSystemSetting('article_translation_provider', '');
+  return ['openai', 'google'].includes(selected) ? selected : PROVIDER;
 }
 
 function deeplHost() {
@@ -111,8 +118,15 @@ function notifyFreeFallbackEnabled() {
 // getRussianVersion({ titleFi, summaryFi, sourceName }) -> { titleRu, summaryRu, method }
 async function getRussianVersion(article) {
   const { titleFi, summaryFi } = article;
+  const provider = getArticleTranslationProvider();
   try {
-    if (PROVIDER === 'openai') {
+    if (provider === 'google') {
+      return {
+        ...normalizeRussianArticle(await translateArticleWithGoogleFree(article)),
+        method: 'google-translate-free',
+      };
+    }
+    if (provider === 'openai') {
       const { titleRu, summaryRu } = await openAiRetellArticle(article);
       return {
         ...normalizeRussianArticle({ titleRu, summaryRu }),
@@ -120,21 +134,21 @@ async function getRussianVersion(article) {
         promptVersion: OPENAI_PROMPT_VERSION,
       };
     }
-    if (PROVIDER === 'claude') {
+    if (provider === 'claude') {
       const { titleRu, summaryRu } = await retellArticle(article);
       return { ...normalizeRussianArticle({ titleRu, summaryRu }), method: 'ai-retelling', promptVersion: PROMPT_VERSION };
     }
-    if (PROVIDER === 'deepl') {
+    if (provider === 'deepl') {
       const [titleRu, summaryRu] = await Promise.all([deeplTranslate(titleFi), deeplTranslate(summaryFi)]);
       return { ...normalizeRussianArticle({ titleRu, summaryRu }), method: 'deepl-literal' };
     }
-    if (PROVIDER === 'libretranslate') {
+    if (provider === 'libretranslate') {
       return { ...normalizeRussianArticle(await translateWithLibre(titleFi, summaryFi)), method: 'libretranslate-literal' };
     }
     // mock
     return { titleRu: `[RU] ${titleFi}`, summaryRu: `[RU] ${summaryFi}`, method: 'mock' };
   } catch (err) {
-    notifyProviderFailure(PROVIDER, err);
+    notifyProviderFailure(provider, err);
     if (FALLBACK_PROVIDER === 'libretranslate' && process.env.LIBRETRANSLATE_URL) {
       try {
         return await translateWithLibre(titleFi, summaryFi);
@@ -142,7 +156,7 @@ async function getRussianVersion(article) {
         console.error('[getRussianVersion] резервный LibreTranslate недоступен:', fallbackError.message);
       }
     }
-    if (canUseEmergencyFreeFallback(PROVIDER, err)) {
+    if (canUseEmergencyFreeFallback(provider, err)) {
       try {
         const translated = await translateArticleWithGoogleFree(article);
         notifyFreeFallbackEnabled();
@@ -156,4 +170,4 @@ async function getRussianVersion(article) {
   }
 }
 
-module.exports = { getRussianVersion, setProviderFailureNotifier };
+module.exports = { getArticleTranslationProvider, getRussianVersion, setProviderFailureNotifier };

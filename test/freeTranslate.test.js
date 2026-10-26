@@ -30,6 +30,21 @@ test('free translator sends a fixed Finnish to Russian request', async () => {
   assert.equal(requestedUrl.searchParams.get('tl'), 'ru');
 });
 
+test('free translator keeps long article text instead of truncating it', async () => {
+  const original = Array.from({ length: 900 }, (_, index) => `sana${index}`).join(' ');
+  const chunks = [];
+  const result = await googleTranslateFree(original, {
+    fetchImpl: async (url) => {
+      const chunk = new URL(url).searchParams.get('q');
+      chunks.push(chunk);
+      return { ok: true, json: async () => [[[chunk]]] };
+    },
+  });
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => chunk.length <= 4000));
+  assert.equal(result, original);
+});
+
 test('translates title and summary and marks emergency method', async () => {
   const translations = new Map([
     ['Otsikko', 'Заголовок'],
